@@ -6,6 +6,17 @@
   ones; resuming an already-running agent via SendMessage is not creation and stays allowed
 * In case of running tasks: ALWAYS run tasks with FULL QUALIFIED PATH
 
+## Skills
+
+* The following skills carry binding rules and MUST be loaded in the named situation:
+  * `testing` - before a test class is created or changed
+  * `project-docs` - after EVERY change, to check README, MkDocs, KDoc and CHANGELOG.md
+  * `ci-pipeline` - before a workflow file under `.github` is created or changed, and after
+en     structural project changes
+  * `release-prep` - before bumping a version for a release
+  * `java-tls-certificate` - when a JVM build fails with an SSLHandshakeException / PKIX path
+    building error
+
 ## Concurrency
 
 * Concurrent or long-running processes (e.g. `build`, `test`, `verifyPlugin`, `koverXmlReport`)

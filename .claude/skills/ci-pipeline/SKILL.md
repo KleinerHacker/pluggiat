@@ -12,10 +12,11 @@ description: Required structure of the GitHub Actions pipelines ci.yml and relea
 ## Pipeline
 
 * There MUST be a pipeline for the regular build in `ci.yml`
-    * It contains: [Build] Build -> Test -> Verify plugin, [Verify] Licences / Signature / Build and verify MkDocs
+    * It contains: [Build] Build -> Test, [Verify] Licences / Build and verify MkDocs
     * `Build` and `Verify` MUST be processed in parallel; everything within `Verify` MUST also run in parallel
+    * This project has no plugin marketplace or plugin-verification step - it is a plain library
 * There MUST be a pipeline for a tag based release named `release.yml`
-    * It contains: [Changelog] Verify against version -> ([Build] Build -> Test -> Verify plugin, [Verify] Verify licences / Create signature, [MkDocs] Build -> Deploy, [Release] Push artifacts / Deploy to marketplace -> Write release)
+    * It contains: [Changelog] Verify against version -> ([Build] Build -> Test, [Verify] Verify licences, [MkDocs] Build -> Deploy, [Release] Sign and push artifact -> Write release)
     * `Changelog` runs first
     * `Build`, `Verify`, `MkDocs` in parallel afterwards
         * `Verify` internally in parallel as well
