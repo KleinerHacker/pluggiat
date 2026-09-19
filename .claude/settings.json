@@ -1,0 +1,20 @@
+{
+  "theme": "dark",
+  "permissions": {
+    "deny": [
+      "Edit(.claude/settings.json)"
+    ],
+    "allow": [
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Bash(git status)",
+      "Bash(git log)",
+      "Bash(git add *)",
+      "Bash(git rm *)",
+      "Bash(git mv *)",
+      "Bash(gradlew *)",
+      "Bash(gradlew.bat *)"
+    ]
+  }
+}
