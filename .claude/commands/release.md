@@ -1,4 +1,4 @@
-Release preparation for ai-ghost.
+Release preparation for pluggiat.
 
 The argument `$ARGUMENTS` is the **target version** for this release (e.g. `0.5.0`). Its presence
 means the user is starting release preparation towards exactly that version - treat every following
