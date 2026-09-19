@@ -2,7 +2,7 @@
 
 ## 1. Ziel
 
-* Dynamisches Plugin-System nach Vorbild der IntelliJ Open Platform, abweichend im Detail
+* Dynamisches Plugin-System für JVM-Anwendungen
 * JAR/ZIP-basierte Plugins mit YAML-Manifest, Extension-Points und isolierten ClassLoadern
 * Konfigurierbares Sicherheitskonzept pro Plugin-Ort (Signatur, Checksum, unsicher)
 * Ladevorgang so gestaltet, dass der Host ihn selbst asynchron/nicht-blockierend betreiben kann

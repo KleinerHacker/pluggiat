@@ -2,7 +2,8 @@
 
 **pluggiat is a plugin manager system for the JVM, written in Kotlin.** It discovers, loads and
 manages plugins for a host application, so the host itself does not have to implement plugin
-discovery, isolation or lifecycle handling.
+discovery, isolation or lifecycle handling. It is designed to be embedded into any JVM
+application.
 
 ## AI transparency notice
 
@@ -14,6 +15,36 @@ discovery, isolation or lifecycle handling.
 
     This notice is published in the spirit of the transparency requirements of the European Union's
     Artificial Intelligence Act (Regulation (EU) 2024/1689).
+
+## Core concepts
+
+* **Plugin manifest** - every plugin ships a `META-INF/plugin.yml` (or `.yaml`) file describing
+  its identity, version, author and the extension points it contributes.
+* **Extension points** - plugins register implementations under a freely chosen key
+  (`extensions.<key>`). Each implementation is resolved, type-checked against an annotated
+  configuration class and instantiated as a factory/singleton.
+* **Plugin locations and load modes** - the host configures one or more locations to scan, each
+  with a load mode (`SINGLE_JAR`, `MULTI_JAR_WITH_OWN_FOLDER` or `ZIP_JAR`, the default) and a
+  builtin/external classification.
+* **Security concepts** - each location enforces `PLAIN` (no check), `MUST_SIGN` (signature
+  against a host-provided public key) or `CHECKSUM` (approval workflow for unknown or changed
+  plugins), with sensible defaults per location type.
+* **Isolation** - plugins run in their own parent-last classloaders and can only see the part of
+  the host's API that the host explicitly whitelists.
+* **Lifecycle** - plugins can be enabled, disabled or unloaded; an unhandled runtime error in a
+  plugin's extension deactivates only that plugin.
+
+## Who should read what
+
+This documentation is split by audience:
+
+* **Plugin development** - for authors writing a plugin that is loaded by a pluggiat-based host:
+  manifest format, extension points, plugin dependencies and lifecycle hooks.
+* **Host integration** - for developers embedding pluggiat into their own application: plugin
+  locations and load modes, security configuration, the SDK whitelist and plugin lifecycle
+  management from the host's perspective.
+* **Troubleshooting** - log level overview and explanations for the error and conflict cases the
+  framework can report.
 
 ## Where to go next
 

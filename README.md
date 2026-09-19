@@ -6,9 +6,25 @@ discovery, isolation or lifecycle handling.
 
 ## Features
 
-* Plugin discovery and loading _(planned)_
-* Isolated plugin classpaths _(planned)_
-* Plugin lifecycle management (register, start, stop, unregister) _(planned)_
+* YAML plugin manifest (`META-INF/plugin.yml`/`.yaml`) with a synchronized JSON Schema and Kotlin
+  data classes _(planned)_
+* Generic extension point mechanism: annotation-driven mapping of manifest entries onto typed,
+  instantiated factory/singleton implementations via a decorator pattern _(planned)_
+* Exclusive extension points with conflict detection between competing plugins _(planned)_
+* Plugin scanner with three load modes - `SINGLE_JAR`, `MULTI_JAR_WITH_OWN_FOLDER` and `ZIP_JAR`
+  (default) _(planned)_
+* Distinction between builtin and external plugin locations _(planned)_
+* Configurable per-location security concept - `PLAIN`, `MUST_SIGN` (signature via host-provided
+  public key) and `CHECKSUM` (approval workflow for unknown/changed checksums) _(planned)_
+* Isolated plugin classpaths via parent-last `URLClassLoader`s with a host-configured SDK
+  whitelist, preventing plugins from reflecting into host-internal code _(planned)_
+* Plugin dependency graph with required and optional dependencies between plugins _(planned)_
+* Plugin lifecycle hooks (`onLoad`/`onEnable`/`onDisable`/`onUnload`) and a persistent
+  enabled/disabled status _(planned)_
+* Runtime error isolation: an unhandled exception in a plugin's extension forces only that plugin
+  to be deactivated, not the whole host application _(planned)_
+* Cross-location plugin ID collision resolution and a `minVersion` compatibility check against the
+  host application _(planned)_
 
 ## AI transparency notice
 
@@ -47,8 +63,12 @@ dependencies {
 
 ## Implementation status
 
-| Feature                                          | State   |
-|---------------------------------------------------|---------|
-| Plugin discovery and loading                       | planned |
-| Isolated plugin classpaths                          | planned |
-| Plugin lifecycle management                         | planned |
+| Feature                                                          | State   |
+|-------------------------------------------------------------------|---------|
+| Plugin manifest (YAML, JSON Schema, data classes)                  | planned |
+| Extension point mechanism (annotation, decorator, exclusive slots) | planned |
+| Plugin scanner and load modes                                      | planned |
+| Security concepts (`PLAIN`/`MUST_SIGN`/`CHECKSUM`)                  | planned |
+| Isolated classpaths and dependency graph                           | planned |
+| Plugin lifecycle and runtime error isolation                       | planned |
+| Orchestration runtime (ID collisions, `minVersion` check)           | planned |
