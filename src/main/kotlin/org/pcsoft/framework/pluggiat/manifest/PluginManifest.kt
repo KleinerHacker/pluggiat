@@ -51,7 +51,22 @@ data class PluginDependency(
  */
 data class ExtensionEntry(
     val implementation: String,
-)
+) {
+    private val additionalPropertiesMap: MutableMap<String, Any?> = linkedMapOf()
+
+    @com.fasterxml.jackson.annotation.JsonAnySetter
+    private fun setAdditionalProperty(name: String, value: Any?) {
+        additionalPropertiesMap[name] = value
+    }
+
+    /**
+     * Extension-point-specific YAML fields of this entry, i.e. every field of this manifest entry
+     * except [implementation]. Consumed by the extension-point mapping to fill a host-defined
+     * [org.pcsoft.framework.pluggiat.extension.ExtensionConfiguration].
+     */
+    val additionalProperties: Map<String, Any?>
+        get() = additionalPropertiesMap
+}
 
 /**
  * The fully parsed and validated content of a plugin manifest (`META-INF/plugin.yml`/`plugin.yaml`).

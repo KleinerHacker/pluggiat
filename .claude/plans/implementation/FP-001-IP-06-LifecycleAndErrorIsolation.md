@@ -5,9 +5,10 @@ Voraussetzung: IP-02, IP-05.
 
 ## Aufgabe 1: Lifecycle-Hooks
 
-- [ ] Hook-Methoden `onLoad`/`onEnable`/`onDisable`/`onUnload` am Extension-Basis-Objekt definieren
-- [ ] Hooks optional überschreibbar gestalten, Default-Implementierung leer
+- [ ] Interface `PluginLifecycle` mit Hook-Methoden `onLoad`/`onEnable`/`onDisable`/`onUnload` definieren, optional von beliebigen Klassen implementierbar
+- [ ] Hooks mit Default-Implementierung leer gestalten (Interface-Default-Methoden)
 - [ ] Aufrufreihenfolge `onLoad` vor `onEnable`, `onDisable` vor `onUnload` festlegen
+- [ ] Einschränkung dokumentieren: implementieren mehrere Klassen eines Plugins `PluginLifecycle`, ist deren Aufrufreihenfolge untereinander NICHT deterministisch
 
 ## Aufgabe 2: Enabled/Disabled-Status
 

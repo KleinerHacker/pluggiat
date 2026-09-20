@@ -35,12 +35,14 @@ val junitVersion = "6.1.3"
 val jacksonVersion = "2.22.2"
 val jsonSchemaValidatorVersion = "1.5.6"
 val mavenArtifactVersion = "3.9.16"
+val slf4jVersion = "2.0.17"
 
 dependencies {
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jacksonVersion}")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:${jacksonVersion}")
     implementation("com.networknt:json-schema-validator:${jsonSchemaValidatorVersion}")
     implementation("org.apache.maven:maven-artifact:${mavenArtifactVersion}")
+    implementation("org.slf4j:slf4j-api:${slf4jVersion}")
 
     testImplementation(kotlin("reflect"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
@@ -48,6 +50,7 @@ dependencies {
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:${junitVersion}")
     // Since JUnit 6 the platform launcher is no longer contributed automatically.
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("org.slf4j:slf4j-simple:${slf4jVersion}")
 }
 
 kotlin {
@@ -73,6 +76,7 @@ licenseReport {
 licensee {
     allow("Apache-2.0")
     allow("MIT")
+    allowUrl("https://opensource.org/license/mit")
 }
 
 // Published so the artifact from `git tag` builds can be pushed to GitHub Packages by release.yml.

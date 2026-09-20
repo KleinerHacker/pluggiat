@@ -59,5 +59,8 @@ nav:
   - Home: index.md
   - Plugin development:
       - Manifest: plugin-development/manifest.md
+      - Extension points: plugin-development/extension-points.md
+  - Host integration:
+      - Defining extension points: host-integration/extension-points.md
   - API Docs: dokka/html/index.html
   - Licences: licences/index.html

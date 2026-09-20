@@ -5,7 +5,7 @@ Voraussetzung: IP-04, IP-06.
 
 ## Aufgabe 1: Öffentliche API
 
-- [ ] Einstiegspunkt zum Start des Gesamtsystems mit Liste von `PluginLocation` definieren
+- [ ] Einstiegspunkt zum Start des Gesamtsystems mit Liste von `PluginLocation` sowie der Host-Extension-Point-Registry (Liste von `ExtensionConfiguration`-Klassen aus IP-02) definieren
 - [ ] Funktion für gezielten Reload eines einzelnen Plugins bereitstellen
 - [ ] Alle Einstiegspunkte als normale, synchron aufrufbare Funktionen gestalten
 

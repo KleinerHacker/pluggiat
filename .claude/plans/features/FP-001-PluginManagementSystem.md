@@ -20,7 +20,7 @@
 
 * Plugins liegen als JAR/ZIP an konfigurierbaren Orten und werden zur Laufzeit gescannt
 * Jedes Plugin besitzt ein Manifest `META-INF/plugin.yml` bzw. `plugin.yaml`, validiert gegen ein synchronisiertes JSON-Schema und gemappt auf synchronisierte Data Classes; Schema und Data Classes werden manuell parallel gepflegt
-* Extension-Points werden generisch über `extensions.<key>[]` deklariert und per Decorator-Pattern auf konkrete, annotierte Implementierungsklassen (Factory/Singleton) gemappt
+* Extension-Points werden generisch über `extensions.<key>[]` deklariert; der Host definiert jeden Extension-Point über eine `@ExtensionPoint`-annotierte Konfigurationsklasse (Key, `exclusive`-Flag), die `ExtensionConfiguration<T>` implementiert, registriert diese beim Framework, und ein Decorator mappt die YAML-Rohdaten inkl. instanziierter Implementierung (Factory/Singleton) darauf; Plugin-Entwickler kennen dabei ausschließlich das Host-Plugin-API-Interface `T`, keine Framework-Annotation
 * Scanner unterstützt drei Lademodi (`SINGLE_JAR`, `MULTI_JAR_WITH_OWN_FOLDER`, `ZIP_JAR`, Default `ZIP_JAR`) und liefert gültige sowie ungültige Plugins mit Fehlermeldungen zurück
 * Jeder Plugin-Ort ist als `BUILTIN` oder extern klassifiziert und besitzt ein Sicherheitskonzept in Form einer geordneten, frei erweiterbaren Fallback-Kette von `PluginSecurityStrategy`-Strategien (kein Enum), mit ortsbezogenem Override der gesamten Kette; mitgelieferte Strategien: kein Check (ehemals `PLAIN`), Signatur (ehemals `MUST_SIGN`), Checksum (ehemals `CHECKSUM`)
 * Die Signatur-Strategie bezieht den zu prüfenden Public Key über eine eigene, austauschbare `PublicKeyProviderStrategy`: Truststore (Java `KeyStore`), direkter `java.security.PublicKey`, Online-Plattform OpenPGP (RFC 9580, z. B. `keys.openpgp.org`)
@@ -42,8 +42,8 @@
 * `license`: freier String, optional gegen SPDX-Identifier-Liste abgeglichen
 * `version` und `minVersion`: Maven-Versionsschema, vergleichbar
 * `extensions.<key>[]`: Liste von Objekten mit Pflichtfeld `implementation` (FQCN), konkrete Zusatzfelder je nach Extension-Point
-* Extension-Implementierungsklasse trägt eine Annotation, die auf die zugehörige Konfigurations-Data-Class verweist
-* Decorator mappt das Extension-Objekt vollständig, `implementation` liegt danach als instanziierte Factory/Singleton-Instanz vor
+* Konfigurationsklasse eines Extension-Points implementiert `ExtensionConfiguration<T>` (Pflichtfeld `implementation: KClass<out T>`) und trägt eine `@ExtensionPoint(key, exclusive)`-Annotation; der Host registriert seine Konfigurationsklassen beim Framework, die Plugin-Implementierungsklasse selbst trägt keine Annotation
+* Decorator mappt das Extension-Objekt vollständig über die Registry, `implementation` liegt danach als instanziierte Factory/Singleton-Instanz vor
 * Plugin-Abhängigkeiten im Manifest, je Abhängigkeit `required` oder `optional`
 * Scanner erhält beim Start mehrere Plugin-Orte, je Ort: Lademodus, Builtin/Extern-Flag, optionales Sicherheits-Override (geordnete Strategie-Kette)
 * Scanner-Ergebnis enthält gültige und ungültige Plugins (mit Fehlermeldungen) sowie Plugins im Status `PENDING_APPROVAL`
@@ -86,7 +86,7 @@
 
 * Komponenten:
   * **Manifest-Modul**: YAML-Parsing, JSON-Schema, Data Classes, Validierung (inkl. `$version`, Icon-Erkennung, SPDX-Abgleich)
-  * **Extension-Modul**: Basis-Extension-Objekt, Annotation zur Zuordnung Implementierung ↔ Konfigurationsklasse (inkl. `exclusive`-Flag), Decorator-Mapping, Listenaufbau pro Key
+  * **Extension-Modul**: `ExtensionConfiguration<T>`-Interface, `@ExtensionPoint(key, exclusive)`-Annotation an Host-Konfigurationsklassen, Host-Registry für Konfigurationsklassen, Decorator-Mapping, Listenaufbau pro Key
   * **Scanner-Modul**: Orte-Konfiguration (Lademodus, Builtin/Extern, Security-Override), Scan-Strategien je Lademodus, Ergebnis-Modell (gültig/ungültig/pending), temporäres Entpack-Verzeichnis mit `deleteOnExit`
   * **Security-Modul**: `PluginSecurityStrategy`-Interface, Fallback-Ketten-Auswertung, mitgelieferte Strategien (kein Check, Signatur, Checksum), Pending-/Freigabe-Mechanismus
   * **Public-Key-Provider-Modul**: `PublicKeyProviderStrategy`-Interface, mitgelieferte Implementierungen (Truststore, direkter Key, OpenPGP-Keyserver nach RFC 9580), Einbindung in die Signatur-Strategie
@@ -114,7 +114,7 @@
 | ID    | Implementierungsplan                          | Ziel                                                                 | Abhängigkeiten |
 |-------|------------------------------------------------|-----------------------------------------------------------------------|----------------|
 | IP-01 | Manifest-Schema & Data Classes (COMPLETED)     | YAML/JSON-Schema/Data-Class-Synchronisation, Validierung, Icon/SPDX   | -              |
-| IP-02 | Extension-Point-Mechanismus                    | Basis-Extension-Objekt, Annotation, Decorator-Mapping, Listenaufbau, Exklusivitäts-Konflikt | IP-01          |
+| IP-02 | Extension-Point-Mechanismus (COMPLETED)        | Host-Registry, `@ExtensionPoint`-Annotation, Decorator-Mapping, Listenaufbau, Exklusivitäts-Konflikt | IP-01          |
 | IP-03 | Plugin-Scanner & Lademodi                      | Scan-Strategien SINGLE_JAR/MULTI_JAR_WITH_OWN_FOLDER/ZIP_JAR, Temp-Entpacken | IP-01          |
 | IP-04 | Sicherheitskonzept (Strategy-Kette)             | `PluginSecurityStrategy`-Interface, Fallback-Kette, mitgelieferte Basis-Strategien, Pending-/Freigabe-Mechanismus | IP-03          |
 | IP-05 | ClassLoader-Isolation & Abhängigkeitsgraph      | Parent-Last-Isolation, host-konfigurierte SDK-Whitelist, Plugin-Abhängigkeitsgraph | IP-01, IP-03   |
@@ -155,7 +155,7 @@ JSON-Schema und Data Classes werden manuell parallel gepflegt (keine Codegenerie
 
 `documentationUrl`/`sourceCodeUrl` wurden zu `links.documentation`/`links.sourceCode` gruppiert, `copyright`/`license` zu `legal.copyright`/`legal.license`. `$version` ist rein intern (Migrationszwecke) und auf `PluginManifest` bewusst nicht exponiert. YAML-Parsing über Jackson (`jackson-dataformat-yaml`/`jackson-module-kotlin`), Schema-Validierung über `com.networknt:json-schema-validator`. Icon-Erkennung nutzt `ImageIO` für alle dort registrierten Rasterformate statt einzeln implementierter Magic-Byte-Prüfungen je Format, SVG wird separat per XML-Sniffing erkannt. Der Maven-Versionsvergleich wurde nicht selbst implementiert, sondern über die Dependency `org.apache.maven:maven-artifact` (`ComparableVersion`) bezogen. Sämtliche reinen Implementierungsdetails (`ManifestParser`, `ManifestValidationException`, `IconDetector`, `IconFormatException`, `SpdxLicenses`) sind `internal`; nur das Manifest-Datenmodell (`PluginManifest`, `Author`, `Links`, `Legal`, `PluginDependency`, `ExtensionEntry`) ist `public`.
 
-### IP-02: Extension-Point-Mechanismus
+### IP-02: Extension-Point-Mechanismus (COMPLETED)
 
 **Ziel**
 
@@ -163,7 +163,7 @@ Ermöglicht die generische Deklaration von Extension-Points in `extensions.<key>
 
 **Umfang**
 
-Enthält: Basis-Extension-Objekt (`implementation`-Feld), Annotation an Implementierungsklassen zur Verknüpfung mit Konfigurations-Data-Class inkl. optionalem `exclusive`-Flag, Decorator-Mapping (Rohdaten → typisiertes Objekt inkl. instanziierter `implementation`), Listenaufbau für mehrere Plugins mit gleichem, nicht-exklusivem Key, Konflikterkennung und -behandlung bei exklusiven Keys, Definition einer `ExtensionClassResolver`-Schnittstelle (löst einen FQCN zu einer `Class`-Instanz auf) samt einfacher Standardimplementierung auf Basis des aufrufenden ClassLoaders.
+Enthält: `ExtensionConfiguration<T>`-Interface (Pflichtfeld `implementation: KClass<out T>`), `@ExtensionPoint(key, exclusive)`-Annotation an Host-Konfigurationsklassen (nicht an Plugin-Implementierungsklassen), Host-Registry für Konfigurationsklassen, Decorator-Mapping (Rohdaten → typisiertes Objekt inkl. instanziierter `implementation`), Listenaufbau für mehrere Plugins mit gleichem, nicht-exklusivem Key, Konflikterkennung und -behandlung bei exklusiven Keys, Definition einer `ExtensionClassResolver`-Schnittstelle (löst einen FQCN zu einer `Class`-Instanz auf) samt einfacher Standardimplementierung auf Basis des aufrufenden ClassLoaders.
 Enthält nicht: die spätere isolierte Implementierung des `ExtensionClassResolver` auf Basis eigener Plugin-ClassLoader (IP-05 ersetzt nur die Implementierung hinter der in IP-02 definierten Schnittstelle, nicht die Schnittstelle selbst).
 
 **Betroffene Bereiche**
@@ -176,12 +176,17 @@ IP-01 (Manifest-Daten als Eingabe).
 
 **Erwartetes Ergebnis**
 
-Ein `extensions`-Eintrag wird anhand der annotierten Implementierungsklasse auf die passende Konfigurationsklasse gemappt, `implementation` liegt als instanziiertes Singleton vor. Bei nicht-exklusiven Keys werden alle Einträge mehrerer Plugins zu einer Liste zusammengeführt. Befüllen zwei Plugins denselben `exclusive`-Key, werden beide Plugins vollständig nicht geladen.
+Ein `extensions`-Eintrag wird anhand der über die Registry ermittelten, `@ExtensionPoint`-annotierten Konfigurationsklasse gemappt, die Plugin-Implementierungsklasse liegt als instanziiertes Singleton vor. Bei nicht-exklusiven Keys werden alle Einträge mehrerer Plugins zu einer Liste zusammengeführt. Befüllen zwei Plugins denselben `exclusive`-Key, werden beide Plugins vollständig nicht geladen.
 
 **Technische Hinweise**
 
 Bei nicht-exklusiven Extension-Points ist kein Merge im engeren Sinne und keine Prioritäts-/Reihenfolgeregel nötig — alle Einträge stehen gleichberechtigt nebeneinander in der Liste.
-Für Extension-Points, bei denen nur ein aktiver Eintrag sinnvoll ist (exklusiver Slot statt Liste), ist das Flag an der Annotation (`exclusive = true`) vorzusehen. Befüllen zwei voneinander unabhängige Plugins zur Laufzeit denselben exklusiven Key, ist das kein Fehler im Extension-Point-Schema des Host-Entwicklers, sondern ein unauflösbarer Konflikt der konkret installierten Plugin-Kombination: Aus Sicherheits- und Stabilitätsgründen werden dabei **beide gesamten Plugins** (nicht nur die einzelne Extension-Registrierung) nicht geladen, es wird eine Log-Warnung mit beiden Plugin-IDs und dem betroffenen Key ausgegeben (analog zur Behandlung der ID-Kollision zwischen Orten).
+Für Extension-Points, bei denen nur ein aktiver Eintrag sinnvoll ist (exklusiver Slot statt Liste), ist das Flag an der `@ExtensionPoint`-Annotation der Host-Konfigurationsklasse (`exclusive = true`) vorzusehen. Befüllen zwei voneinander unabhängige Plugins zur Laufzeit denselben exklusiven Key, ist das kein Fehler im Extension-Point-Schema des Host-Entwicklers, sondern ein unauflösbarer Konflikt der konkret installierten Plugin-Kombination: Aus Sicherheits- und Stabilitätsgründen werden dabei **beide gesamten Plugins** (nicht nur die einzelne Extension-Registrierung) nicht geladen, es wird eine Log-Warnung mit beiden Plugin-IDs und dem betroffenen Key ausgegeben (analog zur Behandlung der ID-Kollision zwischen Orten).
+Die Plugin-Implementierungsklasse selbst trägt keinerlei Framework-Annotation oder -Marker-Interface; sie implementiert ausschließlich das vom Host definierte Plugin-API-Interface `T`.
+
+**Tatsächliche Umsetzung (Abweichungen vom ursprünglichen Plan)**
+
+Kein Marker-Interface für Plugin-Implementierungsklassen (im Dialog verworfen); die spätere Idee eines Lifecycle-Basis-Objekts wurde stattdessen als eigenständiges, optionales `PluginLifecycle`-Interface nach IP-06 verschoben. Die `@ExtensionPoint`-Annotation sitzt bewusst an der Host-Konfigurationsklasse (`key`, `exclusive`), nicht an der Plugin-Implementierung, damit Plugin-Entwickler ausschließlich das Host-Plugin-API-Interface kennen müssen. `ExtensionEntry` (IP-01) wurde um ein per `@JsonAnySetter` erfasstes `additionalProperties: Map<String, Any?>` erweitert, damit der Decorator Zugriff auf die extension-point-spezifischen Zusatzfelder hat, ohne das JSON-Schema zu ändern (dessen `extensionEntry`-Definition zusätzliche Felder bereits zuließ). Neue Klassen: `ExtensionConfiguration<T>`, `@ExtensionPoint`, `ExtensionPointRegistry` (Registrierung + Validierung), `ExtensionClassResolver`/`DefaultExtensionClassResolver`, `ExtensionDecorator` (internal), `ExtensionAggregator` mit Ergebnis `ExtensionAggregationResult` (`pluginResults`: ID/`Path`/`PluginExtensionStatus`, `extensionsByKey`). Konfigurationsklassen-Instanziierung erfolgt über Kotlin-Reflection (`primaryConstructor.callBy`) statt vollständigem Jackson-Tree-Mapping, da `implementation: KClass<out T>` kein direkt deserialisierbarer JSON-Typ ist. Logging über neu eingeführtes SLF4J (`slf4j-api`, Testlaufzeit `slf4j-simple`); dafür wurde `licensee` um `allowUrl("https://opensource.org/license/mit")` ergänzt, da slf4j-api seine Lizenz über eine URL statt einer SPDX-ID deklariert.
 
 ### IP-03: Plugin-Scanner & Lademodi
 
@@ -275,12 +280,12 @@ Verwaltet den Lebenszyklus jedes Plugins (Laden, Aktivieren, Deaktivieren, Entla
 
 **Umfang**
 
-Enthält: Lifecycle-Hooks `onLoad`/`onEnable`/`onDisable`/`onUnload` an der Extension-Implementierung (optional überschreibbar), persistenter Enabled/Disabled-Status je Plugin-ID über einen Lese-/Schreib-Callback des Framework-Nutzers, Abfangen unbehandelter Exceptions aus Extension-Aufrufen zur Laufzeit mit anschließender dauerhafter Zwangsdeaktivierung genau des betroffenen Plugins.
+Enthält: optionales `PluginLifecycle`-Interface mit Hook-Methoden `onLoad`/`onEnable`/`onDisable`/`onUnload` (frei von beliebigen Klassen implementierbar, Aufrufreihenfolge über mehrere Implementierungen NICHT deterministisch), persistenter Enabled/Disabled-Status je Plugin-ID über einen Lese-/Schreib-Callback des Framework-Nutzers, Abfangen unbehandelter Exceptions aus Extension-Aufrufen zur Laufzeit mit anschließender dauerhafter Zwangsdeaktivierung genau des betroffenen Plugins.
 Enthält nicht: Instanziierung der Extension-Implementierung selbst (IP-02), ClassLoader-Erzeugung/-Schließung (IP-05).
 
 **Betroffene Bereiche**
 
-Neues Lifecycle-Modul, Erweiterung des Extension-Basis-Objekts um Hook-Methoden, Fehlerbehandlung rund um Extension-Aufrufe.
+Neues Lifecycle-Modul mit dem `PluginLifecycle`-Interface, Fehlerbehandlung rund um Extension-Aufrufe.
 
 **Abhängigkeiten**
 
@@ -352,7 +357,7 @@ Für den OpenPGP-Provider ist vor Beginn der Detailplanung zu klären, welche Bi
 
 ```text
 IP-01 (COMPLETED)
-├── IP-02
+├── IP-02 (COMPLETED)
 │   └── IP-06
 │       └── IP-07
 ├── IP-03
