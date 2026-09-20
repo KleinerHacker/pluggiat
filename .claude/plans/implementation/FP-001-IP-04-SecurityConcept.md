@@ -1,58 +1,76 @@
-# Implementierungsplan: Sicherheitskonzept
+# Implementierungsplan: Sicherheitskonzept (Strategy-Kette)
 
 Zugehörig zu Feature Plan FP-001 (`.claude/plans/features/FP-001-PluginManagementSystem.md`), Plan IP-04.
 Voraussetzung: IP-03.
 
-## Aufgabe 1: Sicherheitsstufen-Modell
+## Aufgabe 1: Strategy-Interface und Ketten-Modell
 
-- [ ] Enum `SecurityLevel` mit `PLAIN`, `MUST_SIGN`, `CHECKSUM` anlegen
-- [ ] Default-Zuordnung `MUST_SIGN` für Builtin-Orte festlegen
-- [ ] Default-Zuordnung `CHECKSUM` für externe Orte festlegen
-- [ ] Ortsbezogenes Override auswerten, hat Vorrang vor Default
+- [ ] Interface `PluginSecurityStrategy` mit Prüf-Operation je Plugin-Kandidat anlegen
+- [ ] Ergebnis-Typ mit Zuständen Erfolg / Fehlschlag / `PENDING_APPROVAL` definieren
+- [ ] Plugin-Ort erhält geordnete, nicht-leere Liste von `PluginSecurityStrategy` (statt Enum)
+- [ ] Default-Ketten für `BUILTIN`- und externe Orte festlegen
+- [ ] Ortsbezogenes Override der gesamten Kette auswerten, hat Vorrang vor Default
 
-## Aufgabe 2: Public-Key-Callback und Signaturprüfung
+## Aufgabe 2: Ketten-Auswertungslogik
 
-- [ ] Callback-Interface für Public-Key-Bereitstellung definieren
+- [ ] Kette in konfigurierter Reihenfolge prüfen, erster Erfolg beendet Prüfung positiv
+- [ ] Gesamtfehlschlag nur melden, wenn ALLE Strategien der Kette fehlgeschlagen sind
+- [ ] Verrechnung von `PENDING_APPROVAL` innerhalb der Kette festlegen und umsetzen
+
+## Aufgabe 3: Strategie "kein Check"
+
+- [ ] `PluginSecurityStrategy`-Implementierung ohne Prüfung (ehemals `PLAIN`) anlegen, Plugin wird durchgereicht
+
+## Aufgabe 4: Signatur-Strategie
+
+- [ ] `PluginSecurityStrategy`-Implementierung für Signaturprüfung (ehemals `MUST_SIGN`) anlegen
+- [ ] Injektionspunkt für `PublicKeyProviderStrategy` (Konstruktor-/Konfigurationsparameter) vorsehen, Schnittstelle aus IP-08
 - [ ] Signaturprüfung für `SINGLE_JAR` (ganze JAR) implementieren
 - [ ] Signaturprüfung für `ZIP_JAR` (ganzes ZIP) implementieren
 - [ ] Signaturprüfung für `MULTI_JAR_WITH_OWN_FOLDER` (Manifest-JAR) implementieren
 - [ ] Checksummenliste der übrigen JARs im Manifest-JAR verifizieren
 
-## Aufgabe 3: Checksum-Callback und Prüfung
+## Aufgabe 5: Checksum-Strategie
 
+- [ ] `PluginSecurityStrategy`-Implementierung für Checksum-Prüfung (ehemals `CHECKSUM`) anlegen
 - [ ] Callback-Interface für Soll-Checksum-Abfrage definieren
 - [ ] Ist-Checksum je Plugin-Kandidat berechnen
 - [ ] Callback liefert `NULL`: Status `PENDING_APPROVAL` setzen
 - [ ] Ist- und Soll-Checksum weichen ab: Status `PENDING_APPROVAL` setzen
-- [ ] Ist- und Soll-Checksum stimmen überein: Plugin als sicherheitsgeprüft markieren
+- [ ] Ist- und Soll-Checksum stimmen überein: Strategie als erfolgreich markieren
 
-## Aufgabe 4: Freigabe-Mechanismus
+## Aufgabe 6: Freigabe-Mechanismus
 
 - [ ] Callback-Interface zum Persistieren einer akzeptierten Checksum definieren
 - [ ] Funktion zum gezielten Auslösen eines Reloads nach Freigabe bereitstellen
 - [ ] Sicherstellen, dass Freigabe-Callback nicht blockierend im Scan-Pfad hängt
 
-## Aufgabe 5: Logging
+## Aufgabe 7: Logging
 
-- [ ] WARN-Log bei fehlgeschlagener Signaturprüfung
+- [ ] WARN-Log bei fehlgeschlagener Einzelstrategie
+- [ ] WARN-Log bei Gesamtfehlschlag der Kette (alle Strategien fehlgeschlagen)
 - [ ] WARN-Log bei Status `PENDING_APPROVAL`
 
-## Aufgabe 6: Tests
+## Aufgabe 8: Tests
 
-- [ ] Test `PLAIN`: kein Check, Plugin wird durchgereicht
-- [ ] Test `MUST_SIGN`: gültige und ungültige Signatur je Lademodus
-- [ ] Test `CHECKSUM`: Callback liefert `NULL`, Abweichung, Übereinstimmung
-- [ ] Test: Override überschreibt Default-Sicherheitsstufe
+- [ ] Test "kein Check": keine Prüfung, Plugin wird durchgereicht
+- [ ] Test Signatur-Strategie: gültige und ungültige Signatur je Lademodus
+- [ ] Test Checksum-Strategie: Callback liefert `NULL`, Abweichung, Übereinstimmung
+- [ ] Test: Override überschreibt Default-Strategie-Kette
+- [ ] Test: Fallback-Kette mit mehreren Strategien — erste erfolgreiche Strategie beendet Prüfung positiv
+- [ ] Test: Fallback-Kette meldet Sicherheitsproblem erst, wenn ALLE Strategien fehlgeschlagen sind
+- [ ] Test: eigene, framework-fremde `PluginSecurityStrategy`-Implementierung lässt sich in die Kette einhängen
 
-## Aufgabe 7: Dokumentation
+## Aufgabe 9: Dokumentation
 
 - [ ] Seite `docs/docs/host-integration/security.md` erstellen
-- [ ] Sicherheitsstufen `PLAIN`/`MUST_SIGN`/`CHECKSUM` mit Default-Zuordnung erläutern
-- [ ] Beispiel für Public-Key-Callback und Signaturprüfung je Lademodus ergänzen
+- [ ] `PluginSecurityStrategy`-Interface, Fallback-Kette und mitgelieferte Strategien erläutern
+- [ ] Beispiel für eigene Strategie-Implementierung ergänzen
 - [ ] Beispiel für Checksum-Callback und Pending-Approval-Ablauf ergänzen
 - [ ] `docs/mkdocs.yml`-Navigation um die Seite ergänzen
 
 ## Endzustand
 
 - [ ] Jedes gescannte Plugin ist eindeutig als ladbar, ungültig oder `PENDING_APPROVAL` klassifiziert
+- [ ] Ein Sicherheitsproblem wird erst gemeldet, wenn alle konfigurierten Strategien der Kette fehlgeschlagen sind
 - [ ] Eine spätere Freigabe kann gezielt einen Reload auslösen

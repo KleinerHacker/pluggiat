@@ -4,10 +4,11 @@
 - IP-01 Manifest-Schema & Data Classes: `FP-001-IP-01-ManifestSchemaAndDataClasses.md`
 - IP-02 Extension-Point-Mechanismus: `FP-001-IP-02-ExtensionPointMechanism.md`
 - IP-03 Plugin-Scanner & Lademodi: `FP-001-IP-03-PluginScannerAndLoadModes.md`
-- IP-04 Sicherheitskonzept: `FP-001-IP-04-SecurityConcept.md`
+- IP-04 Sicherheitskonzept (Strategy-Kette): `FP-001-IP-04-SecurityConcept.md`
 - IP-05 ClassLoader-Isolation & Abhängigkeitsgraph: `FP-001-IP-05-ClassLoaderIsolationAndDependencyGraph.md`
 - IP-06 Lifecycle & Fehlerisolation: `FP-001-IP-06-LifecycleAndErrorIsolation.md`
 - IP-07 Orchestrierung & Laufzeit-Runtime: `FP-001-IP-07-OrchestrationAndRuntime.md`
+- IP-08 Public-Key-Provider-Strategien: `FP-001-IP-08-PublicKeyProviderStrategies.md`
 
 ## Reihenfolge und Voraussetzungen
 
@@ -18,3 +19,4 @@
 5. IP-05 — nach IP-01 und IP-03, parallel zu IP-04 möglich
 6. IP-06 — nach IP-02 und IP-05
 7. IP-07 — nach IP-04 und IP-06
+8. IP-08 — nach IP-04, parallel zu IP-05/IP-06/IP-07 möglich

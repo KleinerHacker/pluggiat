@@ -22,7 +22,8 @@
 * Jedes Plugin besitzt ein Manifest `META-INF/plugin.yml` bzw. `plugin.yaml`, validiert gegen ein synchronisiertes JSON-Schema und gemappt auf synchronisierte Data Classes; Schema und Data Classes werden manuell parallel gepflegt
 * Extension-Points werden generisch über `extensions.<key>[]` deklariert und per Decorator-Pattern auf konkrete, annotierte Implementierungsklassen (Factory/Singleton) gemappt
 * Scanner unterstützt drei Lademodi (`SINGLE_JAR`, `MULTI_JAR_WITH_OWN_FOLDER`, `ZIP_JAR`, Default `ZIP_JAR`) und liefert gültige sowie ungültige Plugins mit Fehlermeldungen zurück
-* Jeder Plugin-Ort ist als `BUILTIN` oder extern klassifiziert und besitzt ein Sicherheitskonzept (`PLAIN`, `MUST_SIGN`, `CHECKSUM`) mit ortsbezogenem Override
+* Jeder Plugin-Ort ist als `BUILTIN` oder extern klassifiziert und besitzt ein Sicherheitskonzept in Form einer geordneten, frei erweiterbaren Fallback-Kette von `PluginSecurityStrategy`-Strategien (kein Enum), mit ortsbezogenem Override der gesamten Kette; mitgelieferte Strategien: kein Check (ehemals `PLAIN`), Signatur (ehemals `MUST_SIGN`), Checksum (ehemals `CHECKSUM`)
+* Die Signatur-Strategie bezieht den zu prüfenden Public Key über eine eigene, austauschbare `PublicKeyProviderStrategy`: Truststore (Java `KeyStore`), direkter `java.security.PublicKey`, Online-Plattform OpenPGP (RFC 9580, z. B. `keys.openpgp.org`)
 * Plugins werden über isolierte `URLClassLoader` geladen, die den Zugriff auf den Code der Host-Anwendung per Reflection unterbinden, aber gezielt eine vom Host konfigurierte SDK-Whitelist freigeben
 * Plugin-Abhängigkeiten (`required`/`optional`) bilden einen ClassLoader-Abhängigkeitsgraphen zur gezielten Klassensichtbarkeit zwischen Plugins
 * ID-Kollisionen zwischen Orten werden über Versionsvergleich (Maven-Schema) und nachgelagerte Checksum-Prüfung aufgelöst
@@ -44,7 +45,7 @@
 * Extension-Implementierungsklasse trägt eine Annotation, die auf die zugehörige Konfigurations-Data-Class verweist
 * Decorator mappt das Extension-Objekt vollständig, `implementation` liegt danach als instanziierte Factory/Singleton-Instanz vor
 * Plugin-Abhängigkeiten im Manifest, je Abhängigkeit `required` oder `optional`
-* Scanner erhält beim Start mehrere Plugin-Orte, je Ort: Lademodus, Builtin/Extern-Flag, optionales Sicherheits-Override
+* Scanner erhält beim Start mehrere Plugin-Orte, je Ort: Lademodus, Builtin/Extern-Flag, optionales Sicherheits-Override (geordnete Strategie-Kette)
 * Scanner-Ergebnis enthält gültige und ungültige Plugins (mit Fehlermeldungen) sowie Plugins im Status `PENDING_APPROVAL`
 * Extension-Points ohne `exclusive`-Flag: mehrere Einträge gleichen Keys aus verschiedenen Plugins werden einfach zu einer Liste zusammengefügt, es ist kein Merge im engeren Sinne und keine Prioritäts-/Reihenfolgeregel erforderlich
 * Extension-Points mit `exclusive`-Flag: Befüllen zwei Plugins denselben Key, werden **beide Plugins vollständig** nicht geladen, mit Log-Warnung inkl. beider Plugin-IDs und Key (aus Sicherheits-/Stabilitätsgründen wird nicht nur die einzelne Extension-Registrierung verworfen)
@@ -61,11 +62,17 @@
 * Plugin-Laden über `URLClassLoader`, ein Loader je Plugin-Einheit gemäß Lademodus
 * ClassLoader-Isolation: Parent-Last-Strategie gegenüber der Host-Anwendung mit gezielt freigegebener SDK-Schicht; die SDK-Whitelist (freizugebende Pakete/Interfaces) wird dem Framework vom Host als Konfiguration übergeben, nicht vom Framework selbst vorgegeben
 * ClassLoader-Abhängigkeitsgraph zwischen Plugin-ClassLoadern, Zyklenerkennung, Ladereihenfolge nach Abhängigkeiten
-* Signaturprüfung (`MUST_SIGN`) über Public Key, bereitgestellt durch Callback des Framework-Nutzers
+* Sicherheitskonzept als Strategy-Pattern: `PluginSecurityStrategy`-Interface, ausschließlich über neue Implementierungen erweiterbar, kein Enum; ein Plugin-Ort konfiguriert eine geordnete, nicht-leere Liste dieser Strategien als Fallback-Kette
+* Die Kette wird strikt in Konfigurationsreihenfolge geprüft: die erste erfolgreich bestandene Strategie beendet die Prüfung positiv; ein Sicherheitsproblem wird erst gemeldet, wenn ALLE Strategien der Kette fehlgeschlagen sind
+* Signatur-Strategie (ehemals `MUST_SIGN`) prüft je Lademodus:
   * `SINGLE_JAR`: klassische JAR-Signatur der einen JAR
   * `MULTI_JAR_WITH_OWN_FOLDER`: Signatur des Manifest-JARs, das zusätzlich eine Checksummenliste aller übrigen JARs im Ordner als signierte Nutzdaten enthält
   * `ZIP_JAR`: Signatur des gesamten ZIP
-* Checksum-Prüfung (`CHECKSUM`) über Soll-Checksum-Callback (kann `NULL` liefern); Erstfreigabe bzw. Checksum-Änderung führt zu Status `PENDING_APPROVAL`, kein blockierender Callback im Scan-Pfad
+* Die Signatur-Strategie bezieht den zu prüfenden Public Key nicht mehr über ein einzelnes Callback, sondern über eine eigene, austauschbare `PublicKeyProviderStrategy` (Dependency Injection), mit drei mitgelieferten Implementierungen:
+  * Truststore-Provider: Public Key aus einem Java `KeyStore` (Trust-Store-Datei/Alias)
+  * Direkter Provider: unmittelbar vom Framework-Nutzer übergebener `java.security.PublicKey`
+  * OpenPGP-Online-Provider: Auflösung über einen HKP-kompatiblen OpenPGP-Keyserver nach RFC 9580 (Referenz `keys.openpgp.org`), inkl. Parsing des OpenPGP-Schlüsselmaterials zu einem verifizierbaren Public Key
+* Checksum-Strategie (ehemals `CHECKSUM`) über Soll-Checksum-Callback (kann `NULL` liefern); Erstfreigabe bzw. Checksum-Änderung führt zu Status `PENDING_APPROVAL`, kein blockierender Callback im Scan-Pfad
 * ZIP-Entpacken erfolgt in ein temporäres Verzeichnis, das per `deleteOnExit` bereinigt wird
 * Das Framework legt sich nicht auf eine konkrete Async-API (Coroutines, Futures, Callbacks) fest; alle Einstiegspunkte sind so gestaltet, dass der Host sie in dem von ihm gewählten Nebenläufigkeitsmodell blockierend oder nicht-blockierend aufrufen kann
 * Lifecycle- und Enabled/Disabled-Callbacks dürfen den Ladevorgang ebenso wenig blockierend beeinträchtigen wie die Security-Callbacks
@@ -81,7 +88,8 @@
   * **Manifest-Modul**: YAML-Parsing, JSON-Schema, Data Classes, Validierung (inkl. `$version`, Icon-Erkennung, SPDX-Abgleich)
   * **Extension-Modul**: Basis-Extension-Objekt, Annotation zur Zuordnung Implementierung ↔ Konfigurationsklasse (inkl. `exclusive`-Flag), Decorator-Mapping, Listenaufbau pro Key
   * **Scanner-Modul**: Orte-Konfiguration (Lademodus, Builtin/Extern, Security-Override), Scan-Strategien je Lademodus, Ergebnis-Modell (gültig/ungültig/pending), temporäres Entpack-Verzeichnis mit `deleteOnExit`
-  * **Security-Modul**: Sicherheitsstufen, Signaturprüfung, Checksum-Prüfung, Callback-Schnittstellen für Public Key und Soll-Checksum, Pending-/Freigabe-Mechanismus
+  * **Security-Modul**: `PluginSecurityStrategy`-Interface, Fallback-Ketten-Auswertung, mitgelieferte Strategien (kein Check, Signatur, Checksum), Pending-/Freigabe-Mechanismus
+  * **Public-Key-Provider-Modul**: `PublicKeyProviderStrategy`-Interface, mitgelieferte Implementierungen (Truststore, direkter Key, OpenPGP-Keyserver nach RFC 9580), Einbindung in die Signatur-Strategie
   * **ClassLoader-Modul**: Isolierte `URLClassLoader`-Erzeugung je Lademodus, vom Host konfigurierte SDK-Whitelist, Abhängigkeitsgraph zwischen Plugin-ClassLoadern
   * **Lifecycle-Modul**: Lifecycle-Hooks (`onLoad`/`onEnable`/`onDisable`/`onUnload`), persistenter Enabled/Disabled-Status über Callback, Laufzeit-Fehlerisolation mit dauerhafter Zwangsdeaktivierung
   * **Orchestrierung/Runtime-Modul**: Zusammenspiel Scanner → Security → ClassLoader → Manifest/Extension-Mapping → Lifecycle, host-gesteuerte Nebenläufigkeit, ID-Kollisionsauflösung, `minVersion`-Prüfung
@@ -95,7 +103,8 @@
   * `plugin-development/dependencies.md` — required/optional Abhängigkeiten, Helper-Klassen-Pattern — IP-05
   * `plugin-development/lifecycle.md` — Lifecycle-Hooks aus Plugin-Sicht — IP-06
   * `host-integration/setup.md` — Plugin-Orte, Lademodi, Start-/Reload-API — IP-03 (Erstellung), IP-07 (Ergänzung API)
-  * `host-integration/security.md` — Sicherheitskonzepte + Beispiel — IP-04
+  * `host-integration/security.md` — Sicherheitskonzepte, Strategy-Kette + Beispiel — IP-04
+  * `host-integration/public-key-providers.md` — Public-Key-Provider-Strategien + Beispiel — IP-08
   * `host-integration/sdk-whitelist.md` — SDK-Whitelist-Konfiguration des Hosts — IP-05
   * `host-integration/plugin-lifecycle-management.md` — Enabled/Disabled-Callback, Deaktivierungsgründe — IP-06
   * `troubleshooting.md` — Log-Level-Übersicht, Fehlerfälle (ID-Kollision, exklusiver Konflikt, minVersion) — IP-07
@@ -107,10 +116,11 @@
 | IP-01 | Manifest-Schema & Data Classes                 | YAML/JSON-Schema/Data-Class-Synchronisation, Validierung, Icon/SPDX   | -              |
 | IP-02 | Extension-Point-Mechanismus                    | Basis-Extension-Objekt, Annotation, Decorator-Mapping, Listenaufbau, Exklusivitäts-Konflikt | IP-01          |
 | IP-03 | Plugin-Scanner & Lademodi                      | Scan-Strategien SINGLE_JAR/MULTI_JAR_WITH_OWN_FOLDER/ZIP_JAR, Temp-Entpacken | IP-01          |
-| IP-04 | Sicherheitskonzept                             | PLAIN/MUST_SIGN/CHECKSUM, Callbacks, Pending-/Freigabe-Mechanismus    | IP-03          |
+| IP-04 | Sicherheitskonzept (Strategy-Kette)             | `PluginSecurityStrategy`-Interface, Fallback-Kette, mitgelieferte Basis-Strategien, Pending-/Freigabe-Mechanismus | IP-03          |
 | IP-05 | ClassLoader-Isolation & Abhängigkeitsgraph      | Parent-Last-Isolation, host-konfigurierte SDK-Whitelist, Plugin-Abhängigkeitsgraph | IP-01, IP-03   |
 | IP-06 | Lifecycle & Fehlerisolation                    | Lifecycle-Hooks, Enabled/Disabled-Status, dauerhafte Zwangsdeaktivierung | IP-02, IP-05   |
 | IP-07 | Orchestrierung & Laufzeit-Runtime              | Host-steuerbare Gesamtsteuerung, ID-Kollisionsauflösung, minVersion-Check | IP-04, IP-06 |
+| IP-08 | Public-Key-Provider-Strategien                  | `PublicKeyProviderStrategy`-Interface, Truststore-, Direkt- und OpenPGP-Provider | IP-04          |
 
 ## 7. Implementierungspläne
 
@@ -196,16 +206,16 @@ Für eine Liste konfigurierter Orte liefert der Scanner eine vollständige Liste
 
 Keine weitere manuelle Cache-Verwaltung erforderlich, da `deleteOnExit` die Bereinigung übernimmt; bei sehr langlaufenden Prozessen mit vielen Reloads ist zu beachten, dass `deleteOnExit`-Einträge erst beim JVM-Ende tatsächlich entfernt werden.
 
-### IP-04: Sicherheitskonzept
+### IP-04: Sicherheitskonzept (Strategy-Kette)
 
 **Ziel**
 
-Setzt die drei Sicherheitsstufen inkl. Callback-Schnittstellen und den Freigabe-Mechanismus für Checksum-Änderungen um.
+Setzt das Sicherheitskonzept als Strategy-Pattern mit konfigurierbarer Fallback-Kette je Plugin-Ort um, inkl. Freigabe-Mechanismus für Checksum-Änderungen.
 
 **Umfang**
 
-Enthält: `PLAIN`/`MUST_SIGN`/`CHECKSUM`, Default-Zuordnung nach Builtin/Extern, ortsbezogenes Override, Public-Key-Callback, Signaturprüfung je Lademodus (inkl. Checksummenliste für `MULTI_JAR_WITH_OWN_FOLDER`), Soll-Checksum-Callback, Status `PENDING_APPROVAL`, Freigabe-/Persistenz-Callback für akzeptierte Checksums.
-Enthält nicht: ClassLoader-Erzeugung selbst (IP-05), UI für Freigabe-Dialoge (liegt beim Framework-Nutzer).
+Enthält: `PluginSecurityStrategy`-Interface (Prüf-Operation je Plugin-Kandidat, Ergebnis mit Erfolg/Fehlschlag/`PENDING_APPROVAL`), Ketten-Auswertungslogik (Reihenfolge, erster Erfolg beendet Prüfung positiv, Gesamtfehlschlag nur wenn alle Strategien scheitern), mitgelieferte Strategien: "kein Check" (ehemals `PLAIN`), Signatur (ehemals `MUST_SIGN`, Prüfung je Lademodus inkl. Checksummenliste für `MULTI_JAR_WITH_OWN_FOLDER`, bezieht den Public Key über eine injizierte `PublicKeyProviderStrategy`, siehe IP-08), Checksum (ehemals `CHECKSUM`, Soll-Checksum-Callback, Status `PENDING_APPROVAL`, Freigabe-/Persistenz-Callback für akzeptierte Checksums), Default-Ketten nach Builtin/Extern, ortsbezogenes Override der gesamten Kette.
+Enthält nicht: konkrete `PublicKeyProviderStrategy`-Implementierungen (IP-08, die Signatur-Strategie erhält hier nur die Schnittstelle als Injektionspunkt), ClassLoader-Erzeugung selbst (IP-05), UI für Freigabe-Dialoge (liegt beim Framework-Nutzer).
 
 **Betroffene Bereiche**
 
@@ -217,11 +227,13 @@ IP-03 (Scan-Ergebnis als Eingabe für Sicherheitsprüfung).
 
 **Erwartetes Ergebnis**
 
-Jedes gescannte Plugin ist nach Sicherheitsprüfung eindeutig als geladen-fähig, ungültig (Sicherheitsfehler) oder `PENDING_APPROVAL` klassifiziert; eine spätere Freigabe löst gezielt einen Reload aus, ohne dass das Framework selbst den Scan blockiert.
+Ein Plugin-Ort besitzt eine geordnete, beliebig erweiterbare Liste von Sicherheitsstrategien. Jedes gescannte Plugin wird strategieweise geprüft; ein Sicherheitsproblem wird erst gemeldet, wenn alle konfigurierten Strategien fehlgeschlagen sind. Eine spätere Freigabe (Checksum-Strategie) löst gezielt einen Reload aus, ohne dass das Framework selbst den Scan blockiert. Framework-Nutzer können eigene Strategien ergänzen, ohne den Ketten-Mechanismus selbst anzufassen.
 
 **Technische Hinweise**
 
-Callback-Schnittstellen sind als einfache, synchron aufrufbare Funktions-Interfaces zu gestalten; ob der Host sie synchron oder aus einer eigenen Coroutine/einem eigenen Executor heraus aufruft, liegt vollständig beim Host (siehe Architekturentscheidung zur Async-API in Abschnitt 4).
+Callback-Schnittstellen (Checksum, Freigabe) sind als einfache, synchron aufrufbare Funktions-Interfaces zu gestalten; ob der Host sie synchron oder aus einer eigenen Coroutine/einem eigenen Executor heraus aufruft, liegt vollständig beim Host (siehe Architekturentscheidung zur Async-API in Abschnitt 4).
+Die Verrechnung von `PENDING_APPROVAL` einer einzelnen Strategie innerhalb der Kette (sofortiger Kettenabbruch vs. Weiterprüfung nachfolgender Strategien) ist vor Beginn der Detailplanung zu klären (siehe Abschnitt 9).
+Die Signatur-Strategie erhält ihre `PublicKeyProviderStrategy` als Konstruktor-/Konfigurationsparameter (Dependency Injection), damit IP-08 die konkrete Public-Key-Beschaffung austauschen kann, ohne IP-04 zu ändern.
 
 ### IP-05: ClassLoader-Isolation & Abhängigkeitsgraph
 
@@ -305,6 +317,33 @@ Der Framework-Nutzer kann das Gesamtsystem mit einer Liste von Orten starten (sy
 
 Keine framework-eigene Async-API — die öffentliche API besteht aus normalen (ggf. blockierenden) Funktionsaufrufen, die der Host bei Bedarf selbst in einen eigenen Thread/Coroutine/Executor auslagert.
 
+### IP-08: Public-Key-Provider-Strategien
+
+**Ziel**
+
+Macht die Herkunft des für die Signatur-Strategie (IP-04) benötigten Public Keys über eine eigene Strategy-Schnittstelle austauschbar und liefert drei konkrete Implementierungen.
+
+**Umfang**
+
+Enthält: `PublicKeyProviderStrategy`-Interface (liefert einen `java.security.PublicKey` zu einer Plugin-/Signatur-Kennung), Truststore-Implementierung (Java `KeyStore`, Alias-Auflösung), Direkt-Implementierung (unmittelbar übergebener `PublicKey`), OpenPGP-Implementierung (Auflösung über einen HKP-kompatiblen Keyserver nach RFC 9580, Referenz `keys.openpgp.org`, Parsing des OpenPGP-Schlüsselmaterials zu einem verwendbaren `PublicKey`), Fehlerbehandlung bei nicht auflösbarem Key (kein Absturz, definiertes Fehlschlag-Ergebnis an die Signatur-Strategie aus IP-04).
+Enthält nicht: die Signaturprüfung selbst (IP-04), Auswahl/Konfiguration der Abhängigkeit für OpenPGP-Parsing ohne Rücksprache mit dem Nutzer (siehe `dependencies.md`).
+
+**Betroffene Bereiche**
+
+Neues Public-Key-Provider-Modul, Anbindung an die Signatur-Strategie aus IP-04, neue Abhängigkeit für OpenPGP-Verarbeitung (abstimmungspflichtig).
+
+**Abhängigkeiten**
+
+IP-04 (Signatur-Strategie definiert die Schnittstelle, über die ein Provider eingebunden wird).
+
+**Erwartetes Ergebnis**
+
+Die Signatur-Strategie kann wahlweise mit einem Truststore-, einem Direkt- oder einem OpenPGP-Provider betrieben werden, austauschbar je Plugin-Ort oder global; ein nicht auflösbarer Key führt zu einem nachvollziehbaren Fehlschlag der Signatur-Strategie, nicht zu einem Absturz.
+
+**Technische Hinweise**
+
+Für den OpenPGP-Provider ist vor Beginn der Detailplanung zu klären, welche Bibliothek RFC 9580 abdeckt und ob sie als neue Abhängigkeit freigegeben wird (siehe `dependencies.md`); ebenso ist das Zeitverhalten (Timeout, Caching aufgelöster Keys) und die Fehlerbehandlung bei nicht erreichbarem Keyserver festzulegen, damit der nicht-blockierende Scan-/Ladepfad (Abschnitt 4) nicht verletzt wird.
+
 ## 8. Abhängigkeitsgraph
 
 ```text
@@ -314,7 +353,8 @@ IP-01
 │       └── IP-07
 ├── IP-03
 │   ├── IP-04
-│   │   └── IP-07
+│   │   ├── IP-07
+│   │   └── IP-08
 │   └── IP-05
 │       └── IP-06
 ```
@@ -323,6 +363,9 @@ IP-01
 
 * Genaue Konfigurationsschnittstelle für die vom Host bereitgestellte SDK-Whitelist (Format, Granularität: Paket- vs. Klassenebene) ist in der Detailplanung von IP-05 festzulegen
 * Unterscheidbarkeit von Deaktivierungsgründen (Nutzer vs. Laufzeitfehler) im Enabled/Disabled-Callback ist in der Detailplanung von IP-06 zu konkretisieren
+* Verrechnung von `PENDING_APPROVAL` einer einzelnen Strategie innerhalb der Fallback-Kette (sofortiger Kettenabbruch vs. Weiterprüfung nachfolgender Strategien) ist ungeklärt und muss vor der Detailplanung von IP-04 entschieden werden
+* Bibliotheksauswahl für RFC-9580-konformes OpenPGP-Parsing ist offen und mit dem Nutzer gemäß `dependencies.md` abzustimmen
+* Zeitverhalten (Timeout, Caching) und Fehlerbehandlung des OpenPGP-Keyserver-Zugriffs bei Netzwerkausfall sind in der Detailplanung von IP-08 zu klären
 
 ## 10. Kriterien für den Feature-Abschluss
 
@@ -330,6 +373,9 @@ IP-01
 * Ein Plugin mit ungültigem Manifest oder fehlgeschlagener Sicherheitsprüfung wird nicht geladen und erscheint mit nachvollziehbarer Fehlermeldung im Scan-Ergebnis
 * Ein Plugin mit geänderter Checksum landet im Status `PENDING_APPROVAL` und wird erst nach Freigabe geladen, ohne dass das Framework selbst den Scan blockiert
 * Zwei Plugin-Orte mit kollidierender ID werden gemäß der definierten Versions-/Checksum-Regeln eindeutig aufgelöst
+* Ein Plugin-Ort kann eine geordnete Kette aus mehreren Sicherheitsstrategien konfigurieren; ein Plugin gilt als sicherheitsgeprüft, sobald eine Strategie der Kette erfolgreich ist, und wird erst abgelehnt, wenn ALLE Strategien der Kette fehlschlagen
+* Neue Sicherheitsstrategien lassen sich als reine Implementierung des `PluginSecurityStrategy`-Interfaces ergänzen, ohne Framework-Code zu ändern (kein Enum)
+* Die Signatur-Strategie kann wahlweise mit Truststore-, Direkt- oder OpenPGP-Public-Key-Provider betrieben werden; ein nicht auflösbarer OpenPGP-Key führt zu einem nachvollziehbaren Fehlschlag, nicht zum Absturz
 * Ein Plugin kann nicht per Reflection auf Host-internen Code zugreifen, wohl aber auf die vom Host konfigurierte SDK-Whitelist
 * Plugin-Abhängigkeiten (`required`/`optional`) werden beim Laden korrekt berücksichtigt, inklusive Zyklenerkennung
 * Ein Plugin mit `minVersion` über der aktuellen Host-Version wird nicht geladen
