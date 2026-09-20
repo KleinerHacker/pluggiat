@@ -57,5 +57,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - Plugin development:
+      - Manifest: plugin-development/manifest.md
   - API Docs: dokka/html/index.html
   - Licences: licences/index.html

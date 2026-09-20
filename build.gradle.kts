@@ -32,8 +32,17 @@ repositories {
 }
 
 val junitVersion = "6.1.3"
+val jacksonVersion = "2.22.2"
+val jsonSchemaValidatorVersion = "1.5.6"
+val mavenArtifactVersion = "3.9.16"
 
 dependencies {
+    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jacksonVersion}")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:${jacksonVersion}")
+    implementation("com.networknt:json-schema-validator:${jsonSchemaValidatorVersion}")
+    implementation("org.apache.maven:maven-artifact:${mavenArtifactVersion}")
+
+    testImplementation(kotlin("reflect"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
     testImplementation("org.junit.jupiter:junit-jupiter-params:${junitVersion}")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:${junitVersion}")
@@ -63,6 +72,7 @@ licenseReport {
 
 licensee {
     allow("Apache-2.0")
+    allow("MIT")
 }
 
 // Published so the artifact from `git tag` builds can be pushed to GitHub Packages by release.yml.

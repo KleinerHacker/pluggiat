@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kleinerhacker.github.io/pluggiat/schema/plugin-manifest.schema.json",
+  "title": "Pluggiat Plugin Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$version",
+    "id",
+    "name",
+    "version",
+    "minVersion",
+    "icon"
+  ],
+  "properties": {
+    "$version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Internal manifest schema revision, used for migration purposes only. Not part of the public manifest API."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "minVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "icon": {
+      "type": "string",
+      "minLength": 1,
+      "contentEncoding": "base64"
+    },
+    "description": {
+      "type": "string"
+    },
+    "author": {
+      "$ref": "#/$defs/author"
+    },
+    "links": {
+      "$ref": "#/$defs/links"
+    },
+    "legal": {
+      "$ref": "#/$defs/legal"
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dependency"
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/extensionEntry"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mail": {
+          "type": "string"
+        }
+      }
+    },
+    "links": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "documentation": {
+          "type": "string"
+        },
+        "sourceCode": {
+          "type": "string"
+        }
+      }
+    },
+    "legal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "copyright": {
+          "type": "string"
+        },
+        "license": {
+          "type": "string"
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "required"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "extensionEntry": {
+      "type": "object",
+      "required": [
+        "implementation"
+      ],
+      "properties": {
+        "implementation": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

@@ -7,7 +7,7 @@ discovery, isolation or lifecycle handling.
 ## Features
 
 * YAML plugin manifest (`META-INF/plugin.yml`/`.yaml`) with a synchronized JSON Schema and Kotlin
-  data classes _(planned)_
+  data classes, icon format auto-detection and optional SPDX license matching
 * Generic extension point mechanism: annotation-driven mapping of manifest entries onto typed,
   instantiated factory/singleton implementations via a decorator pattern _(planned)_
 * Exclusive extension points with conflict detection between competing plugins _(planned)_
@@ -65,7 +65,7 @@ dependencies {
 
 | Feature                                                          | State   |
 |-------------------------------------------------------------------|---------|
-| Plugin manifest (YAML, JSON Schema, data classes)                  | planned |
+| Plugin manifest (YAML, JSON Schema, data classes)                  | implemented |
 | Extension point mechanism (annotation, decorator, exclusive slots) | planned |
 | Plugin scanner and load modes                                      | planned |
 | Security concepts (`PLAIN`/`MUST_SIGN`/`CHECKSUM`)                  | planned |
