@@ -113,7 +113,7 @@
 
 | ID    | Implementierungsplan                          | Ziel                                                                 | Abhängigkeiten |
 |-------|------------------------------------------------|-----------------------------------------------------------------------|----------------|
-| IP-01 | Manifest-Schema & Data Classes                 | YAML/JSON-Schema/Data-Class-Synchronisation, Validierung, Icon/SPDX   | -              |
+| IP-01 | Manifest-Schema & Data Classes (COMPLETED)     | YAML/JSON-Schema/Data-Class-Synchronisation, Validierung, Icon/SPDX   | -              |
 | IP-02 | Extension-Point-Mechanismus                    | Basis-Extension-Objekt, Annotation, Decorator-Mapping, Listenaufbau, Exklusivitäts-Konflikt | IP-01          |
 | IP-03 | Plugin-Scanner & Lademodi                      | Scan-Strategien SINGLE_JAR/MULTI_JAR_WITH_OWN_FOLDER/ZIP_JAR, Temp-Entpacken | IP-01          |
 | IP-04 | Sicherheitskonzept (Strategy-Kette)             | `PluginSecurityStrategy`-Interface, Fallback-Kette, mitgelieferte Basis-Strategien, Pending-/Freigabe-Mechanismus | IP-03          |
@@ -124,7 +124,7 @@
 
 ## 7. Implementierungspläne
 
-### IP-01: Manifest-Schema & Data Classes
+### IP-01: Manifest-Schema & Data Classes (COMPLETED)
 
 **Ziel**
 
@@ -150,6 +150,10 @@ Ein Manifest-YAML kann geladen, gegen das Schema validiert und verlustfrei in Da
 **Technische Hinweise**
 
 JSON-Schema und Data Classes werden manuell parallel gepflegt (keine Codegenerierung in eine Richtung); die Konsistenz zwischen beiden wird durch dedizierte Tests abgesichert, die bei jeder Feldänderung mitgepflegt werden müssen.
+
+**Tatsächliche Umsetzung (Abweichungen vom ursprünglichen Plan)**
+
+`documentationUrl`/`sourceCodeUrl` wurden zu `links.documentation`/`links.sourceCode` gruppiert, `copyright`/`license` zu `legal.copyright`/`legal.license`. `$version` ist rein intern (Migrationszwecke) und auf `PluginManifest` bewusst nicht exponiert. YAML-Parsing über Jackson (`jackson-dataformat-yaml`/`jackson-module-kotlin`), Schema-Validierung über `com.networknt:json-schema-validator`. Icon-Erkennung nutzt `ImageIO` für alle dort registrierten Rasterformate statt einzeln implementierter Magic-Byte-Prüfungen je Format, SVG wird separat per XML-Sniffing erkannt. Der Maven-Versionsvergleich wurde nicht selbst implementiert, sondern über die Dependency `org.apache.maven:maven-artifact` (`ComparableVersion`) bezogen. Sämtliche reinen Implementierungsdetails (`ManifestParser`, `ManifestValidationException`, `IconDetector`, `IconFormatException`, `SpdxLicenses`) sind `internal`; nur das Manifest-Datenmodell (`PluginManifest`, `Author`, `Links`, `Legal`, `PluginDependency`, `ExtensionEntry`) ist `public`.
 
 ### IP-02: Extension-Point-Mechanismus
 
@@ -347,7 +351,7 @@ Für den OpenPGP-Provider ist vor Beginn der Detailplanung zu klären, welche Bi
 ## 8. Abhängigkeitsgraph
 
 ```text
-IP-01
+IP-01 (COMPLETED)
 ├── IP-02
 │   └── IP-06
 │       └── IP-07
