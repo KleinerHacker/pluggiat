@@ -63,6 +63,8 @@ tasks.withType<JavaCompile> {
 
 tasks.test {
     useJUnitPlatform()
+    // Needed by ZipJarScanStrategyTest to verify deleteOnExit registration via java.io.DeleteOnExitHook.
+    jvmArgs("--add-opens", "java.base/java.io=ALL-UNNAMED")
 }
 
 licenseReport {

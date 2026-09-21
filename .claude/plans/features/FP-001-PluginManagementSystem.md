@@ -24,6 +24,7 @@
 * Scanner unterstützt drei Lademodi (`SINGLE_JAR`, `MULTI_JAR_WITH_OWN_FOLDER`, `ZIP_JAR`, Default `ZIP_JAR`) und liefert gültige sowie ungültige Plugins mit Fehlermeldungen zurück
 * Jeder Plugin-Ort ist als `BUILTIN` oder extern klassifiziert und besitzt ein Sicherheitskonzept in Form einer geordneten, frei erweiterbaren Fallback-Kette von `PluginSecurityStrategy`-Strategien (kein Enum), mit ortsbezogenem Override der gesamten Kette; mitgelieferte Strategien: kein Check (ehemals `PLAIN`), Signatur (ehemals `MUST_SIGN`), Checksum (ehemals `CHECKSUM`)
 * Die Signatur-Strategie bezieht den zu prüfenden Public Key über eine eigene, austauschbare `PublicKeyProviderStrategy`: Truststore (Java `KeyStore`), direkter `java.security.PublicKey`, Online-Plattform OpenPGP (RFC 9580, z. B. `keys.openpgp.org`)
+* Der Host kann für ein einzelnes Plugin explizit einen Force-Load anfordern, der eine fehlgeschlagene Sicherheitsprüfung gezielt und nachvollziehbar protokolliert übergeht
 * Plugins werden über isolierte `URLClassLoader` geladen, die den Zugriff auf den Code der Host-Anwendung per Reflection unterbinden, aber gezielt eine vom Host konfigurierte SDK-Whitelist freigeben
 * Plugin-Abhängigkeiten (`required`/`optional`) bilden einen ClassLoader-Abhängigkeitsgraphen zur gezielten Klassensichtbarkeit zwischen Plugins
 * ID-Kollisionen zwischen Orten werden über Versionsvergleich (Maven-Schema) und nachgelagerte Checksum-Prüfung aufgelöst
@@ -54,12 +55,13 @@
 * Plugin-Lifecycle-Hooks `onLoad`/`onEnable`/`onDisable`/`onUnload`, aufgerufen an den jeweiligen Übergängen
 * Persistenter Enabled/Disabled-Status je Plugin-ID, verwaltet über einen vom Framework-Nutzer bereitgestellten Callback (Lesen/Schreiben); ein deaktiviertes Plugin bleibt gescannt, aber ohne aktive Extensions
 * Laufzeit-Fehlerisolation: eine unbehandelte Exception aus einer Extension-Implementierung wird abgefangen, das betroffene Plugin wird dauerhaft zwangsdeaktiviert (`onDisable`/`onUnload` sofern möglich) und muss manuell reaktiviert werden; der Vorfall wird im Ergebnis/Log vermerkt
+* Force-Load: der Framework-Nutzer kann pro Plugin explizit das Laden trotz fehlgeschlagener Sicherheitsprüfung erzwingen; der Vorfall wird mit Plugin-ID und Grund der ursprünglich fehlgeschlagenen Prüfung protokolliert
 
 ### Technische Anforderungen
 
 * Kotlin, Gradle (siehe `development.md`)
 * Manifest-Parsing über YAML mit synchronisiertem JSON-Schema und Data Classes; beide werden manuell parallel gepflegt (keine automatische Codegenerierung), Konsistenz wird über Tests abgesichert
-* Plugin-Laden über `URLClassLoader`, ein Loader je Plugin-Einheit gemäß Lademodus
+* Plugin-Laden über `URLClassLoader`, gekapselt in einer eigenen `PluginLoader`-Klasse, ein Loader je Plugin-Einheit gemäß Lademodus
 * ClassLoader-Isolation: Parent-Last-Strategie gegenüber der Host-Anwendung mit gezielt freigegebener SDK-Schicht; die SDK-Whitelist (freizugebende Pakete/Interfaces) wird dem Framework vom Host als Konfiguration übergeben, nicht vom Framework selbst vorgegeben
 * ClassLoader-Abhängigkeitsgraph zwischen Plugin-ClassLoadern, Zyklenerkennung, Ladereihenfolge nach Abhängigkeiten
 * Sicherheitskonzept als Strategy-Pattern: `PluginSecurityStrategy`-Interface, ausschließlich über neue Implementierungen erweiterbar, kein Enum; ein Plugin-Ort konfiguriert eine geordnete, nicht-leere Liste dieser Strategien als Fallback-Kette
@@ -76,9 +78,10 @@
 * ZIP-Entpacken erfolgt in ein temporäres Verzeichnis, das per `deleteOnExit` bereinigt wird
 * Das Framework legt sich nicht auf eine konkrete Async-API (Coroutines, Futures, Callbacks) fest; alle Einstiegspunkte sind so gestaltet, dass der Host sie in dem von ihm gewählten Nebenläufigkeitsmodell blockierend oder nicht-blockierend aufrufen kann
 * Lifecycle- und Enabled/Disabled-Callbacks dürfen den Ladevorgang ebenso wenig blockierend beeinträchtigen wie die Security-Callbacks
+* Ein Force-Load ruft die `PluginLoader`-Klasse unabhängig vom Ergebnis der `PluginSecurityStrategy`-Kette auf; er ersetzt die Sicherheitsprüfung nicht dauerhaft, sondern übersteuert sie gezielt für genau einen Ladevorgang eines konkreten Plugins
 * Durchgängiges Logging des Scan-/Ladeprozesses (Orte, geladene/nicht geladene Plugins mit Begründung, enthaltene Extensions, Lifecycle-Übergänge) mit folgenden Log-Levels:
   * `INFO`: Scan-Start je Ort (Modus, Builtin/Extern, Sicherheitskonzept), erfolgreich geladenes Plugin, dauerhafte Enabled/Disabled-Änderung über Callback
-  * `WARN`: ungültiges Manifest, fehlgeschlagene Sicherheitsprüfung, Status `PENDING_APPROVAL`, ID-Kollision zwischen Orten, exklusiver Extension-Konflikt
+  * `WARN`: ungültiges Manifest, fehlgeschlagene Sicherheitsprüfung, Status `PENDING_APPROVAL`, ID-Kollision zwischen Orten, exklusiver Extension-Konflikt, Force-Load eines an der Sicherheitsprüfung gescheiterten Plugins
   * `DEBUG`: enthaltene Extensions eines Plugins (Key, Implementierungsklasse), Instanziierung einer `implementation`-Klasse durch den Decorator, Lifecycle-Übergänge (`onLoad`/`onEnable`/`onDisable`/`onUnload`)
   * `ERROR`: Zwangsdeaktivierung eines Plugins wegen unbehandelter Laufzeit-Exception in einer Extension
 
@@ -90,11 +93,11 @@
   * **Scanner-Modul**: Orte-Konfiguration (Lademodus, Builtin/Extern, Security-Override), Scan-Strategien je Lademodus, Ergebnis-Modell (gültig/ungültig/pending), temporäres Entpack-Verzeichnis mit `deleteOnExit`
   * **Security-Modul**: `PluginSecurityStrategy`-Interface, Fallback-Ketten-Auswertung, mitgelieferte Strategien (kein Check, Signatur, Checksum), Pending-/Freigabe-Mechanismus
   * **Public-Key-Provider-Modul**: `PublicKeyProviderStrategy`-Interface, mitgelieferte Implementierungen (Truststore, direkter Key, OpenPGP-Keyserver nach RFC 9580), Einbindung in die Signatur-Strategie
-  * **ClassLoader-Modul**: Isolierte `URLClassLoader`-Erzeugung je Lademodus, vom Host konfigurierte SDK-Whitelist, Abhängigkeitsgraph zwischen Plugin-ClassLoadern
+  * **ClassLoader-Modul**: `PluginLoader`-Klasse (kapselt die eigentliche `URLClassLoader`-Erzeugung je Lademodus, aufrufbar sowohl regulär nach erfolgreicher Sicherheitsprüfung als auch gezielt per Force-Load unabhängig vom Sicherheitsergebnis), vom Host konfigurierte SDK-Whitelist, Abhängigkeitsgraph zwischen Plugin-ClassLoadern
   * **Lifecycle-Modul**: Lifecycle-Hooks (`onLoad`/`onEnable`/`onDisable`/`onUnload`), persistenter Enabled/Disabled-Status über Callback, Laufzeit-Fehlerisolation mit dauerhafter Zwangsdeaktivierung
-  * **Orchestrierung/Runtime-Modul**: Zusammenspiel Scanner → Security → ClassLoader → Manifest/Extension-Mapping → Lifecycle, host-gesteuerte Nebenläufigkeit, ID-Kollisionsauflösung, `minVersion`-Prüfung
-* Datenfluss: Plugin-Orte → Scanner (pro Lademodus) → Security-Prüfung (Signatur/Checksum, ggf. Pending) → ClassLoader-Erzeugung (unter Beachtung Abhängigkeitsgraph und SDK-Whitelist) → Manifest-Deserialisierung + Validierung → Extension-Decorator-Mapping (inkl. Prüfung auf exklusive Konflikte) → Lifecycle-Aktivierung (`onLoad`/`onEnable`, abhängig vom persistenten Status) → Ergebnis (geladene Plugins, Extensions, Fehler, Pending-Liste)
-* Externe Schnittstellen (durch Framework-Nutzer bereitzustellen): Public-Key-Callback, Soll-Checksum-Callback, Freigabe-/Persistenz-Callback für akzeptierte Checksums, Persistenz-Callback für den Enabled/Disabled-Status je Plugin, SDK-Whitelist-Konfiguration
+  * **Orchestrierung/Runtime-Modul**: Zusammenspiel Scanner → Security → ClassLoader → Manifest/Extension-Mapping → Lifecycle, host-gesteuerte Nebenläufigkeit, ID-Kollisionsauflösung, `minVersion`-Prüfung, Force-Load-Einstiegspunkt zur gezielten Übersteuerung einer fehlgeschlagenen Sicherheitsprüfung
+* Datenfluss: Plugin-Orte → Scanner (pro Lademodus) → Security-Prüfung (Signatur/Checksum, ggf. Pending) → ClassLoader-Erzeugung über `PluginLoader` (unter Beachtung Abhängigkeitsgraph und SDK-Whitelist; bei explizitem Force-Load auch ohne bzw. trotz negativem Sicherheitsergebnis) → Manifest-Deserialisierung + Validierung → Extension-Decorator-Mapping (inkl. Prüfung auf exklusive Konflikte) → Lifecycle-Aktivierung (`onLoad`/`onEnable`, abhängig vom persistenten Status) → Ergebnis (geladene Plugins, Extensions, Fehler, Pending-Liste)
+* Externe Schnittstellen (durch Framework-Nutzer bereitzustellen): Public-Key-Callback, Soll-Checksum-Callback, Freigabe-/Persistenz-Callback für akzeptierte Checksums, Persistenz-Callback für den Enabled/Disabled-Status je Plugin, SDK-Whitelist-Konfiguration, Force-Load-Aufruf je Plugin
 * Persistenz: keine eigene vorgesehen; akzeptierte Checksums und Enabled/Disabled-Status werden über die bereitgestellten Callbacks verwaltet (Speicherort liegt beim Framework-Nutzer); entpackte ZIP-Plugins liegen im Temp-Verzeichnis und werden per `deleteOnExit` entfernt
 * MkDocs-Struktur (Zielgruppentrennung Plugin-Entwickler/Host-Integratoren), je Seite der zuständige Implementierungsplan:
   * `index.md` — Übersicht/Kernkonzepte — IP-01 (Erstellung), IP-07 (Verweis auf Unterseiten)
@@ -115,11 +118,11 @@
 |-------|------------------------------------------------|-----------------------------------------------------------------------|----------------|
 | IP-01 | Manifest-Schema & Data Classes (COMPLETED)     | YAML/JSON-Schema/Data-Class-Synchronisation, Validierung, Icon/SPDX   | -              |
 | IP-02 | Extension-Point-Mechanismus (COMPLETED)        | Host-Registry, `@ExtensionPoint`-Annotation, Decorator-Mapping, Listenaufbau, Exklusivitäts-Konflikt | IP-01          |
-| IP-03 | Plugin-Scanner & Lademodi                      | Scan-Strategien SINGLE_JAR/MULTI_JAR_WITH_OWN_FOLDER/ZIP_JAR, Temp-Entpacken | IP-01          |
+| IP-03 | Plugin-Scanner & Lademodi (COMPLETED)          | Scan-Strategien SINGLE_JAR/MULTI_JAR_WITH_OWN_FOLDER/ZIP_JAR, Temp-Entpacken | IP-01          |
 | IP-04 | Sicherheitskonzept (Strategy-Kette)             | `PluginSecurityStrategy`-Interface, Fallback-Kette, mitgelieferte Basis-Strategien, Pending-/Freigabe-Mechanismus | IP-03          |
-| IP-05 | ClassLoader-Isolation & Abhängigkeitsgraph      | Parent-Last-Isolation, host-konfigurierte SDK-Whitelist, Plugin-Abhängigkeitsgraph | IP-01, IP-03   |
+| IP-05 | ClassLoader-Isolation & Abhängigkeitsgraph      | Parent-Last-Isolation, host-konfigurierte SDK-Whitelist, Plugin-Abhängigkeitsgraph, `PluginLoader`-Klasse inkl. Force-Load | IP-01, IP-03   |
 | IP-06 | Lifecycle & Fehlerisolation                    | Lifecycle-Hooks, Enabled/Disabled-Status, dauerhafte Zwangsdeaktivierung | IP-02, IP-05   |
-| IP-07 | Orchestrierung & Laufzeit-Runtime              | Host-steuerbare Gesamtsteuerung, ID-Kollisionsauflösung, minVersion-Check | IP-04, IP-06 |
+| IP-07 | Orchestrierung & Laufzeit-Runtime              | Host-steuerbare Gesamtsteuerung, ID-Kollisionsauflösung, minVersion-Check, Force-Load-Einstiegspunkt | IP-04, IP-06 |
 | IP-08 | Public-Key-Provider-Strategien                  | `PublicKeyProviderStrategy`-Interface, Truststore-, Direkt- und OpenPGP-Provider | IP-04          |
 
 ## 7. Implementierungspläne
@@ -188,7 +191,7 @@ Die Plugin-Implementierungsklasse selbst trägt keinerlei Framework-Annotation o
 
 Kein Marker-Interface für Plugin-Implementierungsklassen (im Dialog verworfen); die spätere Idee eines Lifecycle-Basis-Objekts wurde stattdessen als eigenständiges, optionales `PluginLifecycle`-Interface nach IP-06 verschoben. Die `@ExtensionPoint`-Annotation sitzt bewusst an der Host-Konfigurationsklasse (`key`, `exclusive`), nicht an der Plugin-Implementierung, damit Plugin-Entwickler ausschließlich das Host-Plugin-API-Interface kennen müssen. `ExtensionEntry` (IP-01) wurde um ein per `@JsonAnySetter` erfasstes `additionalProperties: Map<String, Any?>` erweitert, damit der Decorator Zugriff auf die extension-point-spezifischen Zusatzfelder hat, ohne das JSON-Schema zu ändern (dessen `extensionEntry`-Definition zusätzliche Felder bereits zuließ). Neue Klassen: `ExtensionConfiguration<T>`, `@ExtensionPoint`, `ExtensionPointRegistry` (Registrierung + Validierung), `ExtensionClassResolver`/`DefaultExtensionClassResolver`, `ExtensionDecorator` (internal), `ExtensionAggregator` mit Ergebnis `ExtensionAggregationResult` (`pluginResults`: ID/`Path`/`PluginExtensionStatus`, `extensionsByKey`). Konfigurationsklassen-Instanziierung erfolgt über Kotlin-Reflection (`primaryConstructor.callBy`) statt vollständigem Jackson-Tree-Mapping, da `implementation: KClass<out T>` kein direkt deserialisierbarer JSON-Typ ist. Logging über neu eingeführtes SLF4J (`slf4j-api`, Testlaufzeit `slf4j-simple`); dafür wurde `licensee` um `allowUrl("https://opensource.org/license/mit")` ergänzt, da slf4j-api seine Lizenz über eine URL statt einer SPDX-ID deklariert.
 
-### IP-03: Plugin-Scanner & Lademodi
+### IP-03: Plugin-Scanner & Lademodi (COMPLETED)
 
 **Ziel**
 
@@ -214,6 +217,10 @@ Für eine Liste konfigurierter Orte liefert der Scanner eine vollständige Liste
 **Technische Hinweise**
 
 Keine weitere manuelle Cache-Verwaltung erforderlich, da `deleteOnExit` die Bereinigung übernimmt; bei sehr langlaufenden Prozessen mit vielen Reloads ist zu beachten, dass `deleteOnExit`-Einträge erst beim JVM-Ende tatsächlich entfernt werden.
+
+**Tatsächliche Umsetzung (Abweichungen vom ursprünglichen Plan)**
+
+Kein `PluginLoadMode`-Enum: `PluginLocation.scanStrategy: PluginScanStrategy` referenziert die konkrete Strategie-Implementierung (`SingleJarScanStrategy`/`MultiJarWithOwnFolderScanStrategy`/`ZipJarScanStrategy`, Default `ZipJarScanStrategy`) direkt, da Lademodus und Strategie 1:1 entsprechen (im Dialog mit dem Nutzer entschieden). `PluginLocation.type: PluginLocationType` (`BUILTIN`/`EXTERNAL`) ersetzt das ursprünglich geplante Bool-Flag. Statt getrennter Kandidaten-/Ergebnisklassen (gültig/ungültig) gibt es ein einziges Ergebnismodell `PluginScanResult` mit `status: PluginScanStatus` (`LOADED`, `MANIFEST_NOT_FOUND`, `MANIFEST_INVALID`) und optionalem `errorMessage` (ebenfalls im Dialog entschieden). `PluginLocation.securityOverride: List<PluginSecurityStrategy> = emptyList()` ist bewusst nicht-nullable; dafür wurde im neuen Package `security` bereits ein leeres Marker-Interface `PluginSecurityStrategy` angelegt, das erst in IP-04 mit Inhalt gefüllt wird. Gemeinsame Manifest-Lookup-Logik (Ermittlung der Manifest-JAR unter mehreren JARs, Manifest-Parsing) liegt in einem internen `PluginManifestLookup`-Objekt, das von allen drei Strategien genutzt wird. Test-Fixtures (JAR/ZIP) werden zur Testlaufzeit programmatisch erzeugt statt als Binärdateien unter `src/test/resources` eingecheckt, um Diff-Lesbarkeit zu erhalten. Die `deleteOnExit`-Registrierung der ZIP-Strategie wird per Reflection auf `java.io.DeleteOnExitHook` verifiziert; dafür wurde `--add-opens java.base/java.io=ALL-UNNAMED` im Gradle-`test`-Task ergänzt.
 
 ### IP-04: Sicherheitskonzept (Strategy-Kette)
 
@@ -243,21 +250,22 @@ Ein Plugin-Ort besitzt eine geordnete, beliebig erweiterbare Liste von Sicherhei
 Callback-Schnittstellen (Checksum, Freigabe) sind als einfache, synchron aufrufbare Funktions-Interfaces zu gestalten; ob der Host sie synchron oder aus einer eigenen Coroutine/einem eigenen Executor heraus aufruft, liegt vollständig beim Host (siehe Architekturentscheidung zur Async-API in Abschnitt 4).
 Die Verrechnung von `PENDING_APPROVAL` einer einzelnen Strategie innerhalb der Kette (sofortiger Kettenabbruch vs. Weiterprüfung nachfolgender Strategien) ist vor Beginn der Detailplanung zu klären (siehe Abschnitt 9).
 Die Signatur-Strategie erhält ihre `PublicKeyProviderStrategy` als Konstruktor-/Konfigurationsparameter (Dependency Injection), damit IP-08 die konkrete Public-Key-Beschaffung austauschen kann, ohne IP-04 zu ändern.
+Ein Force-Load (siehe IP-05, IP-07) ist bewusst kein Bestandteil der Ketten-Auswertung selbst: die Kette liefert unverändert ein Fehlschlag-Ergebnis, das Übersteuern dieses Ergebnisses erfolgt ausschließlich außerhalb von IP-04, im Orchestrierungs-/ClassLoader-Bereich.
 
 ### IP-05: ClassLoader-Isolation & Abhängigkeitsgraph
 
 **Ziel**
 
-Erzeugt isolierte `URLClassLoader` je Plugin-Einheit und verwaltet Sichtbarkeit zwischen Plugins gemäß deklarierten Abhängigkeiten.
+Erzeugt isolierte `URLClassLoader` je Plugin-Einheit über eine eigene `PluginLoader`-Klasse und verwaltet Sichtbarkeit zwischen Plugins gemäß deklarierten Abhängigkeiten.
 
 **Umfang**
 
-Enthält: Parent-Last-Strategie gegenüber Host-ClassLoader mit gezielt freigegebener, vom Host konfigurierten SDK-Whitelist, ClassLoader-Erzeugung je Lademodus (ein/mehrere JARs, entpacktes ZIP), Abhängigkeitsgraph zwischen Plugin-ClassLoadern (`required`/`optional`), Zyklenerkennung, Ladereihenfolge, eine isolierte Implementierung der in IP-02 definierten `ExtensionClassResolver`-Schnittstelle auf Basis der jeweiligen Plugin-ClassLoader (löst die Standardimplementierung aus IP-02 in der Orchestrierung, IP-07, ab).
-Enthält nicht: Instanziierung der eigentlichen Extension-Implementierung selbst — das bleibt Aufgabe des Decorators aus IP-02, der lediglich die hier bereitgestellte `ExtensionClassResolver`-Implementierung nutzt; Sicherheitsprüfung vor dem Laden (IP-04).
+Enthält: eine `PluginLoader`-Klasse, die die eigentliche `URLClassLoader`-Erzeugung je Lademodus kapselt (ein/mehrere JARs, entpacktes ZIP) und sowohl regulär (nach erfolgreicher Sicherheitsprüfung) als auch gezielt per Force-Load-Parameter unabhängig vom Ergebnis der Sicherheitsprüfung (IP-04) aufgerufen werden kann; Parent-Last-Strategie gegenüber Host-ClassLoader mit gezielt freigegebener, vom Host konfigurierten SDK-Whitelist; Abhängigkeitsgraph zwischen Plugin-ClassLoadern (`required`/`optional`), Zyklenerkennung, Ladereihenfolge; eine isolierte Implementierung der in IP-02 definierten `ExtensionClassResolver`-Schnittstelle auf Basis der jeweiligen Plugin-ClassLoader (löst die Standardimplementierung aus IP-02 in der Orchestrierung, IP-07, ab).
+Enthält nicht: Instanziierung der eigentlichen Extension-Implementierung selbst — das bleibt Aufgabe des Decorators aus IP-02, der lediglich die hier bereitgestellte `ExtensionClassResolver`-Implementierung nutzt; Aufruf-/Freigabelogik, WANN ein Force-Load ausgelöst werden darf (liegt bei der Orchestrierung, IP-07, bzw. beim Framework-Nutzer).
 
 **Betroffene Bereiche**
 
-ClassLoader-Modul, SDK-Whitelist-Konfigurationsschnittstelle, Abhängigkeitsgraph-Datenstruktur.
+ClassLoader-Modul (`PluginLoader`), SDK-Whitelist-Konfigurationsschnittstelle, Abhängigkeitsgraph-Datenstruktur.
 
 **Abhängigkeiten**
 
@@ -265,12 +273,13 @@ IP-01 (Abhängigkeitsdeklaration im Manifest), IP-03 (welche Dateien/Ordner pro 
 
 **Erwartetes Ergebnis**
 
-Plugins können weder per Reflection noch über den Klassenpfad auf Host-internen Code zugreifen, außer über die vom Host explizit konfigurierte SDK-Whitelist; deklarierte Plugin-Abhängigkeiten sind zur Ladezeit aufgelöst, fehlende `required`-Abhängigkeiten führen zu ungültigem Plugin, fehlende `optional`-Abhängigkeiten zu eingeschränkter Funktionalität ohne Ladefehler.
+Plugins können weder per Reflection noch über den Klassenpfad auf Host-internen Code zugreifen, außer über die vom Host explizit konfigurierte SDK-Whitelist; deklarierte Plugin-Abhängigkeiten sind zur Ladezeit aufgelöst, fehlende `required`-Abhängigkeiten führen zu ungültigem Plugin, fehlende `optional`-Abhängigkeiten zu eingeschränkter Funktionalität ohne Ladefehler. Der Host kann über die `PluginLoader`-Klasse ein einzelnes, an der Sicherheitsprüfung gescheitertes Plugin gezielt per Force-Load dennoch laden lassen.
 
 **Technische Hinweise**
 
 Die SDK-Whitelist (Pakete/Interfaces, die Plugins sichtbar sind) wird nicht vom Framework vorgegeben, sondern vom Host bei der Initialisierung übergeben, da nur der Host seine eigene SDK-Schicht kennt.
 Für optionale Plugin-Abhängigkeiten reicht ein reines `if`-Guard im selben Methodenkörper nur bedingt: JVM-Klassenreferenzen werden zwar meist lazy aufgelöst (nicht betretener Zweig lädt die fremde Klasse nie), das gilt aber nicht, wenn die fremde Klasse als Elternklasse/Interface, Feldtyp oder in einer Methodensignatur der eigenen Klasse auftaucht. Empfohlenes Pattern: jede Nutzung von Klassen einer optionalen Abhängigkeit in eine eigene Helper-Klasse kapseln, die selbst erst innerhalb des `if`-Zweigs geladen wird, damit bei fehlendem Plugin niemals der Versuch entsteht, eine Klasse der fehlenden Abhängigkeit zu laden.
+Force-Load ruft direkt den `PluginLoader` auf und umgeht das Ergebnis der `PluginSecurityStrategy`-Kette (IP-04) gezielt für genau ein Plugin; der Aufruf muss protokolliert werden (Plugin-ID, ursprünglicher Fehlschlaggrund der Sicherheitsprüfung), damit der Vorgang im Log nachvollziehbar bleibt (siehe Log-Level-Konzept in Abschnitt 4).
 
 ### IP-06: Lifecycle & Fehlerisolation
 
@@ -303,12 +312,12 @@ Die Zwangsdeaktivierung nach einem Laufzeitfehler gilt dauerhaft und übersteht 
 
 **Ziel**
 
-Verbindet Scanner, Security, ClassLoader und Lifecycle zu einem vom Host steuerbaren Gesamtablauf inklusive ID-Kollisionsauflösung und `minVersion`-Prüfung.
+Verbindet Scanner, Security, ClassLoader und Lifecycle zu einem vom Host steuerbaren Gesamtablauf inklusive ID-Kollisionsauflösung, `minVersion`-Prüfung und einem Force-Load-Einstiegspunkt.
 
 **Umfang**
 
-Enthält: Gesamtsteuerung des Ladevorgangs über mehrere Orte mit synchron aufrufbaren Einstiegspunkten, ID-Kollisionsauflösung (Log-Warnung, Versionsvergleich, Checksum-Vergleich, Sicherheitswarnung bei Ungleichheit), `minVersion`-Prüfung gegen Host-Version, finale Ergebnisstruktur (geladene Plugins, Extensions, Fehler, Pending-Liste, deaktivierte Plugins), gezielter Reload einzelner Plugins nach Freigabe oder nach Reaktivierung.
-Enthält nicht: UI-Darstellung der Ergebnisse (liegt beim Framework-Nutzer), jegliche Nebenläufigkeits-/Async-Infrastruktur (liegt beim Host).
+Enthält: Gesamtsteuerung des Ladevorgangs über mehrere Orte mit synchron aufrufbaren Einstiegspunkten, ID-Kollisionsauflösung (Log-Warnung, Versionsvergleich, Checksum-Vergleich, Sicherheitswarnung bei Ungleichheit), `minVersion`-Prüfung gegen Host-Version, finale Ergebnisstruktur (geladene Plugins, Extensions, Fehler, Pending-Liste, deaktivierte Plugins), gezielter Reload einzelner Plugins nach Freigabe oder nach Reaktivierung, sowie einen öffentlichen Force-Load-Einstiegspunkt, der für ein einzelnes, an der Sicherheitsprüfung gescheitertes Plugin die `PluginLoader`-Instanziierung (IP-05) explizit auf Wunsch des Frameworks-Nutzers anstößt und den Vorgang protokolliert.
+Enthält nicht: UI-Darstellung der Ergebnisse (liegt beim Framework-Nutzer), jegliche Nebenläufigkeits-/Async-Infrastruktur (liegt beim Host), die Entscheidung darüber, WANN ein Force-Load fachlich gerechtfertigt ist (liegt beim Framework-Nutzer).
 
 **Betroffene Bereiche**
 
@@ -320,11 +329,12 @@ IP-04, IP-06.
 
 **Erwartetes Ergebnis**
 
-Der Framework-Nutzer kann das Gesamtsystem mit einer Liste von Orten starten (synchron aufrufbare API), das vollständige Ergebnis erhalten (inkl. Fehlern, Pending- und deaktivierten Plugins) und nach Nutzerfreigabe bzw. Reaktivierung gezielt einzelne Plugins nachladen; wie der Host diese Aufrufe zeitlich einbettet (Thread, Coroutine, Executor), bleibt allein seine Entscheidung.
+Der Framework-Nutzer kann das Gesamtsystem mit einer Liste von Orten starten (synchron aufrufbare API), das vollständige Ergebnis erhalten (inkl. Fehlern, Pending- und deaktivierten Plugins) und nach Nutzerfreigabe bzw. Reaktivierung gezielt einzelne Plugins nachladen; wie der Host diese Aufrufe zeitlich einbettet (Thread, Coroutine, Executor), bleibt allein seine Entscheidung. Zusätzlich kann der Framework-Nutzer für ein konkretes, an der Sicherheitsprüfung gescheitertes Plugin explizit einen Force-Load auslösen, dessen Durchführung nachvollziehbar protokolliert wird.
 
 **Technische Hinweise**
 
 Keine framework-eigene Async-API — die öffentliche API besteht aus normalen (ggf. blockierenden) Funktionsaufrufen, die der Host bei Bedarf selbst in einen eigenen Thread/Coroutine/Executor auslagert.
+Der Force-Load-Einstiegspunkt nimmt die Plugin-ID (bzw. das zuvor im Scan-/Sicherheitsergebnis identifizierte Plugin) entgegen und delegiert intern an den `PluginLoader` aus IP-05; er verändert nicht das ursprüngliche Sicherheitsergebnis im Scan-Ergebnis, sondern ergänzt es um den Hinweis, dass das Plugin zusätzlich per Force-Load geladen wurde.
 
 ### IP-08: Public-Key-Provider-Strategien
 
@@ -360,7 +370,7 @@ IP-01 (COMPLETED)
 ├── IP-02 (COMPLETED)
 │   └── IP-06
 │       └── IP-07
-├── IP-03
+├── IP-03 (COMPLETED)
 │   ├── IP-04
 │   │   ├── IP-07
 │   │   └── IP-08
@@ -375,6 +385,8 @@ IP-01 (COMPLETED)
 * Verrechnung von `PENDING_APPROVAL` einer einzelnen Strategie innerhalb der Fallback-Kette (sofortiger Kettenabbruch vs. Weiterprüfung nachfolgender Strategien) ist ungeklärt und muss vor der Detailplanung von IP-04 entschieden werden
 * Bibliotheksauswahl für RFC-9580-konformes OpenPGP-Parsing ist offen und mit dem Nutzer gemäß `dependencies.md` abzustimmen
 * Zeitverhalten (Timeout, Caching) und Fehlerbehandlung des OpenPGP-Keyserver-Zugriffs bei Netzwerkausfall sind in der Detailplanung von IP-08 zu klären
+* Ob ein Force-Load zusätzlich einen persistenten Audit-Trail über den bestehenden Callback-Mechanismus hinaus benötigt, ist vor der Detailplanung von IP-05/IP-07 zu klären
+* Ob der Force-Load-Einstiegspunkt zusätzliche Absicherung (z. B. ein vom Host konfigurierbares generelles An/Aus für Force-Load) erhalten soll, ist vor der Detailplanung von IP-07 zu klären
 
 ## 10. Kriterien für den Feature-Abschluss
 
@@ -392,3 +404,4 @@ IP-01 (COMPLETED)
 * Ein Plugin, dessen Extension zur Laufzeit eine unbehandelte Exception wirft, wird automatisch dauerhaft zwangsdeaktiviert und muss manuell reaktiviert werden, ohne die übrige Anwendung zu beeinträchtigen
 * Befüllen zwei Plugins denselben exklusiven Extension-Point, werden beide vollständig nicht geladen und eine nachvollziehbare Log-Warnung ausgegeben
 * Die öffentliche API des Frameworks lässt sich sowohl blockierend als auch aus einem vom Host gewählten nebenläufigen Kontext heraus verwenden
+* Ein Plugin mit fehlgeschlagener Sicherheitsprüfung kann über einen expliziten Force-Load-Aufruf des Hosts dennoch geladen werden, wobei der Vorgang nachvollziehbar protokolliert wird
