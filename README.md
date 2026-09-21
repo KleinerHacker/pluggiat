@@ -16,9 +16,11 @@ discovery, isolation or lifecycle handling.
 * Distinction between builtin and external plugin locations _(planned)_
 * Configurable per-location security concept - `PLAIN`, `MUST_SIGN` (signature via host-provided
   public key) and `CHECKSUM` (approval workflow for unknown/changed checksums) _(planned)_
-* Isolated plugin classpaths via parent-last `URLClassLoader`s with a host-configured SDK
-  whitelist, preventing plugins from reflecting into host-internal code _(planned)_
-* Plugin dependency graph with required and optional dependencies between plugins _(planned)_
+* Isolated plugin classpaths via parent-last `PluginClassLoader`s with a host-configured SDK
+  whitelist, preventing plugins from reflecting into host-internal code; loading is unconditional,
+  so a host can knowingly load a plugin that failed its security check
+* Plugin dependency graph with required and optional dependencies between plugins, cycle detection,
+  and a configurable `PluginDependencyStrategy` governing cross-location visibility
 * Plugin lifecycle hooks (`onLoad`/`onEnable`/`onDisable`/`onUnload`) and a persistent
   enabled/disabled status _(planned)_
 * Runtime error isolation: an unhandled exception in a plugin's extension forces only that plugin
@@ -69,6 +71,6 @@ dependencies {
 | Extension point mechanism (annotation, decorator, exclusive slots) | implemented |
 | Plugin scanner and load modes                                      | planned |
 | Security concepts (`PLAIN`/`MUST_SIGN`/`CHECKSUM`)                  | planned |
-| Isolated classpaths and dependency graph                           | planned |
+| Isolated classpaths and dependency graph                           | implemented |
 | Plugin lifecycle and runtime error isolation                       | planned |
 | Orchestration runtime (ID collisions, `minVersion` check)           | planned |

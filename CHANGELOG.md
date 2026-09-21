@@ -28,3 +28,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `SignatureSecurityStrategy`'s `MultiJarWithOwnFolderScanStrategy` checksum list) are computed via
   a pluggable `ChecksumAlgorithm`, shipped as `MessageDigestChecksumAlgorithm` wrapping any JCA
   `MessageDigest` algorithm name (e.g. `"MD5"`, `"SHA-256"`, `"SHA-512"`); SHA-512 is the default.
+- Isolated plugin class loading: `PluginLoader` creates a parent-last `PluginClassLoader` per
+  plugin, exposing only a host-configured SDK whitelist (`SdkWhitelistEntry`, package-prefix based,
+  optionally non-recursive) plus JDK platform classes; all other host-internal code stays
+  unreachable, including via reflection.
+- Plugin dependency graph: `required`/`optional` manifest dependencies are resolved into a load
+  order via topological sorting, with cycle detection; a missing `required` dependency invalidates
+  a plugin, a missing `optional` one is simply skipped. Cross-location visibility is governed by a
+  `PluginDependencyStrategy` (global default, optional per-location override):
+  `UnrestrictedPluginDependencyStrategy` (default, all locations visible),
+  `LocationPluginDependencyStrategy` (explicit allow-list) and `DisallowPluginDependencyStrategy`
+  (no plugin dependencies at all, even within the same location).
+- `PluginLoader.load` performs no security check of its own and is unconditionally callable, so a
+  host application can knowingly load a plugin despite a failed security check; deciding whether
+  that is warranted, and logging it, is entirely up to the host application.
