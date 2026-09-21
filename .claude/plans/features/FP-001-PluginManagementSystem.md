@@ -385,8 +385,8 @@ IP-01 (COMPLETED)
 * Verrechnung von `PENDING_APPROVAL` einer einzelnen Strategie innerhalb der Fallback-Kette (sofortiger Kettenabbruch vs. Weiterprüfung nachfolgender Strategien) ist ungeklärt und muss vor der Detailplanung von IP-04 entschieden werden
 * Bibliotheksauswahl für RFC-9580-konformes OpenPGP-Parsing ist offen und mit dem Nutzer gemäß `dependencies.md` abzustimmen
 * Zeitverhalten (Timeout, Caching) und Fehlerbehandlung des OpenPGP-Keyserver-Zugriffs bei Netzwerkausfall sind in der Detailplanung von IP-08 zu klären
-* Ob ein Force-Load zusätzlich einen persistenten Audit-Trail über den bestehenden Callback-Mechanismus hinaus benötigt, ist vor der Detailplanung von IP-05/IP-07 zu klären
-* Ob der Force-Load-Einstiegspunkt zusätzliche Absicherung (z. B. ein vom Host konfigurierbares generelles An/Aus für Force-Load) erhalten soll, ist vor der Detailplanung von IP-07 zu klären
+* Geklärt: Force-Load benötigt keinen eigenen Audit-Trail-Callback; die Verantwortung für korrektes Logging des Vorgangs liegt bei der Host-Anwendung
+* Geklärt: Force-Load benötigt kein vom Host konfigurierbares generelles An/Aus; der Aufruf ist ein reiner, von der Host-Implementierung selbst gerufener API-Aufruf, eine zusätzliche Sperre wäre wirkungslos (der aufrufende Code kann sich nicht spontan selbst ändern)
 
 ## 10. Kriterien für den Feature-Abschluss
 

@@ -16,6 +16,7 @@ Voraussetzung: IP-03.
 - [ ] Kette in konfigurierter Reihenfolge prüfen, erster Erfolg beendet Prüfung positiv
 - [ ] Gesamtfehlschlag nur melden, wenn ALLE Strategien der Kette fehlgeschlagen sind
 - [ ] Verrechnung von `PENDING_APPROVAL` innerhalb der Kette festlegen und umsetzen
+- [ ] Kein Force-Load-Bezug in dieser Kette: Ein späterer Force-Load (IP-05, IP-07) übersteuert nur das Laden, nicht das hier ermittelte Sicherheitsergebnis
 
 ## Aufgabe 3: Strategie "kein Check"
 
