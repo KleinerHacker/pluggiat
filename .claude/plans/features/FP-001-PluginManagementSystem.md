@@ -119,7 +119,7 @@
 | IP-01 | Manifest-Schema & Data Classes (COMPLETED)     | YAML/JSON-Schema/Data-Class-Synchronisation, Validierung, Icon/SPDX   | -              |
 | IP-02 | Extension-Point-Mechanismus (COMPLETED)        | Host-Registry, `@ExtensionPoint`-Annotation, Decorator-Mapping, Listenaufbau, Exklusivitäts-Konflikt | IP-01          |
 | IP-03 | Plugin-Scanner & Lademodi (COMPLETED)          | Scan-Strategien SINGLE_JAR/MULTI_JAR_WITH_OWN_FOLDER/ZIP_JAR, Temp-Entpacken | IP-01          |
-| IP-04 | Sicherheitskonzept (Strategy-Kette)             | `PluginSecurityStrategy`-Interface, Fallback-Kette, mitgelieferte Basis-Strategien, Pending-/Freigabe-Mechanismus | IP-03          |
+| IP-04 | Sicherheitskonzept (Strategy-Kette) (COMPLETED) | `PluginSecurityStrategy`-Interface, Fallback-Kette, mitgelieferte Basis-Strategien, Checksum-Persistenz-Callback | IP-03          |
 | IP-05 | ClassLoader-Isolation & Abhängigkeitsgraph      | Parent-Last-Isolation, host-konfigurierte SDK-Whitelist, Plugin-Abhängigkeitsgraph, `PluginLoader`-Klasse inkl. Force-Load | IP-01, IP-03   |
 | IP-06 | Lifecycle & Fehlerisolation                    | Lifecycle-Hooks, Enabled/Disabled-Status, dauerhafte Zwangsdeaktivierung | IP-02, IP-05   |
 | IP-07 | Orchestrierung & Laufzeit-Runtime              | Host-steuerbare Gesamtsteuerung, ID-Kollisionsauflösung, minVersion-Check, Force-Load-Einstiegspunkt | IP-04, IP-06 |
@@ -222,7 +222,7 @@ Keine weitere manuelle Cache-Verwaltung erforderlich, da `deleteOnExit` die Bere
 
 Kein `PluginLoadMode`-Enum: `PluginLocation.scanStrategy: PluginScanStrategy` referenziert die konkrete Strategie-Implementierung (`SingleJarScanStrategy`/`MultiJarWithOwnFolderScanStrategy`/`ZipJarScanStrategy`, Default `ZipJarScanStrategy`) direkt, da Lademodus und Strategie 1:1 entsprechen (im Dialog mit dem Nutzer entschieden). `PluginLocation.type: PluginLocationType` (`BUILTIN`/`EXTERNAL`) ersetzt das ursprünglich geplante Bool-Flag. Statt getrennter Kandidaten-/Ergebnisklassen (gültig/ungültig) gibt es ein einziges Ergebnismodell `PluginScanResult` mit `status: PluginScanStatus` (`LOADED`, `MANIFEST_NOT_FOUND`, `MANIFEST_INVALID`) und optionalem `errorMessage` (ebenfalls im Dialog entschieden). `PluginLocation.securityOverride: List<PluginSecurityStrategy> = emptyList()` ist bewusst nicht-nullable; dafür wurde im neuen Package `security` bereits ein leeres Marker-Interface `PluginSecurityStrategy` angelegt, das erst in IP-04 mit Inhalt gefüllt wird. Gemeinsame Manifest-Lookup-Logik (Ermittlung der Manifest-JAR unter mehreren JARs, Manifest-Parsing) liegt in einem internen `PluginManifestLookup`-Objekt, das von allen drei Strategien genutzt wird. Test-Fixtures (JAR/ZIP) werden zur Testlaufzeit programmatisch erzeugt statt als Binärdateien unter `src/test/resources` eingecheckt, um Diff-Lesbarkeit zu erhalten. Die `deleteOnExit`-Registrierung der ZIP-Strategie wird per Reflection auf `java.io.DeleteOnExitHook` verifiziert; dafür wurde `--add-opens java.base/java.io=ALL-UNNAMED` im Gradle-`test`-Task ergänzt.
 
-### IP-04: Sicherheitskonzept (Strategy-Kette)
+### IP-04: Sicherheitskonzept (Strategy-Kette) (COMPLETED)
 
 **Ziel**
 
@@ -251,6 +251,10 @@ Callback-Schnittstellen (Checksum, Freigabe) sind als einfache, synchron aufrufb
 Die Verrechnung von `PENDING_APPROVAL` einer einzelnen Strategie innerhalb der Kette (sofortiger Kettenabbruch vs. Weiterprüfung nachfolgender Strategien) ist vor Beginn der Detailplanung zu klären (siehe Abschnitt 9).
 Die Signatur-Strategie erhält ihre `PublicKeyProviderStrategy` als Konstruktor-/Konfigurationsparameter (Dependency Injection), damit IP-08 die konkrete Public-Key-Beschaffung austauschen kann, ohne IP-04 zu ändern.
 Ein Force-Load (siehe IP-05, IP-07) ist bewusst kein Bestandteil der Ketten-Auswertung selbst: die Kette liefert unverändert ein Fehlschlag-Ergebnis, das Übersteuern dieses Ergebnisses erfolgt ausschließlich außerhalb von IP-04, im Orchestrierungs-/ClassLoader-Bereich.
+
+**Tatsächliche Umsetzung (Abweichungen vom ursprünglichen Plan)**
+
+Im Dialog mit dem Nutzer wurde `PENDING_APPROVAL` als Framework-Zustand verworfen: Es gibt nur Erfolg/Fehlschlag je Strategie und `PluginScanStatus.SECURITY_PROBLEM` als Gesamtergebnis der Kette; eine etwaige Freigabe ist ausschließlich Host-Entscheidung (eigener Prompt-Dialog + manueller Force-Load über `PluginLoader`, IP-05/IP-07), nicht Teil von IP-04. Der Ur-Default je `PluginLocationType` (wenn `PluginScanner` keinen eigenen Eintrag in `defaultSecurityChains` hat) ist bewusst eine LEERE Liste statt eines impliziten "kein Check"-Defaults; ist die effektive Kette (Override ODER Typ-Default) leer, wirft `PluginScanner.scan` eine `IllegalStateException` ("keine Sicherheitsmechanismen angegeben"). "Kein Check" ist dafür als eigene, bewusst so benannte Strategie `InsecureSecurityStrategy` (statt `PLAIN`) modelliert, die explizit in eine Kette aufgenommen werden muss. Die Key-Identifikation für `PublicKeyProviderStrategy.resolve(pluginId: String)` erfolgt über die Plugin-ID aus dem Manifest, keine Manifest-Erweiterung nötig. Die Signaturprüfung nutzt für alle drei Lademodi durchgängig den Standard-JDK-Code-Signing-Mechanismus (`JarFile(..., verify = true)`, `CodeSigners`); für `ZIP_JAR` wird dieser unverändert direkt auf die reale `.zip`-Datei angewendet (ein signiertes JAR ist strukturell nur ein speziell aufgebautes ZIP), statt des nativen, im Dialog als nicht praktikabel verworfenen ZIP-Spec-Digitalsignatur-Felds (hätte eigenes Byte-Parsing plus eine neue PKCS#7/CMS-Abhängigkeit wie Bouncy Castle erfordert). Die Checksummenliste der Manifest-JAR-Signatur liegt unter der neuen, internen Konvention `META-INF/plugin-checksums.txt`. Checksum-Berechnung (für `ChecksumSecurityStrategy` und diese Checksummenliste) erfolgt im Nachgang (auf Nutzerwunsch) über ein austauschbares `ChecksumAlgorithm`-Interface (`id`, `digest(bytes): String`) statt fest verdrahtetem SHA-256; mitgeliefert wird die finale Klasse `MessageDigestChecksumAlgorithm(id: String)`, die einen beliebigen JCA-`MessageDigest`-Algorithmennamen kapselt (`"MD5"`, `"SHA-256"`, `"SHA-512"`, ...), Standard ist `MessageDigestChecksumAlgorithm("SHA-512")`; im Dialog bewusst keine separaten Unterklassen je Algorithmus. Checksum-Freigabe-Persistenz ist als eigenständiges Funktions-Interface `ChecksumPersistenceCallback` modelliert, das außerhalb der Kette von einem Force-Load aufgerufen wird. Als nachträgliche, im Dialog abgestimmte Anpassung von IP-03 wurde `ZipJarScanStrategy` von Entpacken in ein Temp-Verzeichnis auf Zugriff über eine gemountete NIO-Zip-Filesystem-Provider (`FileSystems.newFileSystem`) umgestellt, ohne den Zip-Inhalt jemals auf die Platte zu schreiben; `PluginScanResult.path` ist für ZIP-Kandidaten seitdem die reale `.zip`-Datei statt eines Temp-Verzeichnisses, der `deleteOnExit`-Mechanismus entfällt dafür vollständig. Die vormals separaten, nahezu identischen `PluginManifestLookup`-Funktionen für Ordner- und ZIP-Scan wurden auf eine gemeinsame private Implementierung zusammengeführt.
 
 ### IP-05: ClassLoader-Isolation & Abhängigkeitsgraph
 
@@ -371,7 +375,7 @@ IP-01 (COMPLETED)
 │   └── IP-06
 │       └── IP-07
 ├── IP-03 (COMPLETED)
-│   ├── IP-04
+│   ├── IP-04 (COMPLETED)
 │   │   ├── IP-07
 │   │   └── IP-08
 │   └── IP-05
@@ -382,7 +386,7 @@ IP-01 (COMPLETED)
 
 * Genaue Konfigurationsschnittstelle für die vom Host bereitgestellte SDK-Whitelist (Format, Granularität: Paket- vs. Klassenebene) ist in der Detailplanung von IP-05 festzulegen
 * Unterscheidbarkeit von Deaktivierungsgründen (Nutzer vs. Laufzeitfehler) im Enabled/Disabled-Callback ist in der Detailplanung von IP-06 zu konkretisieren
-* Verrechnung von `PENDING_APPROVAL` einer einzelnen Strategie innerhalb der Fallback-Kette (sofortiger Kettenabbruch vs. Weiterprüfung nachfolgender Strategien) ist ungeklärt und muss vor der Detailplanung von IP-04 entschieden werden
+* Geklärt: `PENDING_APPROVAL` existiert nicht als Framework-Zustand; jede Strategie liefert nur Erfolg/Fehlschlag, ein Gesamtfehlschlag der Kette wird als `PluginScanStatus.SECURITY_PROBLEM` gemeldet, eine Freigabe ist reine Host-Entscheidung außerhalb von IP-04
 * Bibliotheksauswahl für RFC-9580-konformes OpenPGP-Parsing ist offen und mit dem Nutzer gemäß `dependencies.md` abzustimmen
 * Zeitverhalten (Timeout, Caching) und Fehlerbehandlung des OpenPGP-Keyserver-Zugriffs bei Netzwerkausfall sind in der Detailplanung von IP-08 zu klären
 * Geklärt: Force-Load benötigt keinen eigenen Audit-Trail-Callback; die Verantwortung für korrektes Logging des Vorgangs liegt bei der Host-Anwendung

@@ -15,14 +15,20 @@ enum class PluginScanStatus {
 
     /** A manifest file was found but failed schema validation or could not be mapped. */
     MANIFEST_INVALID,
+
+    /**
+     * The candidate's manifest was valid, but it failed every strategy of its location's security
+     * fallback chain (see `org.pcsoft.framework.pluggiat.security.PluginSecurityChainEvaluator`).
+     */
+    SECURITY_PROBLEM,
 }
 
 /**
  * A single plugin candidate found while scanning a [PluginLocation].
  *
  * @property location the location this candidate was found at
- * @property path the candidate's own location on disk (a single JAR, a plugin's own folder, or an
- * unpacked ZIP's temporary folder, depending on the location's [PluginLocation.scanStrategy])
+ * @property path the candidate's own location on disk (a single JAR, a plugin's own folder, or the
+ * ZIP archive itself, depending on the location's [PluginLocation.scanStrategy])
  * @property manifest the candidate's parsed manifest, `null` unless [status] is [PluginScanStatus.LOADED]
  * @property status the outcome of scanning this candidate
  * @property errorMessage human-readable reason, `null` unless [status] is not [PluginScanStatus.LOADED]
