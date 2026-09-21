@@ -35,7 +35,7 @@ val junitVersion = "6.1.3"
 val jacksonVersion = "2.22.2"
 val jsonSchemaValidatorVersion = "3.0.7"
 val mavenArtifactVersion = "3.9.16"
-val slf4jVersion = "2.0.17"
+val slf4jVersion = "2.0.19"
 
 dependencies {
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jacksonVersion}")
@@ -63,6 +63,8 @@ tasks.withType<JavaCompile> {
 
 tasks.test {
     useJUnitPlatform()
+    // Needed by ZipJarScanStrategyTest to verify deleteOnExit registration via java.io.DeleteOnExitHook.
+    jvmArgs("--add-opens", "java.base/java.io=ALL-UNNAMED")
 }
 
 licenseReport {

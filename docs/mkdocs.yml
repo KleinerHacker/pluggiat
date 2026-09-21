@@ -61,6 +61,7 @@ nav:
       - Manifest: plugin-development/manifest.md
       - Extension points: plugin-development/extension-points.md
   - Host integration:
+      - Configuring plugin locations: host-integration/setup.md
       - Defining extension points: host-integration/extension-points.md
   - API Docs: dokka/html/index.html
   - Licences: licences/index.html

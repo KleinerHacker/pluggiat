@@ -24,8 +24,8 @@ application.
   (`extensions.<key>`). Each implementation is resolved, type-checked against an annotated
   configuration class and instantiated as a factory/singleton.
 * **Plugin locations and load modes** - the host configures one or more locations to scan, each
-  with a load mode (`SINGLE_JAR`, `MULTI_JAR_WITH_OWN_FOLDER` or `ZIP_JAR`, the default) and a
-  builtin/external classification.
+  with a scan strategy (`SingleJarScanStrategy`, `MultiJarWithOwnFolderScanStrategy` or
+  `ZipJarScanStrategy`, the default) and a builtin/external classification.
 * **Security concepts** - each location enforces `PLAIN` (no check), `MUST_SIGN` (signature
   against a host-provided public key) or `CHECKSUM` (approval workflow for unknown or changed
   plugins), with sensible defaults per location type.

@@ -15,3 +15,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   configuration classes and register them with an `ExtensionPointRegistry`; manifest
   `extensions.<key>[]` entries are then resolved and instantiated via an `ExtensionAggregator`,
   including conflict handling for exclusive extension points.
+- Plugin scanner: hosts configure one or more `PluginLocation`s and scan them via `PluginScanner`,
+  using `SingleJarScanStrategy`, `MultiJarWithOwnFolderScanStrategy` or `ZipJarScanStrategy`
+  (default) to discover valid and invalid plugin candidates.
