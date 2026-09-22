@@ -11,8 +11,8 @@ import kotlin.reflect.full.primaryConstructor
  * Maps a single manifest `extensions.<key>[]` entry onto its registered [ExtensionConfiguration] and
  * an instantiated plugin implementation.
  *
- * @param registry the host's extension point registry
- * @param classResolver resolves the entry's `implementation` FQCN to a [Class]; defaults to resolution
+ * @property registry the host's extension point registry
+ * @property classResolver resolves the entry's `implementation` FQCN to a [Class]; defaults to resolution
  * via the calling class loader, replaceable by an isolated, classloader-aware implementation
  */
 internal class ExtensionDecorator(

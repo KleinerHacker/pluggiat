@@ -134,7 +134,7 @@
 | IP-03 | Plugin-Scanner & Lademodi (COMPLETED)          | Scan-Strategien SINGLE_JAR/MULTI_JAR_WITH_OWN_FOLDER/ZIP_JAR, Temp-Entpacken | IP-01          |
 | IP-04 | Sicherheitskonzept (Strategy-Kette) (COMPLETED, Persistenz-Migration in IP-06) | `PluginSecurityStrategy`-Interface, Fallback-Kette, mitgelieferte Basis-Strategien, Checksum-Persistenz (ab IP-06 über `PluginPersistenceStrategy`) | IP-03          |
 | IP-05 | ClassLoader-Isolation & Abhängigkeitsgraph (COMPLETED, Erweiterung in IP-06) | Parent-Last-Isolation, host-konfigurierte SDK-Whitelist, Plugin-Abhängigkeitsgraph, `PluginLoader`-Klasse inkl. Force-Load (Schließen des ClassLoaders folgt in IP-06) | IP-01, IP-03   |
-| IP-06 | Lifecycle & Fehlerisolation                    | `PluginManager`, Lifecycle-Hooks, `PluginPersistenceStrategy`, `PluginSecurity` (Rename+Re-Check), `ExceptionHandlingStrategy` mit Proxy-Durchsetzung (ByteBuddy) | IP-02, IP-05   |
+| IP-06 | Lifecycle & Fehlerisolation (COMPLETED)        | `PluginManager`, Lifecycle-Hooks, `PluginPersistenceStrategy`, `PluginSecurity` (Rename+Re-Check), `ExceptionHandlingStrategy` mit Proxy-Durchsetzung (ByteBuddy) | IP-02, IP-05   |
 | IP-07 | Orchestrierung & Laufzeit-Runtime              | Host-steuerbare Gesamtsteuerung auf Basis von `PluginManager`, ID-Kollisionsauflösung, minVersion-Check, Force-Load-Einstiegspunkt | IP-04, IP-06 |
 | IP-08 | Public-Key-Provider-Strategien                  | `PublicKeyProviderStrategy`-Interface, Truststore-, Direkt- und OpenPGP-Provider | IP-04          |
 
@@ -310,7 +310,7 @@ Force-Load ruft direkt den `PluginLoader` auf und umgeht das Ergebnis der `Plugi
 
 `PluginLoader` erhält in IP-06 zusätzlich die Fähigkeit, einen zuvor erzeugten Plugin-ClassLoader wieder zu schließen/zu verwerfen, da eine Deaktivierung ab IP-06 immer ein vollständiges Entladen des ClassLoaders bedeutet (nicht nur ein Ausblenden der Extensions).
 
-### IP-06: Lifecycle & Fehlerisolation
+### IP-06: Lifecycle & Fehlerisolation (COMPLETED)
 
 **Ziel**
 
@@ -338,7 +338,27 @@ Ein Plugin durchläuft beim Laden/Entladen nachvollziehbar seine Lifecycle-Phase
 Die Zwangsdeaktivierung nach einem Laufzeitfehler gilt dauerhaft und übersteht auch einen Neustart, bis das Plugin manuell reaktiviert wird; sie nutzt denselben `PluginPersistenceStrategy`-Mechanismus wie eine bewusste Nutzer-Deaktivierung, ist aber über einen eigenen Grund unterscheidbar.
 Ein Plugin kann das Exception-Handling nur indirekt über die Wahl der geworfenen Exception-Klasse beeinflussen, nicht über eine eigene registrierte Strategie — es gibt ausschließlich eine host-weite `ExceptionHandlingStrategy`.
 Jeder Typ, der die Plugin-Grenze über eine proxyte Methode überschreiten kann, sollte selbst proxy-eligibel (Interface oder offene Klasse) sein, sonst greift die Fehlerisolation an dieser Stelle nicht (dokumentierte Design-Regel für Host-APIs, mit WARN-Log zur Laufzeit).
-Details siehe `.claude/plans/implementation/FP-001-IP-06-LifecycleAndErrorIsolation.md`.
+**Tatsächliche Umsetzung (Abweichungen vom ursprünglichen Plan)**
+
+`PluginExtensionCandidate` (IP-02) erhielt statt eines separaten Enabled/Disabled-Callback-Objekts nur ein
+zusätzliches `onUnload: () -> Unit`-Feld; `ExtensionAggregator` selbst prüft den Enabled/Disabled-Status,
+instanziiert den Enforcement-Proxy und ruft bei `UNLOAD` sowohl `PluginLifecycle`-Hooks als auch die
+Persistence-Writes und diesen Callback auf. Der `ExceptionHandlingStrategy`-Standard-Matrix-Fallback
+unterscheidet checked/unchecked NICHT über generische `Exception`/`Throwable`-Matrixeinträge (eine
+`RuntimeException` hätte sonst fälschlich die `Exception`-Regel geerbt), sondern über eine explizite
+`is Exception && !is RuntimeException`-Prüfung; `PluginExecutionException`/`PluginFatalException` sind
+bewusst `RuntimeException` statt `Exception`, da ein JDK-`Proxy` eine checked Exception sonst in
+`UndeclaredThrowableException` verpackt hätte. Abweichung vom Plan-Wortlaut: ein `T` mit fehlender
+Proxy-Eligibilität blockiert das Laden betroffener Plugins NICHT automatisch (nur ERROR-Log bei
+Registrierung in `ExtensionPointRegistry`) - eine echte Ladeblockade hätte eine zusätzliche
+Ablehnungsprüfung in `ExtensionAggregator.aggregate` erfordert, die über die eigentliche
+Proxy-Durchsetzung hinausgegangen wäre; stattdessen wird die reale, ungeschützte Instanz durchgereicht.
+`DependencyGraph.topologicalOrder` (IP-05) wurde NICHT um eine "Informieren bei UNLOAD"-Fähigkeit
+erweitert, da es sich um eine bewusst zustandslose, reine Funktion ohne Laufzeitinstanz handelt - die
+Ladereihenfolge wird bei jedem Aufruf ohnehin frisch aus der übergebenen Manifest-Liste berechnet, ein
+entferntes Plugin fällt beim nächsten Aufruf einfach aus dieser Liste heraus. Neue Test-Dependency
+`com.h2database:h2` (EPL-1.0) für den In-Memory-JDBC-Test von `DatabasePersistenceStrategy`, mit dem
+Nutzer abgestimmt. Details siehe Notiz zu IP-06 in `.claude/plans/features/FP-001-PluginManagementSystem-status.md`.
 
 ### IP-07: Orchestrierung & Laufzeit-Runtime
 
@@ -400,14 +420,14 @@ Für den OpenPGP-Provider ist vor Beginn der Detailplanung zu klären, welche Bi
 ```text
 IP-01 (COMPLETED)
 ├── IP-02 (COMPLETED)
-│   └── IP-06
+│   └── IP-06 (COMPLETED)
 │       └── IP-07
 ├── IP-03 (COMPLETED)
 │   ├── IP-04 (COMPLETED, Persistenz-Migration in IP-06)
 │   │   ├── IP-07
 │   │   └── IP-08
 │   └── IP-05 (COMPLETED, Erweiterung in IP-06)
-│       └── IP-06
+│       └── IP-06 (COMPLETED)
 ```
 
 ## 9. Risiken und offene Fragen

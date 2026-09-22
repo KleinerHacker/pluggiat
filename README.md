@@ -22,9 +22,14 @@ discovery, isolation or lifecycle handling.
 * Plugin dependency graph with required and optional dependencies between plugins, cycle detection,
   and a configurable `PluginDependencyStrategy` governing cross-location visibility
 * Plugin lifecycle hooks (`onLoad`/`onEnable`/`onDisable`/`onUnload`) and a persistent
-  enabled/disabled status _(planned)_
-* Runtime error isolation: an unhandled exception in a plugin's extension forces only that plugin
-  to be deactivated, not the whole host application _(planned)_
+  enabled/disabled status, checked before any extension class of a disabled plugin is resolved
+* Generic, pluggable `PluginPersistenceStrategy` (no-op, custom callback, file in four formats,
+  JDBC) backing both the checksum security strategy and the enabled/disabled status
+* Runtime error isolation: every extension call is enforced through a runtime proxy
+  (`java.lang.reflect.Proxy`/ByteBuddy) resolving escaping exceptions via a configurable
+  `ExceptionHandlingStrategy` (`IGNORE`/`UNLOAD`/`CRASH`) - an unhandled exception forces only that
+  plugin to be deactivated, not the whole host application
+* Central `PluginManager` entry point with a Kotlin builder DSL bundling host-wide configuration
 * Cross-location plugin ID collision resolution and a `minVersion` compatibility check against the
   host application _(planned)_
 
@@ -72,5 +77,5 @@ dependencies {
 | Plugin scanner and load modes                                      | planned |
 | Security concepts (`PLAIN`/`MUST_SIGN`/`CHECKSUM`)                  | planned |
 | Isolated classpaths and dependency graph                           | implemented |
-| Plugin lifecycle and runtime error isolation                       | planned |
+| Plugin lifecycle and runtime error isolation                       | implemented |
 | Orchestration runtime (ID collisions, `minVersion` check)           | planned |

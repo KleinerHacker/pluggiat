@@ -22,7 +22,7 @@ val scanner = PluginScanner(
         PluginLocationType.BUILTIN to listOf(InsecureSecurityStrategy()),
         PluginLocationType.EXTERNAL to listOf(
             SignatureSecurityStrategy(myPublicKeyProviderStrategy),
-            ChecksumSecurityStrategy(myExpectedChecksumCallback),
+            ChecksumSecurityStrategy(myPersistenceStrategy),
         ),
     ),
 )
@@ -129,18 +129,23 @@ is still technically valid.
 ### `ChecksumSecurityStrategy`
 
 Compares a candidate's actual checksum (SHA-512 by default, see
-[Checksum algorithms](#checksum-algorithms)) against the value resolved via an injected
-`ExpectedChecksumCallback` for the plugin's manifest `id`:
+[Checksum algorithms](#checksum-algorithms)) against the value stored under the plugin's manifest
+`id` and the `"checksum"` key in the configured [`PluginPersistenceStrategy`](persistence.md):
 
 ```kotlin
-val strategy = ChecksumSecurityStrategy(
-    expectedChecksumCallback = ExpectedChecksumCallback { pluginId -> myStorage.readApprovedChecksum(pluginId) },
-)
+val strategy = ChecksumSecurityStrategy(persistenceStrategy = myPersistenceStrategy)
 ```
 
 Both an unresolved expected checksum (`null`, e.g. never seen before) and a mismatch (e.g. the
 plugin file changed) are treated identically as a **failed** check - the framework has no separate
 "pending" state.
+
+!!! note "Migration note (breaking change)"
+
+    Prior to IP-06, `ChecksumSecurityStrategy` took a separate `ExpectedChecksumCallback`, and an
+    approved checksum was recorded through a dedicated `ChecksumPersistenceCallback`. Both were
+    removed in favor of the single, generic [`PluginPersistenceStrategy`](persistence.md) (key
+    `"checksum"`), which now also backs the plugin enabled/disabled status.
 
 ## Host approval flow after a `SECURITY_PROBLEM`
 
@@ -153,11 +158,11 @@ There is no `PENDING_APPROVAL` status in the framework. Whether and how to react
 3. If the user approves, the host application explicitly force-loads the plugin via `PluginLoader`
    (see the ClassLoader documentation), independent of the failed security result.
 4. As a consequence of that force-load, the host application persists the newly accepted checksum
-   through a `ChecksumPersistenceCallback`, so subsequent scans succeed on their own without
-   requiring another approval:
+   through the same `PluginPersistenceStrategy` instance, so subsequent scans succeed on their own
+   without requiring another approval:
 
 ```kotlin
-val persistenceCallback = ChecksumPersistenceCallback { pluginId, checksum -> myStorage.saveApprovedChecksum(pluginId, checksum) }
+myPersistenceStrategy.write(pluginId, ChecksumSecurityStrategy.PERSISTENCE_KEY, newlyAcceptedChecksum)
 ```
 
 None of this blocks the scan path: resolving an expected checksum, persisting an approved one, and

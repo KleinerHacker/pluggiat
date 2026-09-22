@@ -12,7 +12,7 @@ import org.pcsoft.framework.pluggiat.scanner.PluginScanStatus
 import org.pcsoft.framework.pluggiat.scanner.SingleJarScanStrategy
 import java.nio.file.Path
 
-class PluginSecurityChainEvaluatorTest {
+class PluginSecurityTest {
 
     private class FixedResultStrategy(private val result: PluginSecurityCheckResult) : PluginSecurityStrategy {
         var invoked: Boolean = false
@@ -38,7 +38,7 @@ class PluginSecurityChainEvaluatorTest {
         val location = PluginLocation(Path.of("."), PluginLocationType.EXTERNAL, SingleJarScanStrategy())
 
         assertThrows(IllegalStateException::class.java) {
-            PluginSecurityChainEvaluator().evaluate(scanResult(location), emptyMap())
+            PluginSecurity().evaluate(scanResult(location), emptyMap())
         }
     }
 
@@ -52,7 +52,7 @@ class PluginSecurityChainEvaluatorTest {
         val location = PluginLocation(Path.of("."), PluginLocationType.EXTERNAL, SingleJarScanStrategy(), securityOverride = listOf(overrideStrategy))
         val defaults = mapOf(PluginLocationType.EXTERNAL to listOf(defaultStrategy))
 
-        PluginSecurityChainEvaluator().evaluate(scanResult(location), defaults)
+        PluginSecurity().evaluate(scanResult(location), defaults)
 
         assertTrue(overrideStrategy.invoked)
         assertTrue(!defaultStrategy.invoked)
@@ -69,7 +69,7 @@ class PluginSecurityChainEvaluatorTest {
         val third = FixedResultStrategy(PluginSecurityCheckResult.Success)
         val location = PluginLocation(Path.of("."), PluginLocationType.EXTERNAL, SingleJarScanStrategy(), securityOverride = listOf(first, second, third))
 
-        val result = PluginSecurityChainEvaluator().evaluate(scanResult(location), emptyMap())
+        val result = PluginSecurity().evaluate(scanResult(location), emptyMap())
 
         assertEquals(PluginSecurityCheckResult.Success, result)
         assertTrue(first.invoked)
@@ -86,7 +86,7 @@ class PluginSecurityChainEvaluatorTest {
         val second = FixedResultStrategy(PluginSecurityCheckResult.Failure("second failed"))
         val location = PluginLocation(Path.of("."), PluginLocationType.EXTERNAL, SingleJarScanStrategy(), securityOverride = listOf(first, second))
 
-        val result = PluginSecurityChainEvaluator().evaluate(scanResult(location), emptyMap())
+        val result = PluginSecurity().evaluate(scanResult(location), emptyMap())
 
         assertTrue(result is PluginSecurityCheckResult.Failure)
         assertTrue((result as PluginSecurityCheckResult.Failure).reason.contains("first failed"))
@@ -104,8 +104,44 @@ class PluginSecurityChainEvaluatorTest {
         }
         val location = PluginLocation(Path.of("."), PluginLocationType.EXTERNAL, SingleJarScanStrategy(), securityOverride = listOf(customStrategy))
 
-        val result = PluginSecurityChainEvaluator().evaluate(scanResult(location), emptyMap())
+        val result = PluginSecurity().evaluate(scanResult(location), emptyMap())
 
         assertEquals(PluginSecurityCheckResult.Success, result)
+    }
+
+    /**
+     * Use case: [PluginSecurity.reevaluate] re-reads the candidate from disk via the location's
+     * scan strategy and re-evaluates the security chain against the fresh candidate, as the first
+     * step of a reactivation flow.
+     */
+    @Test
+    fun `reevaluate re-reads the candidate and evaluates it against the chain`(@org.junit.jupiter.api.io.TempDir tempDir: Path) {
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.writeJar(
+            jarPath,
+            mapOf("META-INF/plugin.yml" to org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.validManifestYaml("plugin-a")),
+        )
+        val strategy = FixedResultStrategy(PluginSecurityCheckResult.Success)
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy(), securityOverride = listOf(strategy))
+
+        val result = PluginSecurity().reevaluate(location, jarPath, emptyMap())
+
+        assertEquals(PluginSecurityCheckResult.Success, result)
+        assertTrue(strategy.invoked)
+    }
+
+    /**
+     * Use case: if the candidate is no longer valid on re-check (e.g. the manifest was removed
+     * since), [PluginSecurity.reevaluate] fails instead of evaluating a stale result.
+     */
+    @Test
+    fun `reevaluate fails when the candidate is no longer valid on re-check`(@org.junit.jupiter.api.io.TempDir tempDir: Path) {
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.writeJar(jarPath, emptyMap())
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+
+        val result = PluginSecurity().reevaluate(location, jarPath, emptyMap())
+
+        assertTrue(result is PluginSecurityCheckResult.Failure)
     }
 }

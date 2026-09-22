@@ -1,6 +1,12 @@
 package org.pcsoft.framework.pluggiat.extension
 
+import org.pcsoft.framework.pluggiat.PluginLifecycle
+import org.pcsoft.framework.pluggiat.exception.DefaultExceptionHandlingStrategy
+import org.pcsoft.framework.pluggiat.exception.ExceptionHandlingStrategy
 import org.pcsoft.framework.pluggiat.manifest.PluginManifest
+import org.pcsoft.framework.pluggiat.persistence.NoPersistenceStrategy
+import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
+import org.pcsoft.framework.pluggiat.proxy.ExtensionProxyFactory
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 
@@ -13,6 +19,12 @@ enum class PluginExtensionStatus {
 
     /** The plugin contributed to an exclusive extension point key together with at least one other plugin. */
     REJECTED_EXCLUSIVE_CONFLICT,
+
+    /**
+     * The plugin is disabled per [PluginPersistenceStrategy]; its extension classes were not
+     * resolved/instantiated at all.
+     */
+    DISABLED,
 }
 
 /**
@@ -21,11 +33,17 @@ enum class PluginExtensionStatus {
  * @property pluginId id of the plugin
  * @property path location the plugin was scanned from; passed through unchanged into the result
  * @property manifest the plugin's parsed manifest
+ * @property onUnload invoked (in addition to the framework's own enabled/disabled persistence and
+ * lifecycle hook calls) whenever a runtime exception resolves to
+ * `org.pcsoft.framework.pluggiat.exception.ExceptionHandlingAction.UNLOAD` for this plugin; a
+ * caller that has the plugin's `org.pcsoft.framework.pluggiat.classloader.LoadedPlugin` wires this
+ * to `LoadedPlugin.close()` so the class loader is actually discarded
  */
 data class PluginExtensionCandidate(
     val pluginId: String,
     val path: Path,
     val manifest: PluginManifest,
+    val onUnload: () -> Unit = {},
 )
 
 /**
@@ -45,7 +63,10 @@ data class PluginExtensionResult(
  * Combined result of aggregating extensions across all scanned plugin candidates.
  *
  * @property pluginResults per-plugin outcome (id, path, status)
- * @property extensionsByKey resolved extensions of all non-rejected plugins, grouped by extension point key
+ * @property extensionsByKey resolved extensions of all non-rejected, non-disabled plugins, grouped
+ * by extension point key; an entry's [ResolvedExtension.instance] is the runtime enforcement proxy
+ * (see [ExtensionProxyFactory]) whenever its extension point's host plugin API type is proxy-eligible,
+ * the real instance otherwise
  */
 data class ExtensionAggregationResult(
     val pluginResults: List<PluginExtensionResult>,
@@ -53,33 +74,46 @@ data class ExtensionAggregationResult(
 )
 
 /**
- * Aggregates extension entries of multiple plugins per extension point key and applies exclusivity
- * conflict handling.
+ * Aggregates extension entries of multiple plugins per extension point key, applies exclusivity
+ * conflict handling and the enabled/disabled status, and enforces the runtime proxy (task 6 of
+ * IP-06's implementation plan).
  *
- * @param registry the host's extension point registry
+ * @property registry the host's extension point registry
  * @param classResolver resolves an entry's `implementation` FQCN to a [Class]
+ * @property persistenceStrategy source of truth for a plugin's enabled/disabled status (key
+ * `"enabled"`, absent/anything but `"false"` means enabled) and disable reason (key
+ * `"disabledReason"`)
+ * @property exceptionHandlingStrategy resolves the action for a `Throwable` escaping a proxied
+ * extension call
  */
 class ExtensionAggregator(
     private val registry: ExtensionPointRegistry,
     classResolver: ExtensionClassResolver = DefaultExtensionClassResolver,
+    private val persistenceStrategy: PluginPersistenceStrategy = NoPersistenceStrategy(),
+    private val exceptionHandlingStrategy: ExceptionHandlingStrategy = DefaultExceptionHandlingStrategy(),
 ) {
     private val decorator = ExtensionDecorator(registry, classResolver)
     private val logger = LoggerFactory.getLogger(ExtensionAggregator::class.java)
 
     /**
-     * Resolves the extensions of all [candidates], groups non-exclusive keys into lists, and rejects
-     * both plugins involved whenever an exclusive key is contributed by more than one plugin.
+     * Resolves the extensions of all enabled [candidates], groups non-exclusive keys into lists,
+     * rejects both plugins involved whenever an exclusive key is contributed by more than one
+     * plugin, and skips disabled plugins entirely (no class resolution/instantiation at all for
+     * them).
      *
-     * @throws ExtensionMappingException if any candidate's extension entries cannot be mapped, see [ExtensionDecorator.decorate]
+     * @throws ExtensionMappingException if any enabled candidate's extension entries cannot be mapped, see [ExtensionDecorator.decorate]
      */
     fun aggregate(candidates: List<PluginExtensionCandidate>): ExtensionAggregationResult {
-        val resolvedByPlugin: Map<String, List<ResolvedExtension>> = candidates.associate { candidate ->
+        val enabledIds = candidates.map { it.pluginId }.filter { isEnabled(it) }.toSet()
+        val enabledCandidates = candidates.filter { it.pluginId in enabledIds }
+
+        val resolvedByPlugin: Map<String, List<ResolvedExtension>> = enabledCandidates.associate { candidate ->
             candidate.pluginId to candidate.manifest.extensions.flatMap { (key, entries) ->
-                entries.map { entry -> decorator.decorate(candidate.pluginId, key, entry) }
+                entries.map { entry -> resolveAndEnforce(candidate, key, entry) }
             }
         }
 
-        val contributorsByKey: Map<String, Set<String>> = candidates
+        val contributorsByKey: Map<String, Set<String>> = enabledCandidates
             .flatMap { candidate -> candidate.manifest.extensions.keys.map { key -> key to candidate.pluginId } }
             .groupBy({ it.first }, { it.second })
             .mapValues { it.value.toSet() }
@@ -96,10 +130,10 @@ class ExtensionAggregator(
             PluginExtensionResult(
                 pluginId = candidate.pluginId,
                 path = candidate.path,
-                status = if (candidate.pluginId in rejectedPluginIds) {
-                    PluginExtensionStatus.REJECTED_EXCLUSIVE_CONFLICT
-                } else {
-                    PluginExtensionStatus.LOADED
+                status = when {
+                    candidate.pluginId !in enabledIds -> PluginExtensionStatus.DISABLED
+                    candidate.pluginId in rejectedPluginIds -> PluginExtensionStatus.REJECTED_EXCLUSIVE_CONFLICT
+                    else -> PluginExtensionStatus.LOADED
                 },
             )
         }
@@ -111,5 +145,62 @@ class ExtensionAggregator(
             .groupBy { it.key }
 
         return ExtensionAggregationResult(pluginResults, extensionsByKey)
+    }
+
+    private fun isEnabled(pluginId: String): Boolean =
+        persistenceStrategy.read(pluginId, ENABLED_PERSISTENCE_KEY) != "false"
+
+    private fun resolveAndEnforce(
+        candidate: PluginExtensionCandidate,
+        key: String,
+        entry: org.pcsoft.framework.pluggiat.manifest.ExtensionEntry,
+    ): ResolvedExtension {
+        val resolved = decorator.decorate(candidate.pluginId, key, entry)
+        val realInstance = resolved.instance
+        if (realInstance is PluginLifecycle) {
+            logger.debug("Invoking onLoad on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
+            realInstance.onLoad()
+            logger.debug("Invoking onEnable on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
+            realInstance.onEnable()
+        }
+
+        val apiType = registry.registrationFor(key)?.apiType
+        val proxied = if (apiType != null) {
+            @Suppress("UNCHECKED_CAST")
+            ExtensionProxyFactory.create(apiType as Class<Any>, realInstance, exceptionHandlingStrategy) {
+                forceDisable(candidate, realInstance)
+            }
+        } else {
+            realInstance
+        }
+        return resolved.copy(instance = proxied)
+    }
+
+    private fun forceDisable(candidate: PluginExtensionCandidate, realInstance: Any) {
+        logger.error("Forcibly disabling plugin '{}' due to a runtime UNLOAD action", candidate.pluginId)
+        if (realInstance is PluginLifecycle) {
+            logger.debug("Invoking onDisable on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
+            runCatching { realInstance.onDisable() }
+            logger.debug("Invoking onUnload on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
+            runCatching { realInstance.onUnload() }
+        }
+        persistenceStrategy.write(candidate.pluginId, DISABLED_REASON_PERSISTENCE_KEY, RUNTIME_ERROR_REASON)
+        persistenceStrategy.write(candidate.pluginId, ENABLED_PERSISTENCE_KEY, "false")
+        logger.info("Plugin '{}' persisted as disabled (reason={})", candidate.pluginId, RUNTIME_ERROR_REASON)
+        candidate.onUnload()
+    }
+
+    companion object {
+        /** [PluginPersistenceStrategy] key holding a plugin's enabled/disabled status (`"true"`/`"false"`). */
+        const val ENABLED_PERSISTENCE_KEY: String = "enabled"
+
+        /** [PluginPersistenceStrategy] key holding the reason a plugin was disabled. */
+        const val DISABLED_REASON_PERSISTENCE_KEY: String = "disabledReason"
+
+        /** [DISABLED_REASON_PERSISTENCE_KEY] value recorded when [ExceptionHandlingAction.UNLOAD] force-disables a plugin. */
+        const val RUNTIME_ERROR_REASON: String = "RUNTIME_ERROR"
+
+        /** [DISABLED_REASON_PERSISTENCE_KEY] value a host records for an explicit user-initiated disable. */
+        const val USER_REASON: String = "USER"
     }
 }

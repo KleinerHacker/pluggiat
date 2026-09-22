@@ -18,7 +18,7 @@ enum class PluginScanStatus {
 
     /**
      * The candidate's manifest was valid, but it failed every strategy of its location's security
-     * fallback chain (see `org.pcsoft.framework.pluggiat.security.PluginSecurityChainEvaluator`).
+     * fallback chain (see `org.pcsoft.framework.pluggiat.security.PluginSecurity`).
      */
     SECURITY_PROBLEM,
 }

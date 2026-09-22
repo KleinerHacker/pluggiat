@@ -1,15 +1,22 @@
 package org.pcsoft.framework.pluggiat.security
 
+import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
+import org.pcsoft.framework.pluggiat.scanner.PluginScanStatus
 import org.slf4j.LoggerFactory
+import java.nio.file.Path
 
 /**
  * Evaluates a plugin location's ordered fallback chain of [PluginSecurityStrategy]s against a
- * single scanned plugin candidate.
+ * scanned plugin candidate.
+ *
+ * Public API, freely usable by a host directly (analogous to
+ * `org.pcsoft.framework.pluggiat.classloader.PluginLoader`), independent of any reactivation flow -
+ * not only used internally by `org.pcsoft.framework.pluggiat.scanner.PluginScanner`.
  */
-class PluginSecurityChainEvaluator {
-    private val logger = LoggerFactory.getLogger(PluginSecurityChainEvaluator::class.java)
+class PluginSecurity {
+    private val logger = LoggerFactory.getLogger(PluginSecurity::class.java)
 
     /**
      * Evaluates the security chain for [result].
@@ -22,6 +29,9 @@ class PluginSecurityChainEvaluator {
      * positively. A security problem is only reported once ALL strategies of the chain have
      * failed.
      *
+     * @param result the scanned plugin candidate to evaluate
+     * @param defaultSecurityChains the default security fallback chain per [PluginLocationType],
+     * consulted when [result]'s location has no `securityOverride` of its own
      * @throws IllegalStateException if the effective chain is empty, i.e. no security strategy at
      * all is configured for this location, neither as override nor as type default
      */
@@ -54,5 +64,33 @@ class PluginSecurityChainEvaluator {
         return PluginSecurityCheckResult.Failure(
             "All ${chain.size} security strategies failed for '${result.path}': ${failureReasons.joinToString("; ")}",
         )
+    }
+
+    /**
+     * Re-reads the candidate at [path] within [location] via its [PluginLocation.scanStrategy] and
+     * re-[evaluate]s it against [defaultSecurityChains].
+     *
+     * Used as the first step of a plugin reactivation flow (re-check before
+     * `org.pcsoft.framework.pluggiat.classloader.PluginLoader.load` is called again), but callable
+     * by a host independently of any reactivation as well.
+     *
+     * @param location the location to re-scan [path] within
+     * @param path candidate path to re-scan and re-evaluate
+     * @param defaultSecurityChains the default security fallback chain per [PluginLocationType],
+     * consulted when [location] has no `securityOverride` of its own
+     * @throws NoSuchElementException if [location]'s scan strategy no longer reports a candidate at [path]
+     */
+    fun reevaluate(
+        location: PluginLocation,
+        path: Path,
+        defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+    ): PluginSecurityCheckResult {
+        val rescanned = location.scanStrategy.scan(location).first { it.path == path }
+        if (rescanned.status != PluginScanStatus.LOADED) {
+            return PluginSecurityCheckResult.Failure(
+                "Candidate at '$path' is no longer a valid plugin candidate on re-check: ${rescanned.errorMessage} (${rescanned.status})",
+            )
+        }
+        return evaluate(rescanned, defaultSecurityChains)
     }
 }

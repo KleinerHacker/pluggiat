@@ -15,7 +15,7 @@ import java.nio.file.Path
  * that is empty too (the built-in default), scanning this location fails with a configuration
  * error - some security chain must always be configured, explicitly including
  * `org.pcsoft.framework.pluggiat.security.InsecureSecurityStrategy` if no check is desired (see
- * `org.pcsoft.framework.pluggiat.security.PluginSecurityChainEvaluator`)
+ * `org.pcsoft.framework.pluggiat.security.PluginSecurity`)
  * @property dependencyStrategyOverride [PluginDependencyStrategy] overriding the global default
  * dependency-visibility strategy for this location; `null` means the global default applies. A
  * location can always see plugins within itself, regardless of the effective strategy, unless that

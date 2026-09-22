@@ -53,6 +53,31 @@ class ExtensionPointRegistryTest {
             ExtensionPointRegistry(listOf(ExporterTestConfig::class, DuplicateExporterTestConfig::class))
         }
     }
+
+    /**
+     * Use case: an extension point whose host plugin API type `T` is a final class fails
+     * registration outright, since extension instances are exclusively handed to the host as a
+     * runtime enforcement proxy (IP-06 task 6) and a final `T` can never be proxied - this is a
+     * registration-time error of the host's own configuration class, not a late-binding plugin
+     * problem, so it must not silently degrade.
+     */
+    @Test
+    fun `fails when a registered host plugin API type is a final class`() {
+        assertThrows(ExtensionRegistrationException::class.java) {
+            ExtensionPointRegistry(listOf(FinalApiTestConfig::class))
+        }
+    }
+
+    /**
+     * Use case: an extension point whose host plugin API type `T` is an interface or open class
+     * registers successfully.
+     */
+    @Test
+    fun `registers an extension point with an interface host plugin API type`() {
+        val registry = ExtensionPointRegistry(listOf(ExporterTestConfig::class))
+
+        assertEquals(TestExporter::class.java, registry.registrationFor("exporters")?.apiType)
+    }
 }
 
 @ExtensionPoint(key = "exporters")

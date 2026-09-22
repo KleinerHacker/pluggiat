@@ -36,6 +36,9 @@ val jacksonVersion = "2.22.2"
 val jsonSchemaValidatorVersion = "1.5.6"
 val mavenArtifactVersion = "3.9.16"
 val slf4jVersion = "2.0.19"
+val h2Version = "2.4.240"
+val byteBuddyVersion = "1.17.8"
+val objenesisVersion = "3.4"
 
 dependencies {
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jacksonVersion}")
@@ -43,10 +46,15 @@ dependencies {
     implementation("com.networknt:json-schema-validator:${jsonSchemaValidatorVersion}")
     implementation("org.apache.maven:maven-artifact:${mavenArtifactVersion}")
     implementation("org.slf4j:slf4j-api:${slf4jVersion}")
+    // Runtime enforcement proxy in front of extension instances (IP-06 task 6).
+    implementation("net.bytebuddy:byte-buddy:${byteBuddyVersion}")
+    implementation("org.objenesis:objenesis:${objenesisVersion}")
 
     testImplementation(kotlin("reflect"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
     testImplementation("org.junit.jupiter:junit-jupiter-params:${junitVersion}")
+    // In-memory JDBC driver used only to test DatabasePersistenceStrategy against a real database.
+    testImplementation("com.h2database:h2:${h2Version}")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:${junitVersion}")
     // Since JUnit 6 the platform launcher is no longer contributed automatically.
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -78,6 +86,7 @@ licenseReport {
 licensee {
     allow("Apache-2.0")
     allow("MIT")
+    allow("EPL-1.0")
     allowUrl("https://opensource.org/license/mit")
 }
 

@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory
  * A [PluginSecurityStrategy] that performs no check at all and always accepts the candidate.
  *
  * Naming this strategy "insecure" is deliberate: a location's fallback chain starts out empty by
- * default (see [PluginSecurityChainEvaluator]), so opting into no security check at all requires
+ * default (see [PluginSecurity]), so opting into no security check at all requires
  * explicitly adding this strategy, rather than it being an implicit default.
  */
 class InsecureSecurityStrategy : PluginSecurityStrategy {

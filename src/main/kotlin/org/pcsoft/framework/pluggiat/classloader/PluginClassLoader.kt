@@ -12,6 +12,13 @@ import java.net.URLClassLoader
  * [dependencyClassLoaders] in declaration order. A plugin can therefore never see host-internal
  * classes outside the whitelist, and never sees another plugin's classes unless that plugin's
  * class loader was explicitly passed in as a dependency.
+ *
+ * @param urls the plugin's own JAR(s) to load classes/resources from
+ * @property hostClassLoader the host application's own class loader, consulted for
+ * [sdkWhitelist]-matched classes
+ * @property sdkWhitelist packages of the host's own SDK exposed to this plugin
+ * @property dependencyClassLoaders class loaders of this plugin's already-loaded dependencies, in
+ * declaration order
  */
 class PluginClassLoader(
     urls: Array<URL>,

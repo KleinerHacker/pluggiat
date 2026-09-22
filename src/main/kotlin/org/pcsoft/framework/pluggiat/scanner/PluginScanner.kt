@@ -1,7 +1,7 @@
 package org.pcsoft.framework.pluggiat.scanner
 
+import org.pcsoft.framework.pluggiat.security.PluginSecurity
 import org.pcsoft.framework.pluggiat.security.PluginSecurityCheckResult
-import org.pcsoft.framework.pluggiat.security.PluginSecurityChainEvaluator
 import org.pcsoft.framework.pluggiat.security.PluginSecurityStrategy
 import org.slf4j.LoggerFactory
 
@@ -11,11 +11,12 @@ import org.slf4j.LoggerFactory
  * @property defaultSecurityChains the default security fallback chain applied to a location per
  * [PluginLocationType], used whenever a location does not configure its own
  * [PluginLocation.securityOverride]; empty by default, meaning a location without an explicit
- * override has no default chain to fall back to (see [PluginSecurityChainEvaluator])
+ * override has no default chain to fall back to (see [PluginSecurity])
+ * @property security evaluates each scanned candidate's security fallback chain
  */
 class PluginScanner(
     private val defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>> = emptyMap(),
-    private val securityChainEvaluator: PluginSecurityChainEvaluator = PluginSecurityChainEvaluator(),
+    private val security: PluginSecurity = PluginSecurity(),
 ) {
     private val logger = LoggerFactory.getLogger(PluginScanner::class.java)
 
@@ -42,7 +43,7 @@ class PluginScanner(
             return result
         }
 
-        return when (val checkResult = securityChainEvaluator.evaluate(result, defaultSecurityChains)) {
+        return when (val checkResult = security.evaluate(result, defaultSecurityChains)) {
             is PluginSecurityCheckResult.Success -> result
             is PluginSecurityCheckResult.Failure -> {
                 logger.warn("Security problem for plugin candidate at '{}': {}", result.path, checkResult.reason)

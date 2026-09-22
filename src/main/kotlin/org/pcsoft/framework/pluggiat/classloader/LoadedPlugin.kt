@@ -18,7 +18,14 @@ data class LoadedPlugin(
     val classLoader: PluginClassLoader,
     private val mountedFileSystem: FileSystem? = null,
 ) : AutoCloseable {
+
+    /**
+     * Discards this plugin's isolated [classLoader] and closes [mountedFileSystem] (if any), as the
+     * fixed final step of every deactivation (disable/unload/forced UNLOAD). Reactivation afterward
+     * requires a full reload - a discarded [classLoader] can never be resumed.
+     */
     override fun close() {
+        classLoader.close()
         mountedFileSystem?.close()
     }
 }
