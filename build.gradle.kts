@@ -37,7 +37,7 @@ val jsonSchemaValidatorVersion = "1.5.6"
 val mavenArtifactVersion = "3.9.16"
 val slf4jVersion = "2.0.19"
 val h2Version = "2.4.240"
-val byteBuddyVersion = "1.17.8"
+val byteBuddyVersion = "1.18.14"
 val objenesisVersion = "3.4"
 
 dependencies {
