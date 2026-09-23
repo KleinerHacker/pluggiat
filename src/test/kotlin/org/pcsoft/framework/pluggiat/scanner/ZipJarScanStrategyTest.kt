@@ -1,7 +1,7 @@
 package org.pcsoft.framework.pluggiat.scanner
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream
@@ -41,11 +41,12 @@ class ZipJarScanStrategyTest {
     }
 
     /**
-     * Use case: a ZIP containing a manifest JAR is unpacked into a temporary directory and reported
-     * as one loaded plugin candidate.
+     * Use case: a ZIP containing a manifest JAR is scanned via its mounted ZIP filesystem, without
+     * being unpacked onto disk, and reported as one loaded plugin candidate whose path is the ZIP
+     * file itself.
      */
     @Test
-    fun `scans a ZIP containing a manifest JAR as loaded and unpacks it into a temp directory`(@TempDir tempDir: Path) {
+    fun `scans a ZIP containing a manifest JAR as loaded without unpacking it`(@TempDir tempDir: Path) {
         val zipPath = tempDir.resolve("plugin-a.zip")
         writeZipWithBinaryEntries(
             zipPath,
@@ -59,8 +60,7 @@ class ZipJarScanStrategyTest {
         val result = results.single()
         assertEquals(PluginScanStatus.LOADED, result.status)
         assertEquals("plugin-a", result.manifest?.id)
-        assertTrue(Files.isDirectory(result.path))
-        assertTrue(Files.exists(result.path.resolve("plugin-a.jar")))
+        assertEquals(zipPath, result.path)
     }
 
     /**
@@ -76,34 +76,8 @@ class ZipJarScanStrategyTest {
         val results = location.scanStrategy.scan(location)
 
         assertEquals(1, results.size)
-        assertEquals(PluginScanStatus.MANIFEST_NOT_FOUND, results.single().status)
-    }
-
-    /**
-     * Use case: the temporary directory an unpacked ZIP is extracted into, and every file/directory
-     * extracted below it, is registered for cleanup via [java.io.File.deleteOnExit].
-     */
-    @Test
-    fun `registers the unpacked temp directory and its content for deleteOnExit`(@TempDir tempDir: Path) {
-        val zipPath = tempDir.resolve("plugin-a.zip")
-        writeZipWithBinaryEntries(
-            zipPath,
-            mapOf("plugin-a.jar" to jarBytes(mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")))),
-        )
-        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, ZipJarScanStrategy())
-
-        val result = location.scanStrategy.scan(location).single()
-
-        val registeredPaths = deleteOnExitRegisteredPaths()
-        assertTrue(registeredPaths.contains(result.path.toString()))
-        assertTrue(registeredPaths.contains(result.path.resolve("plugin-a.jar").toString()))
-    }
-
-    private fun deleteOnExitRegisteredPaths(): Set<String> {
-        val hookClass = Class.forName("java.io.DeleteOnExitHook")
-        val filesField = hookClass.getDeclaredField("files")
-        filesField.isAccessible = true
-        @Suppress("UNCHECKED_CAST")
-        return (filesField.get(null) as Set<String>).toSet()
+        val result = results.single()
+        assertEquals(PluginScanStatus.MANIFEST_NOT_FOUND, result.status)
+        assertNull(result.manifest)
     }
 }

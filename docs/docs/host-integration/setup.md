@@ -49,9 +49,10 @@ plugins/
 
 ### `ZipJarScanStrategy` (default)
 
-Every `*.zip` file directly inside the location's directory is one plugin candidate. It is
-unpacked into a temporary directory and then scanned exactly like a
-`MultiJarWithOwnFolderScanStrategy` folder:
+Every `*.zip` file directly inside the location's directory is one plugin candidate. Its content is
+scanned exactly like a `MultiJarWithOwnFolderScanStrategy` folder, but without ever unpacking the
+ZIP onto disk - it is mounted as its own `java.nio.file.FileSystem` for the duration of the scan
+and read from directly:
 
 ```text
 plugins/
@@ -60,14 +61,19 @@ plugins/
     └── plugin-a-lib.jar
 ```
 
-The temporary directory and everything extracted into it are registered for cleanup via
-`File.deleteOnExit()`; no manual cleanup is required, though the actual deletion only happens once
-the JVM shuts down.
+The reported candidate's `path` is the `.zip` file itself, not a path inside the mounted
+filesystem.
 
 ## Scanning
 
 ```kotlin
-val results = PluginScanner().scan(listOf(location /* , ... your other locations */))
+val scanner = PluginScanner(
+    defaultSecurityChains = mapOf(
+        PluginLocationType.BUILTIN to listOf(InsecureSecurityStrategy()),
+        // see host-integration/security.md for a realistic EXTERNAL chain
+    ),
+)
+val results = scanner.scan(listOf(location /* , ... your other locations */))
 
 for (result in results) {
     when (result.status) {
@@ -79,4 +85,6 @@ for (result in results) {
 
 `PluginScanner.scan` returns one `PluginScanResult` per plugin candidate found across all given
 locations, both valid (`status == LOADED`, with `manifest` set) and invalid ones (`manifest ==
-null`, with `errorMessage` describing why).
+null`, with `errorMessage` describing why). Every location must resolve to a non-empty security
+chain - either its own `securityOverride` or a `defaultSecurityChains` entry for its `type` - or
+scanning throws a configuration error; see [Security](security.md) for details.

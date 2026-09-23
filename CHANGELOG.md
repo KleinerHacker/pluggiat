@@ -17,4 +17,63 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   including conflict handling for exclusive extension points.
 - Plugin scanner: hosts configure one or more `PluginLocation`s and scan them via `PluginScanner`,
   using `SingleJarScanStrategy`, `MultiJarWithOwnFolderScanStrategy` or `ZipJarScanStrategy`
-  (default) to discover valid and invalid plugin candidates.
+  (default) to discover valid and invalid plugin candidates. `ZipJarScanStrategy` reads a location's
+  `.zip` files directly via a mounted NIO ZIP filesystem instead of unpacking them onto disk.
+- Security concept: each `PluginLocation` is protected by an ordered, freely extensible fallback
+  chain of `PluginSecurityStrategy` implementations (`InsecureSecurityStrategy`,
+  `SignatureSecurityStrategy` with a pluggable `PublicKeyProviderStrategy`,
+  `ChecksumSecurityStrategy`); a candidate failing every strategy of its chain is reported as
+  `PluginScanStatus.SECURITY_PROBLEM`. No implicit default chain - hosts must configure one
+  explicitly per location type or per location. Checksums (for `ChecksumSecurityStrategy` and
+  `SignatureSecurityStrategy`'s `MultiJarWithOwnFolderScanStrategy` checksum list) are computed via
+  a pluggable `ChecksumAlgorithm`, shipped as `MessageDigestChecksumAlgorithm` wrapping any JCA
+  `MessageDigest` algorithm name (e.g. `"MD5"`, `"SHA-256"`, `"SHA-512"`); SHA-512 is the default.
+- Isolated plugin class loading: `PluginLoader` creates a parent-last `PluginClassLoader` per
+  plugin, exposing only a host-configured SDK whitelist (`SdkWhitelistEntry`, package-prefix based,
+  optionally non-recursive) plus JDK platform classes; all other host-internal code stays
+  unreachable, including via reflection.
+- Plugin dependency graph: `required`/`optional` manifest dependencies are resolved into a load
+  order via topological sorting, with cycle detection; a missing `required` dependency invalidates
+  a plugin, a missing `optional` one is simply skipped. Cross-location visibility is governed by a
+  `PluginDependencyStrategy` (global default, optional per-location override):
+  `UnrestrictedPluginDependencyStrategy` (default, all locations visible),
+  `LocationPluginDependencyStrategy` (explicit allow-list) and `DisallowPluginDependencyStrategy`
+  (no plugin dependencies at all, even within the same location).
+- `PluginLoader.load` performs no security check of its own and is unconditionally callable, so a
+  host application can knowingly load a plugin despite a failed security check; deciding whether
+  that is warranted, and logging it, is entirely up to the host application.
+- `PluginLifecycle` interface (`onLoad`/`onEnable`/`onDisable`/`onUnload`) any extension
+  implementation class may optionally implement; hooks run in call order `onLoad` before `onEnable`
+  and `onDisable` before `onUnload`, with `onUnload` always followed by the plugin's class loader
+  being discarded.
+- Generic `PluginPersistenceStrategy` key-value persistence, backing both the checksum security
+  strategy and the new enabled/disabled status: `NoPersistenceStrategy` (default),
+  `CustomPersistenceStrategy`, `FilePersistenceStrategy` (properties/JSON/YAML/XML),
+  `DatabasePersistenceStrategy` (plain JDBC) and `ObjectPersistenceStrategy` (delegates to a pair
+  of host-provided getter/setter functions).
+- Persistent plugin enabled/disabled status, checked before any extension class of a disabled
+  plugin is resolved; a disabled plugin's classes are never loaded, not even transitively.
+- Runtime error isolation: every extension call is routed through a runtime enforcement proxy
+  (`java.lang.reflect.Proxy` for an interface extension point API type, a ByteBuddy subclass for an
+  open class) resolving escaping exceptions via a configurable `ExceptionHandlingStrategy`
+  (`IGNORE`/`UNLOAD`/`CRASH`, with a class-hierarchy-aware, chainable `DefaultExceptionHandlingStrategy`);
+  only `PluginExecutionException`/`PluginFatalException` ever reach the host. Proxy-eligible return
+  values (interfaces/open classes), including array elements, `Collection` elements and `Map`
+  values, are wrapped recursively the same way.
+- `PluginManager` central entry point with a `pluginManager { ... }` Kotlin builder DSL, bundling
+  plugin locations, default security chains, dependency strategy, persistence strategy, exception
+  handling strategy, SDK whitelist and host version; exposes pre-wired `scanner`/`security`/`loader`
+  instances and a `reactivate(...)` reactivation flow (security re-check, then reload).
+
+### Changed
+
+- **Breaking:** `PluginSecurityChainEvaluator` was renamed to `PluginSecurity` and is now a freely
+  usable public API, analogous to `PluginLoader`.
+- **Breaking:** `ChecksumSecurityStrategy` now takes a `PluginPersistenceStrategy` (key
+  `"checksum"`) instead of a separate `ExpectedChecksumCallback`.
+
+### Removed
+
+- **Breaking:** `ChecksumPersistenceCallback` was removed; an accepted checksum is now recorded via
+  `PluginPersistenceStrategy.write(pluginId, "checksum", checksum)` on the same instance
+  `ChecksumSecurityStrategy` reads from.

@@ -26,9 +26,11 @@ application.
 * **Plugin locations and load modes** - the host configures one or more locations to scan, each
   with a scan strategy (`SingleJarScanStrategy`, `MultiJarWithOwnFolderScanStrategy` or
   `ZipJarScanStrategy`, the default) and a builtin/external classification.
-* **Security concepts** - each location enforces `PLAIN` (no check), `MUST_SIGN` (signature
-  against a host-provided public key) or `CHECKSUM` (approval workflow for unknown or changed
-  plugins), with sensible defaults per location type.
+* **Security concepts** - each location is protected by an ordered fallback chain of
+  `PluginSecurityStrategy` implementations, e.g. `InsecureSecurityStrategy` (no check),
+  `SignatureSecurityStrategy` (signature against a host-provided public key) or
+  `ChecksumSecurityStrategy` (host-managed approval of unknown or changed plugins); no implicit
+  default, a chain must always be configured explicitly.
 * **Isolation** - plugins run in their own parent-last classloaders and can only see the part of
   the host's API that the host explicitly whitelists.
 * **Lifecycle** - plugins can be enabled, disabled or unloaded; an unhandled runtime error in a

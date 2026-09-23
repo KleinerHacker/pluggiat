@@ -38,6 +38,7 @@ name: development
         * The section of the finished plan MUST say what was really built where it differs from
           what was planned - a moved module boundary, a widened constant, a changed order
         * FORBIDDEN: removing the plan files while the feature plan still shows the plan as open
+* ask user for EACH plan CHANGE
 
 ## Implementation
 

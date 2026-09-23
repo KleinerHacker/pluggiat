@@ -41,6 +41,10 @@ class ExtensionAggregatorTest {
     /**
      * Use case: a single plugin's extension entry is resolved to its registered configuration
      * class, mapped with its extra YAML fields, and its implementation class is instantiated.
+     *
+     * Since IP-06, the exposed [ResolvedExtension.instance] is the runtime enforcement proxy over
+     * the host plugin API type ([TestExporter]) rather than the concrete implementation class
+     * ([CsvTestExporter]) - it still behaves like one for calls declared on the interface.
      */
     @Test
     fun `maps and instantiates a simple extension entry`() {
@@ -63,7 +67,8 @@ class ExtensionAggregatorTest {
         val config = exporters.single().configuration as ExporterTestConfig
         assertEquals("csv", config.fileExtension)
         assertEquals(CsvTestExporter::class, config.implementation)
-        assertTrue(exporters.single().instance is CsvTestExporter)
+        assertTrue(exporters.single().instance is TestExporter)
+        assertEquals("csv", (exporters.single().instance as TestExporter).name())
         assertEquals(PluginExtensionStatus.LOADED, result.pluginResults.single().status)
     }
 
@@ -164,5 +169,175 @@ class ExtensionAggregatorTest {
         assertThrows(ExtensionMappingException::class.java) {
             aggregator.aggregate(listOf(candidate))
         }
+    }
+
+    /**
+     * Use case: a plugin persisted as disabled contributes no extensions at all and is reported as
+     * [PluginExtensionStatus.DISABLED]; its implementation class is never resolved/instantiated
+     * (no `ExtensionMappingException` even though the class name below does not exist).
+     */
+    @Test
+    fun `skips a disabled plugin entirely, without resolving its implementation class`() {
+        val persistence = org.pcsoft.framework.pluggiat.persistence.CustomPersistenceStrategy(
+            readCallback = { _, key -> if (key == ExtensionAggregator.ENABLED_PERSISTENCE_KEY) "false" else null },
+            writeCallback = { _, _, _ -> },
+        )
+        val registry = ExtensionPointRegistry(listOf(ExporterTestConfig::class))
+        val aggregator = ExtensionAggregator(registry, persistenceStrategy = persistence)
+        val candidate = PluginExtensionCandidate(
+            "plugin-a", Path.of("plugin-a.jar"),
+            manifestWithSingleExtensionEntry("plugin-a", "exporters", "does.not.Exist", "fileExtension" to "csv"),
+        )
+
+        val result = aggregator.aggregate(listOf(candidate))
+
+        assertEquals(PluginExtensionStatus.DISABLED, result.pluginResults.single().status)
+        assertTrue(result.extensionsByKey["exporters"].isNullOrEmpty())
+    }
+
+    /**
+     * Use case: an enabled plugin (no persisted value, default enabled) contributes normally.
+     */
+    @Test
+    fun `treats a plugin with no persisted enabled state as enabled`() {
+        val persistence = org.pcsoft.framework.pluggiat.persistence.NoPersistenceStrategy()
+        val registry = ExtensionPointRegistry(listOf(ExporterTestConfig::class))
+        val aggregator = ExtensionAggregator(registry, persistenceStrategy = persistence)
+        val candidate = PluginExtensionCandidate(
+            "plugin-a", Path.of("plugin-a.jar"),
+            manifestWithSingleExtensionEntry(
+                "plugin-a", "exporters",
+                "org.pcsoft.framework.pluggiat.extension.CsvTestExporter",
+                "fileExtension" to "csv",
+            ),
+        )
+
+        val result = aggregator.aggregate(listOf(candidate))
+
+        assertEquals(PluginExtensionStatus.LOADED, result.pluginResults.single().status)
+    }
+
+    /**
+     * Use case: a runtime `UNLOAD` action on the enforcement proxy persists the plugin as disabled
+     * (reason `RUNTIME_ERROR`) and invokes the candidate's [PluginExtensionCandidate.onUnload]
+     * callback synchronously.
+     */
+    @Test
+    fun `UNLOAD action persists the plugin as disabled and invokes the candidate's onUnload callback`() {
+        val store = mutableMapOf<String, String>()
+        val persistence = org.pcsoft.framework.pluggiat.persistence.CustomPersistenceStrategy(
+            readCallback = { pluginId, key -> store["$pluginId.$key"] },
+            writeCallback = { pluginId, key, value -> store["$pluginId.$key"] = value },
+        )
+        var unloadCallbackInvoked = false
+        val registry = ExtensionPointRegistry(listOf(ExporterTestConfig::class))
+        val aggregator = ExtensionAggregator(registry, persistenceStrategy = persistence)
+        val candidate = PluginExtensionCandidate(
+            "plugin-a", Path.of("plugin-a.jar"),
+            manifestWithSingleExtensionEntry(
+                "plugin-a", "exporters",
+                "org.pcsoft.framework.pluggiat.extension.FailingTestExporter",
+                "fileExtension" to "csv",
+            ),
+            onUnload = { unloadCallbackInvoked = true },
+        )
+
+        val result = aggregator.aggregate(listOf(candidate))
+        val exporter = result.extensionsByKey.getValue("exporters").single().instance as TestExporter
+
+        assertThrows(org.pcsoft.framework.pluggiat.exception.PluginFatalException::class.java) { exporter.name() }
+        assertTrue(unloadCallbackInvoked)
+        assertEquals("false", store["plugin-a.${ExtensionAggregator.ENABLED_PERSISTENCE_KEY}"])
+        assertEquals(ExtensionAggregator.RUNTIME_ERROR_REASON, store["plugin-a.${ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY}"])
+    }
+
+    /**
+     * Use case: an extension implementation class implementing `PluginLifecycle` has its `onLoad`
+     * hook invoked before `onEnable`, in that order.
+     */
+    @Test
+    fun `invokes PluginLifecycle hooks onLoad before onEnable on resolution`() {
+        LifecycleRecordingTestExporter.callOrder.clear()
+        val registry = ExtensionPointRegistry(listOf(ExporterTestConfig::class))
+        val aggregator = ExtensionAggregator(registry)
+        val candidate = PluginExtensionCandidate(
+            "plugin-a", Path.of("plugin-a.jar"),
+            manifestWithSingleExtensionEntry(
+                "plugin-a", "exporters",
+                "org.pcsoft.framework.pluggiat.extension.LifecycleRecordingTestExporter",
+                "fileExtension" to "csv",
+            ),
+        )
+
+        aggregator.aggregate(listOf(candidate))
+
+        assertEquals(listOf("onLoad", "onEnable"), LifecycleRecordingTestExporter.callOrder)
+    }
+
+    /**
+     * Use case: `onDisable` is invoked before `onUnload` on a runtime `UNLOAD` action, after the
+     * earlier `onLoad`/`onEnable` pair from resolution.
+     */
+    @Test
+    fun `invokes PluginLifecycle hooks onDisable before onUnload on UNLOAD`() {
+        LifecycleRecordingTestExporter.callOrder.clear()
+        val registry = ExtensionPointRegistry(listOf(ExporterTestConfig::class))
+        val aggregator = ExtensionAggregator(registry)
+        val candidate = PluginExtensionCandidate(
+            "plugin-a", Path.of("plugin-a.jar"),
+            manifestWithSingleExtensionEntry(
+                "plugin-a", "exporters",
+                "org.pcsoft.framework.pluggiat.extension.LifecycleRecordingTestExporter",
+                "fileExtension" to "csv",
+            ),
+        )
+        val result = aggregator.aggregate(listOf(candidate))
+        val exporter = result.extensionsByKey.getValue("exporters").single().instance as TestExporter
+
+        assertThrows(org.pcsoft.framework.pluggiat.exception.PluginFatalException::class.java) { exporter.name() }
+
+        assertEquals(listOf("onLoad", "onEnable", "onDisable", "onUnload"), LifecycleRecordingTestExporter.callOrder)
+    }
+
+    /**
+     * Use case: an `UNLOAD` action only force-disables the plugin that raised the exception -
+     * sibling plugins resolved in the same [ExtensionAggregator.aggregate] call stay unaffected.
+     */
+    @Test
+    fun `UNLOAD only force-disables the affected plugin, siblings stay unaffected`() {
+        val store = mutableMapOf<String, String>()
+        val persistence = org.pcsoft.framework.pluggiat.persistence.CustomPersistenceStrategy(
+            readCallback = { pluginId, key -> store["$pluginId.$key"] },
+            writeCallback = { pluginId, key, value -> store["$pluginId.$key"] = value },
+        )
+        val registry = ExtensionPointRegistry(listOf(ExporterTestConfig::class))
+        val aggregator = ExtensionAggregator(registry, persistenceStrategy = persistence)
+        val failingCandidate = PluginExtensionCandidate(
+            "plugin-a", Path.of("plugin-a.jar"),
+            manifestWithSingleExtensionEntry(
+                "plugin-a", "exporters",
+                "org.pcsoft.framework.pluggiat.extension.FailingTestExporter",
+                "fileExtension" to "csv",
+            ),
+        )
+        val healthyCandidate = PluginExtensionCandidate(
+            "plugin-b", Path.of("plugin-b.jar"),
+            manifestWithSingleExtensionEntry(
+                "plugin-b", "exporters",
+                "org.pcsoft.framework.pluggiat.extension.JsonTestExporter",
+                "fileExtension" to "json",
+            ),
+        )
+
+        val result = aggregator.aggregate(listOf(failingCandidate, healthyCandidate))
+        val exportersByPlugin = result.extensionsByKey.getValue("exporters")
+            .associateBy { it.pluginId }
+            .mapValues { it.value.instance as TestExporter }
+
+        assertThrows(org.pcsoft.framework.pluggiat.exception.PluginFatalException::class.java) { exportersByPlugin.getValue("plugin-a").name() }
+        assertEquals("json", exportersByPlugin.getValue("plugin-b").name())
+
+        assertEquals("false", store["plugin-a.${ExtensionAggregator.ENABLED_PERSISTENCE_KEY}"])
+        assertEquals(null, store["plugin-b.${ExtensionAggregator.ENABLED_PERSISTENCE_KEY}"])
     }
 }
