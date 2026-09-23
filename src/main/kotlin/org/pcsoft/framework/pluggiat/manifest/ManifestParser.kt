@@ -4,9 +4,10 @@ import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper
 import com.fasterxml.jackson.module.kotlin.kotlinModule
-import com.networknt.schema.JsonSchema
-import com.networknt.schema.JsonSchemaFactory
-import com.networknt.schema.SpecVersion
+import com.networknt.schema.InputFormat
+import com.networknt.schema.Schema
+import com.networknt.schema.SchemaRegistry
+import com.networknt.schema.SpecificationVersion
 import java.io.InputStream
 
 /**
@@ -27,11 +28,11 @@ internal object ManifestParser {
         .build()
         .apply { disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES) }
 
-    private val schema: JsonSchema by lazy {
+    private val schema: Schema by lazy {
         val schemaStream = requireNotNull(javaClass.getResourceAsStream(SCHEMA_RESOURCE_PATH)) {
             "Manifest JSON schema resource not found: $SCHEMA_RESOURCE_PATH"
         }
-        JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012).getSchema(schemaStream)
+        SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12).getSchema(schemaStream)
     }
 
     /**
@@ -46,7 +47,9 @@ internal object ManifestParser {
             throw ManifestValidationException("Plugin manifest is not valid YAML/JSON", cause = e)
         }
 
-        val violations = schema.validate(node).map { it.message }
+        // The validator is based on Jackson 3, so the Jackson 2 tree is handed over as JSON text
+        val violations = schema.validate(node.toString(), InputFormat.JSON)
+            .map { "${it.instanceLocation}: ${it.message}" }
         if (violations.isNotEmpty()) {
             throw ManifestValidationException(
                 "Plugin manifest violates the manifest schema: ${violations.joinToString("; ")}",
