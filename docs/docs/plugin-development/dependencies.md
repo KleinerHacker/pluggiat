@@ -36,7 +36,7 @@ plugin B to see plugin A's classes:
 ### `PluginDependencyStrategy`
 
 Configured globally, optionally overridden per `PluginLocation` via `dependencyStrategyOverride`,
-mirroring how [security strategies](security.md) are configured:
+mirroring how [security strategies](../host-integration/security.md) are configured:
 
 ```kotlin
 interface PluginDependencyStrategy {
