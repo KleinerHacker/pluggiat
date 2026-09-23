@@ -38,7 +38,7 @@ val mavenArtifactVersion = "3.9.16"
 val slf4jVersion = "2.0.19"
 val h2Version = "2.4.240"
 val byteBuddyVersion = "1.17.8"
-val objenesisVersion = "3.4"
+val objenesisVersion = "3.6"
 
 dependencies {
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jacksonVersion}")
