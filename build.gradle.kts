@@ -36,7 +36,7 @@ val jacksonVersion = "2.22.2"
 val jsonSchemaValidatorVersion = "1.5.6"
 val mavenArtifactVersion = "3.9.16"
 val slf4jVersion = "2.0.19"
-val h2Version = "2.4.240"
+val h2Version = "2.5.250"
 val byteBuddyVersion = "1.17.8"
 val objenesisVersion = "3.6"
 
