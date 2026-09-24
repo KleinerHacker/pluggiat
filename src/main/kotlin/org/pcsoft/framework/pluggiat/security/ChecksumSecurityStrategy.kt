@@ -60,7 +60,8 @@ class ChecksumSecurityStrategy(
     }
 
     /**
-     * The bytes covered by the checksum for [path]. For a `MULTI_JAR_WITH_OWN_FOLDER` candidate,
+     * The bytes covered by the checksum for [path]. For a
+     * [org.pcsoft.framework.pluggiat.scanner.MultiJarWithOwnFolderScanStrategy] candidate,
      * [path] is the candidate's folder rather than a single file; in that case, the checksum covers
      * the concatenated bytes of every `*.jar` file directly inside it, in deterministic (sorted)
      * file name order.

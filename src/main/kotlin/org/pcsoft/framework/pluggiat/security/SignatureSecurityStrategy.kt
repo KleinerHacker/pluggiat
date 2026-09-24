@@ -16,15 +16,15 @@ import java.util.jar.JarFile
  * A [PluginSecurityStrategy] that requires a candidate to be signed with a key resolved via the
  * injected [publicKeyProviderStrategy].
  *
- * @property checksumAlgorithm the [ChecksumAlgorithm] used for the `MULTI_JAR_WITH_OWN_FOLDER`
+ * @property checksumAlgorithm the [ChecksumAlgorithm] used for the [MultiJarWithOwnFolderScanStrategy]
  * checksum list (see below); defaults to SHA-512 via [MessageDigestChecksumAlgorithm]
  *
- * - `SINGLE_JAR`/`ZIP_JAR` candidates: the candidate file itself (JAR or ZIP) must be signed -
- *   signing a ZIP uses the exact same JAR code-signing mechanism, since a signed JAR structurally
- *   is just a specially structured ZIP; the file extension is irrelevant to the JDK's signature
- *   verification.
- * - `MULTI_JAR_WITH_OWN_FOLDER` candidates: the manifest JAR inside the candidate folder must be
- *   signed, and must additionally contain a `META-INF/plugin-checksums.txt` entry listing a
+ * - [org.pcsoft.framework.pluggiat.scanner.SingleJarScanStrategy]/[org.pcsoft.framework.pluggiat.scanner.ZipJarScanStrategy]
+ *   candidates: the candidate file itself (JAR or ZIP) must be signed - signing a ZIP uses the
+ *   exact same JAR code-signing mechanism, since a signed JAR structurally is just a specially
+ *   structured ZIP; the file extension is irrelevant to the JDK's signature verification.
+ * - [MultiJarWithOwnFolderScanStrategy] candidates: the manifest JAR inside the candidate folder
+ *   must be signed, and must additionally contain a `META-INF/plugin-checksums.txt` entry listing a
  *   [checksumAlgorithm] checksum per other JAR in the folder (one `<hex-digest>  <file-name>` line
  *   each, `shaXXXsum`-compatible); every listed checksum must match the actual file.
  */

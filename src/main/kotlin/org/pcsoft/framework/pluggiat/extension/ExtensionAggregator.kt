@@ -208,7 +208,7 @@ class ExtensionAggregator(
         /** [PluginPersistenceStrategy] key holding the reason a plugin was disabled. */
         const val DISABLED_REASON_PERSISTENCE_KEY: String = "disabledReason"
 
-        /** [DISABLED_REASON_PERSISTENCE_KEY] value recorded when [ExceptionHandlingAction.UNLOAD] force-disables a plugin. */
+        /** [DISABLED_REASON_PERSISTENCE_KEY] value recorded when [org.pcsoft.framework.pluggiat.exception.ExceptionHandlingAction.UNLOAD] force-disables a plugin. */
         const val RUNTIME_ERROR_REASON: String = "RUNTIME_ERROR"
 
         /** [DISABLED_REASON_PERSISTENCE_KEY] value a host records for an explicit user-initiated disable. */
