@@ -54,6 +54,36 @@ markdown_extensions:
 
 plugins:
   - search
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: de
+          name: Deutsch
+          build: true
+          nav_translations:
+            Home: Startseite
+            Plugin development: Plugin-Entwicklung
+            Manifest: Manifest
+            Extension points: Erweiterungspunkte
+            Dependencies: Abhängigkeiten
+            Lifecycle hooks: Lifecycle-Hooks
+            Error handling: Fehlerbehandlung
+            Host integration: Host-Integration
+            Configuring plugin locations: Plugin-Verzeichnisse konfigurieren
+            PluginManager: PluginManager
+            Defining extension points: Erweiterungspunkte definieren
+            Security: Sicherheit
+            Public key providers: Public-Key-Provider
+            SDK whitelist: SDK-Whitelist
+            Persistence: Persistenz
+            Plugin lifecycle management: Plugin-Lifecycle-Verwaltung
+            Troubleshooting: Fehlersuche
+            API Docs: API-Dokumentation
+            Licences: Lizenzen
 
 nav:
   - Home: index.md

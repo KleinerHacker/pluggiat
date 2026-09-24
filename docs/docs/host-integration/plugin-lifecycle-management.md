@@ -36,7 +36,7 @@ never just flipping the enabled flag back on.
 ## Reactivation: security re-check first
 
 Reactivating a disabled plugin always re-checks the security chain **before** reloading it - see
-[`PluginManager.reactivate`](plugin-manager.md#reactivation). A failed re-check keeps the plugin
+[`PluginManager.reactivate`](plugin-manager.md#reactivation-reactivate). A failed re-check keeps the plugin
 disabled and does not fall back to an automatic force-load.
 
 ## Runtime error isolation

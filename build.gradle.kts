@@ -194,6 +194,13 @@ tasks {
         commandLine("python", "-m", "pip", "install", "--upgrade", "mkdocs-material")
     }
 
+    register<Exec>("installMkDocsI18n") {
+        group = null
+        description = "Install mkdocs-static-i18n for the German documentation translation"
+        workingDir = file("docs")
+        commandLine("python", "-m", "pip", "install", "--upgrade", "mkdocs-static-i18n")
+    }
+
     register<Exec>("installGitHubPages") {
         group = null
         description = "Install ghp-import"
@@ -211,7 +218,7 @@ tasks {
     register("installDocs") {
         group = "MKDocs"
         description = "Install mkdocs and dependencies"
-        dependsOn("installMkDocs", "installMkDocsMaterial", "installGitHubPages", "installMike")
+        dependsOn("installMkDocs", "installMkDocsMaterial", "installMkDocsI18n", "installGitHubPages", "installMike")
     }
 
     register<Exec>("runDocs") {
