@@ -40,6 +40,65 @@ JVM-Anwendung einbetten lässt.
 * **Lifecycle** - Plugins können aktiviert, deaktiviert oder entladen werden; ein unbehandelter
   Laufzeitfehler in einer Plugin-Erweiterung deaktiviert nur dieses eine Plugin.
 
+## Nutzung der Artefakte
+
+pluggiat wird auf GitHub Packages unter `org.pcsoft.framework:pluggiat` veröffentlicht. Für die
+Nutzung wird ein GitHub-Konto mit einem Personal Access Token mit dem Scope `read:packages`
+benötigt, da GitHub Packages auch für öffentliche Repositories eine Authentifizierung verlangt.
+
+### Gradle
+
+```kotlin
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/KleinerHacker/pluggiat")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GITHUB_ACTOR")
+            password = providers.gradleProperty("gpr.key").orNull ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
+}
+
+dependencies {
+    implementation("org.pcsoft.framework:pluggiat:0.1.0")
+}
+```
+
+`gpr.user`/`gpr.key` können in `~/.gradle/gradle.properties` gesetzt werden, alternativ als
+Umgebungsvariablen `GITHUB_ACTOR`/`GITHUB_TOKEN`.
+
+### Maven
+
+```xml
+<repositories>
+    <repository>
+        <id>github</id>
+        <url>https://maven.pkg.github.com/KleinerHacker/pluggiat</url>
+    </repository>
+</repositories>
+
+<dependencies>
+    <dependency>
+        <groupId>org.pcsoft.framework</groupId>
+        <artifactId>pluggiat</artifactId>
+        <version>0.1.0</version>
+    </dependency>
+</dependencies>
+```
+
+Die Zugangsdaten des Servers `github` (Benutzername plus Personal Access Token mit
+`read:packages`) müssen in `~/.m2/settings.xml` konfiguriert werden:
+
+```xml
+<servers>
+    <server>
+        <id>github</id>
+        <username>DEIN_GITHUB_BENUTZERNAME</username>
+        <password>DEIN_GITHUB_TOKEN</password>
+    </server>
+</servers>
+```
+
 ## Wer sollte was lesen
 
 Diese Dokumentation ist nach Zielgruppe aufgeteilt:

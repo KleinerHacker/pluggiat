@@ -19,6 +19,9 @@ description: Where the human-readable version number appears across the pluggiat
     * A fresh, empty `## [Unreleased]` section is inserted above it.
     * If `## [Unreleased]` has no entries under it, there is nothing releasable - stop and tell the
       user instead of inventing an entry or releasing an empty version.
+* `README.md`: the Gradle and Maven dependency snippets under "Consuming the artifacts".
+* `docs/docs/index.md` and `docs/docs/index.de.md`: the Gradle and Maven dependency snippets under
+  "Consuming the artifacts" / "Nutzung der Artefakte".
 * Any other occurrence of the exact old version string found by a repository-wide search, **except**:
     * anything under a module's `build/` output directory.
     * `CHANGELOG.md` entries for a past, already-released version (those are history and stay as

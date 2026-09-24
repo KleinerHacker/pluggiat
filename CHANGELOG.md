@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0]
+
 ### Added
 
 - Plugin manifest format (`META-INF/plugin.yml`/`.yaml`) validated against a JSON schema, including

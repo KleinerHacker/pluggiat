@@ -60,12 +60,61 @@ On Windows use `gradlew.bat` instead of `./gradlew`.
 
 ## Consuming the artifacts
 
-pluggiat is published as a Maven artifact:
+pluggiat is published to GitHub Packages under `org.pcsoft.framework:pluggiat`. Consuming it
+requires a GitHub account with a personal access token that has the `read:packages` scope, since
+GitHub Packages requires authentication even for public repositories.
+
+### Gradle
 
 ```kotlin
-dependencies {
-    implementation("org.pcsoft.framework:pluggiat:<version>")
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/KleinerHacker/pluggiat")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GITHUB_ACTOR")
+            password = providers.gradleProperty("gpr.key").orNull ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
 }
+
+dependencies {
+    implementation("org.pcsoft.framework:pluggiat:0.1.0")
+}
+```
+
+`gpr.user`/`gpr.key` can be set in `~/.gradle/gradle.properties`, or `GITHUB_ACTOR`/`GITHUB_TOKEN`
+as environment variables.
+
+### Maven
+
+```xml
+<repositories>
+    <repository>
+        <id>github</id>
+        <url>https://maven.pkg.github.com/KleinerHacker/pluggiat</url>
+    </repository>
+</repositories>
+
+<dependencies>
+    <dependency>
+        <groupId>org.pcsoft.framework</groupId>
+        <artifactId>pluggiat</artifactId>
+        <version>0.1.0</version>
+    </dependency>
+</dependencies>
+```
+
+The `github` server's credentials (username plus a personal access token with `read:packages`) must
+be configured in `~/.m2/settings.xml`:
+
+```xml
+<servers>
+    <server>
+        <id>github</id>
+        <username>YOUR_GITHUB_USERNAME</username>
+        <password>YOUR_GITHUB_TOKEN</password>
+    </server>
+</servers>
 ```
 
 ## Documentation
