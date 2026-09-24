@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/example/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/example/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/example/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/extension-points/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/extension-points/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/extension-points/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/persistence/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/persistence/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/persistence/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/plugin-lifecycle-management/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/plugin-lifecycle-management/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/plugin-lifecycle-management/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/plugin-manager/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/plugin-manager/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/plugin-manager/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/public-key-providers/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/public-key-providers/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/public-key-providers/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/sdk-whitelist/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/sdk-whitelist/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/sdk-whitelist/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/security/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/security/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/security/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/setup/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/setup/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/setup/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/troubleshooting/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/host-integration/troubleshooting/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/host-integration/troubleshooting/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/dependencies/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/dependencies/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/plugin-development/dependencies/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/error-handling/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/error-handling/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/plugin-development/error-handling/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/example/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/example/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/plugin-development/example/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/extension-points/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/extension-points/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/plugin-development/extension-points/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/lifecycle/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/lifecycle/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/plugin-development/lifecycle/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/manifest/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/plugin-development/manifest/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0de/plugin-development/manifest/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/example/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/example/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/example/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/extension-points/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/extension-points/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/extension-points/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/persistence/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/persistence/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/persistence/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/plugin-lifecycle-management/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/plugin-lifecycle-management/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/plugin-lifecycle-management/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/plugin-manager/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/plugin-manager/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/plugin-manager/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/public-key-providers/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/public-key-providers/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/public-key-providers/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/sdk-whitelist/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/sdk-whitelist/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/sdk-whitelist/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/security/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/security/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/security/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/setup/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/setup/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/setup/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/troubleshooting/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/host-integration/troubleshooting/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0host-integration/troubleshooting/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/dependencies/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/dependencies/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0plugin-development/dependencies/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/error-handling/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/error-handling/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0plugin-development/error-handling/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/example/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/example/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0plugin-development/example/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/extension-points/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/extension-points/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0plugin-development/extension-points/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/lifecycle/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/lifecycle/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0plugin-development/lifecycle/"/>
+    </url>
+    <url>
+        <loc>https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/manifest/</loc>
+        <lastmod>2026-09-24</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0/de/plugin-development/manifest/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kleinerhacker.github.io/pluggiat/latest/0.1.0plugin-development/manifest/"/>
+    </url>
+</urlset>

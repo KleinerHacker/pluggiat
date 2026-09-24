@@ -1,0 +1,179 @@
+{
+    "dependencies": [
+        {
+            "moduleName": "com.ethlo.time:itu",
+            "moduleUrl": "https://github.com/ethlo/itu",
+            "moduleVersion": "1.14.0",
+            "moduleLicense": "Apache License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "com.fasterxml.jackson.core:jackson-annotations",
+            "moduleUrl": "https://github.com/FasterXML/jackson",
+            "moduleVersion": "2.22",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "com.fasterxml.jackson.core:jackson-core",
+            "moduleUrl": "https://github.com/FasterXML/jackson-core",
+            "moduleVersion": "2.22.2",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "com.fasterxml.jackson.core:jackson-databind",
+            "moduleUrl": "https://github.com/FasterXML/jackson",
+            "moduleVersion": "2.22.2",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml",
+            "moduleUrl": "https://github.com/FasterXML/jackson-dataformats-text",
+            "moduleVersion": "2.22.2",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "com.fasterxml.jackson.module:jackson-module-kotlin",
+            "moduleUrl": "https://github.com/FasterXML/jackson-module-kotlin",
+            "moduleVersion": "2.22.2",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "com.fasterxml.jackson:jackson-bom",
+            "moduleUrl": "https://github.com/FasterXML/jackson-bom",
+            "moduleVersion": "2.22.2",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "com.networknt:json-schema-validator",
+            "moduleUrl": "https://github.com/networknt/json-schema-validator",
+            "moduleVersion": "3.0.7",
+            "moduleLicense": "Apache License Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0"
+        },
+        {
+            "moduleName": "net.bytebuddy:byte-buddy",
+            "moduleVersion": "1.17.8",
+            "moduleLicense": "Apache License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "org.apache.maven:maven-artifact",
+            "moduleVersion": "3.9.16",
+            "moduleLicense": "Apache-2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "org.bouncycastle:bcpg-jdk18on",
+            "moduleUrl": "https://www.bouncycastle.org/download/bouncy-castle-java/",
+            "moduleVersion": "1.80",
+            "moduleLicense": "Bouncy Castle Licence",
+            "moduleLicenseUrl": "https://www.bouncycastle.org/licence.html"
+        },
+        {
+            "moduleName": "org.bouncycastle:bcprov-jdk18on",
+            "moduleUrl": "https://www.bouncycastle.org/download/bouncy-castle-java/",
+            "moduleVersion": "1.80.2",
+            "moduleLicense": "Bouncy Castle Licence",
+            "moduleLicenseUrl": "https://www.bouncycastle.org/licence.html"
+        },
+        {
+            "moduleName": "org.bouncycastle:bcutil-jdk18on",
+            "moduleUrl": "https://www.bouncycastle.org/download/bouncy-castle-java/",
+            "moduleVersion": "1.80",
+            "moduleLicense": "Bouncy Castle Licence",
+            "moduleLicenseUrl": "https://www.bouncycastle.org/licence.html"
+        },
+        {
+            "moduleName": "org.codehaus.plexus:plexus-utils",
+            "moduleUrl": "https://codehaus-plexus.github.io/plexus-utils/",
+            "moduleVersion": "3.6.1",
+            "moduleLicense": "Apache-2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "org.jetbrains.kotlin:kotlin-reflect",
+            "moduleUrl": "https://kotlinlang.org/",
+            "moduleVersion": "2.1.21",
+            "moduleLicense": "The Apache License, Version 2.0",
+            "moduleLicenseUrl": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "org.jetbrains.kotlin:kotlin-stdlib",
+            "moduleUrl": "https://kotlinlang.org/",
+            "moduleVersion": "2.4.20",
+            "moduleLicense": "Apache-2.0",
+            "moduleLicenseUrl": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "org.jetbrains:annotations",
+            "moduleUrl": "http://www.jetbrains.org",
+            "moduleVersion": "13.0",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "org.objenesis:objenesis",
+            "moduleVersion": "3.6",
+            "moduleLicense": "Apache License, Version 2.0",
+            "moduleLicenseUrl": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "org.slf4j:slf4j-api",
+            "moduleUrl": "http://www.slf4j.org",
+            "moduleVersion": "2.0.19",
+            "moduleLicense": "MIT",
+            "moduleLicenseUrl": "https://opensource.org/license/mit"
+        },
+        {
+            "moduleName": "org.snakeyaml:snakeyaml-engine",
+            "moduleUrl": "https://bitbucket.org/snakeyaml/snakeyaml-engine",
+            "moduleVersion": "3.0.1",
+            "moduleLicense": "Apache License, Version 2.0",
+            "moduleLicenseUrl": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "org.yaml:snakeyaml",
+            "moduleUrl": "https://bitbucket.org/snakeyaml/snakeyaml",
+            "moduleVersion": "2.5",
+            "moduleLicense": "Apache License, Version 2.0",
+            "moduleLicenseUrl": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "tools.jackson.core:jackson-core",
+            "moduleUrl": "https://github.com/FasterXML/jackson-core",
+            "moduleVersion": "3.2.1",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "tools.jackson.core:jackson-databind",
+            "moduleUrl": "https://github.com/FasterXML/jackson",
+            "moduleVersion": "3.2.1",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "tools.jackson.dataformat:jackson-dataformat-yaml",
+            "moduleUrl": "https://github.com/FasterXML/jackson-dataformats-text",
+            "moduleVersion": "3.2.1",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+            "moduleName": "tools.jackson:jackson-bom",
+            "moduleUrl": "https://github.com/FasterXML/jackson-bom",
+            "moduleVersion": "3.2.1",
+            "moduleLicense": "The Apache Software License, Version 2.0",
+            "moduleLicenseUrl": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+    ],
+    "importedModules": [
+        
+    ]
+}

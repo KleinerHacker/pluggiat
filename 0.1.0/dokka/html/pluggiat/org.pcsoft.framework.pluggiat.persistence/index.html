@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" charset="UTF-8">
+    <title>org.pcsoft.framework.pluggiat.persistence</title>
+    <link href="../../images/logo-icon.svg" rel="icon" type="image/svg">
+        <script>var pathToRoot = "../../";</script>
+    <script>document.documentElement.classList.replace("no-js", "js");</script>
+    <script>const storage = localStorage.getItem("dokka-dark-mode")
+      if (storage == null) {
+        const osDarkSchemePreferred = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+        if (osDarkSchemePreferred === true) {
+          document.getElementsByTagName("html")[0].classList.add("theme-dark")
+        }
+      } else {
+        const savedDarkMode = JSON.parse(storage)
+        if (savedDarkMode === true) {
+          document.getElementsByTagName("html")[0].classList.add("theme-dark")
+        }
+      }
+    </script>
+<script type="text/javascript" src="../../scripts/sourceset_dependencies.js" async="async"></script>
+<link href="../../styles/style.css" rel="Stylesheet">
+<link href="../../styles/main.css" rel="Stylesheet">
+<link href="../../styles/prism.css" rel="Stylesheet">
+<link href="../../styles/logo-styles.css" rel="Stylesheet">
+<link href="../../ui-kit/ui-kit.min.css" rel="Stylesheet">
+<script type="text/javascript" src="../../scripts/safe-local-storage_blocking.js"></script>
+<script type="text/javascript" src="../../scripts/navigation-loader.js" async="async"></script>
+<script type="text/javascript" src="../../scripts/platform-content-handler.js" async="async"></script>
+<script type="text/javascript" src="../../scripts/main.js" defer="defer"></script>
+<script type="text/javascript" src="../../scripts/prism.js" async="async"></script>
+<script type="text/javascript" src="../../ui-kit/ui-kit.min.js" defer="defer"></script>
+</head>
+<body>
+<div class="root">
+    <header class="navigation theme-dark" id="navigation-wrapper" role="banner">
+            <a class="library-name--link" href="../../index.html" tabindex="1">
+                    pluggiat
+            </a>
+        <button class="navigation-controls--btn navigation-controls--btn_toc ui-kit_mobile-only" id="toc-toggle"
+                type="button">Toggle table of contents
+        </button>
+        <div class="navigation-controls--break ui-kit_mobile-only"></div>
+        <div class="library-version" id="library-version">
+1.0-SNAPSHOT        </div>
+        <div class="navigation-controls">
+        <ul class="filter-section filter-section_loading" id="filter-section" aria-label="Target filter">
+                <button class="platform-tag platform-selector jvm-like" data-active="" aria-pressed="true"
+                        data-filter=":/main">jvm</button>
+            <div class="dropdown filter-section--dropdown" data-role="dropdown" id="filter-section-dropdown">
+                <button class="button button_dropdown filter-section--dropdown-toggle" role="combobox"
+                        data-role="dropdown-toggle"
+                        aria-controls="platform-tags-listbox"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                        aria-label="Toggle source sets"
+                ></button>
+                <ul role="listbox" id="platform-tags-listbox" class="dropdown--list" data-role="dropdown-listbox" aria-label="Target filter">
+                    <div class="dropdown--header"><span>Target filter</span>
+                        <button class="button" data-role="dropdown-toggle" aria-label="Close target filter">
+                            <i class="ui-kit-icon ui-kit-icon_cross"></i>
+                        </button>
+                    </div>
+                        <li role="option" class="dropdown--option platform-selector-option jvm-like" tabindex="0">
+                            <label class="checkbox">
+                                <input type="checkbox" class="checkbox--input" id=":/main"
+                                       data-filter=":/main"/>
+                                <span class="checkbox--icon"></span>
+                                jvm
+                            </label>
+                        </li>
+                </ul>
+                <div class="dropdown--overlay"></div>
+            </div>
+        </ul>
+            <button class="navigation-controls--btn navigation-controls--btn_theme" id="theme-toggle-button"
+                    type="button">Switch theme
+            </button>
+            <div class="navigation-controls--btn navigation-controls--btn_search" id="searchBar" role="button">Search in
+                API
+            </div>
+        </div>
+    </header>
+    <div id="container">
+        <nav id="leftColumn" class="sidebar" data-item-type="SECTION" data-item-config='{"defaultSize": 280, "minSize": 200, "maxSize": 400}'>
+            <a class="toc--skip-link" href="#main">Skip to content</a>
+            <div class="dropdown theme-dark_mobile" data-role="dropdown" id="toc-dropdown">
+                <ul role="listbox" id="toc-listbox" class="dropdown--list dropdown--list_toc-list"
+                    data-role="dropdown-listbox" aria-label="Table of contents">
+                    <div class="dropdown--header">
+                            <span>
+                                    pluggiat
+                            </span>
+                        <button class="button" data-role="dropdown-toggle" aria-label="Close table of contents">
+                            <i class="ui-kit-icon ui-kit-icon_cross"></i>
+                        </button>
+                    </div>
+                    <div class="sidebar--inner" id="sideMenu"></div>
+                </ul>
+                <div class="dropdown--overlay"></div>
+            </div>
+        </nav>
+        <div id="resizer" class="resizer" data-item-type="BAR"></div>
+        <div id="main" data-item-type="SECTION" role="main">
+<div class="main-content" data-page-type="package" id="content" pageIds="pluggiat::org.pcsoft.framework.pluggiat.persistence////PointingToDeclaration//-251573632">
+  <div class="breadcrumbs"><a href="../../index.html">pluggiat</a><span class="delimiter">/</span><span class="current">org.pcsoft.framework.pluggiat.persistence</span></div>
+  <div class="cover ">
+    <h1 class="cover"><span><span>Package-level</span></span> <span><span>declarations</span></span></h1>
+  </div>
+  <div class="tabbedcontent">
+    <div class="tabs-section" tabs-section="tabs-section"><button class="section-tab" data-active="" data-togglable="TYPE">Types</button></div>
+    <div class="tabs-section-body">
+      <div data-togglable="TYPE">
+        <h2 class="tableheader">Types</h2>
+        <div class="table"><a data-name="-24698924%2FClasslikes%2F-251573632" anchor-label="CustomPersistenceStrategy" id="-24698924%2FClasslikes%2F-251573632" data-filterable-set=":/main"></a>
+          <div class="table-row table-row_content" data-filterable-current=":/main" data-filterable-set=":/main">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-custom-persistence-strategy/index.html"><span>Custom</span><wbr></wbr><span>Persistence</span><wbr></wbr><span><span>Strategy</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-24698924%2FClasslikes%2F-251573632"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":/main"><div class="symbol monospace"><span class="token keyword">class </span><a href="-custom-persistence-strategy/index.html">CustomPersistenceStrategy</a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">readCallback<span class="token operator">: </span><a href="-persistence-read-callback/index.html">PersistenceReadCallback</a><span class="token punctuation">, </span></span><span class="parameter ">writeCallback<span class="token operator">: </span><a href="-persistence-write-callback/index.html">PersistenceWriteCallback</a></span></span><span class="token punctuation">)</span> : <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a></div><div class="brief "><p class="paragraph">A <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a> delegating to host-provided function interfaces, for hosts that already have their own storage mechanism.</p></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="1941876190%2FClasslikes%2F-251573632" anchor-label="DatabasePersistenceStrategy" id="1941876190%2FClasslikes%2F-251573632" data-filterable-set=":/main"></a>
+          <div class="table-row table-row_content" data-filterable-current=":/main" data-filterable-set=":/main">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-database-persistence-strategy/index.html"><span>Database</span><wbr></wbr><span>Persistence</span><wbr></wbr><span><span>Strategy</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="1941876190%2FClasslikes%2F-251573632"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":/main"><div class="symbol monospace"><span class="token keyword">class </span><a href="-database-persistence-strategy/index.html">DatabasePersistenceStrategy</a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">dataSource<span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/25/docs/api/java.sql/javax/sql/DataSource.html">DataSource</a></span></span><span class="token punctuation">)</span> : <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a></div><div class="brief "><p class="paragraph">A <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a> backed by a JDBC <span data-unresolved-link="org.pcsoft.framework.pluggiat.persistence/DatabasePersistenceStrategy//#javax.sql.DataSource/PointingToCallableParameters(0)/">dataSource</span>, using plain JDBC only (no ORM/new dependency). Creates its own table <code class="lang-kotlin">plugin_state(plugin_id, plugin_key, plugin_value)</code> on first use if it does not exist yet. Column names avoid the reserved SQL words <code class="lang-kotlin">key</code>/<code class="lang-kotlin">value</code> so the table works unquoted across common JDBC dialects.</p></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-416041377%2FClasslikes%2F-251573632" anchor-label="FilePersistenceStrategy" id="-416041377%2FClasslikes%2F-251573632" data-filterable-set=":/main"></a>
+          <div class="table-row table-row_content" data-filterable-current=":/main" data-filterable-set=":/main">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-file-persistence-strategy/index.html"><span>File</span><wbr></wbr><span>Persistence</span><wbr></wbr><span><span>Strategy</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-416041377%2FClasslikes%2F-251573632"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":/main"><div class="symbol monospace"><span class="token keyword">class </span><a href="-file-persistence-strategy/index.html">FilePersistenceStrategy</a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">path<span class="token operator">: </span><a href="https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/Path.html">Path</a><span class="token punctuation">, </span></span><span class="parameter ">format<span class="token operator">: </span><a href="-persistence-file-format/index.html">PersistenceFileFormat</a><span class="token operator"> = </span>PersistenceFileFormat.PROPERTIES</span></span><span class="token punctuation">)</span> : <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a></div><div class="brief "><p class="paragraph">A <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a> backed by a single file at <span data-unresolved-link="org.pcsoft.framework.pluggiat.persistence/FilePersistenceStrategy//#java.nio.file.Path#org.pcsoft.framework.pluggiat.persistence.PersistenceFileFormat/PointingToCallableParameters(0)/">path</span>, in the given <span data-unresolved-link="org.pcsoft.framework.pluggiat.persistence/FilePersistenceStrategy//#java.nio.file.Path#org.pcsoft.framework.pluggiat.persistence.PersistenceFileFormat/PointingToCallableParameters(1)/">format</span>.</p></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-487175132%2FClasslikes%2F-251573632" anchor-label="NoPersistenceStrategy" id="-487175132%2FClasslikes%2F-251573632" data-filterable-set=":/main"></a>
+          <div class="table-row table-row_content" data-filterable-current=":/main" data-filterable-set=":/main">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-no-persistence-strategy/index.html"><span>No</span><wbr></wbr><span>Persistence</span><wbr></wbr><span><span>Strategy</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-487175132%2FClasslikes%2F-251573632"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":/main"><div class="symbol monospace"><span class="token keyword">class </span><a href="-no-persistence-strategy/index.html">NoPersistenceStrategy</a> : <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a></div><div class="brief "><p class="paragraph">Default <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a>: reads always resolve to <code class="lang-kotlin">null</code>, writes are a no-op.</p></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-104383838%2FClasslikes%2F-251573632" anchor-label="ObjectPersistenceStrategy" id="-104383838%2FClasslikes%2F-251573632" data-filterable-set=":/main"></a>
+          <div class="table-row table-row_content" data-filterable-current=":/main" data-filterable-set=":/main">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-object-persistence-strategy/index.html"><span>Object</span><wbr></wbr><span>Persistence</span><wbr></wbr><span><span>Strategy</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-104383838%2FClasslikes%2F-251573632"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":/main"><div class="symbol monospace"><span class="token keyword">class </span><a href="-object-persistence-strategy/index.html">ObjectPersistenceStrategy</a><span class="token punctuation">(</span><span class="parameters "><span class="parameter ">getter<span class="token operator">: </span><span class="token punctuation">(</span>pluginId<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-string/index.html">String</a><span class="token punctuation">, </span>key<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-string/index.html">String</a><span class="token punctuation">)</span><span class="token operator"> -&gt; </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-string/index.html">String</a><span class="token operator">?</span><span class="token punctuation">, </span></span><span class="parameter ">setter<span class="token operator">: </span><span class="token punctuation">(</span>pluginId<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-string/index.html">String</a><span class="token punctuation">, </span>key<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-string/index.html">String</a><span class="token punctuation">, </span>value<span class="token operator">: </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-string/index.html">String</a><span class="token punctuation">)</span><span class="token operator"> -&gt; </span><a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-unit/index.html">Unit</a></span></span><span class="token punctuation">)</span> : <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a></div><div class="brief "><p class="paragraph">A <a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a> that delegates every read/write to a pair of host-provided functions, without prescribing how or where the host actually stores the value - e.g. against an in-memory map, a host's own settings object, or any other backing store the host already owns.</p></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-1842487709%2FClasslikes%2F-251573632" anchor-label="PersistenceFileFormat" id="-1842487709%2FClasslikes%2F-251573632" data-filterable-set=":/main"></a>
+          <div class="table-row table-row_content" data-filterable-current=":/main" data-filterable-set=":/main">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-persistence-file-format/index.html"><span>Persistence</span><wbr></wbr><span>File</span><wbr></wbr><span><span>Format</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-1842487709%2FClasslikes%2F-251573632"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":/main"><div class="symbol monospace"><span class="token keyword">enum </span><a href="-persistence-file-format/index.html">PersistenceFileFormat</a> : <a href="https://kotlinlang.org/api/core/kotlin-stdlib/kotlin/-enum/index.html">Enum</a><span class="token operator">&lt;</span><a href="-persistence-file-format/index.html">PersistenceFileFormat</a><span class="token operator">&gt; </span></div><div class="brief "><p class="paragraph">File format used by <a href="-file-persistence-strategy/index.html">FilePersistenceStrategy</a> to store its key-value state.</p></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="-779279685%2FClasslikes%2F-251573632" anchor-label="PersistenceReadCallback" id="-779279685%2FClasslikes%2F-251573632" data-filterable-set=":/main"></a>
+          <div class="table-row table-row_content" data-filterable-current=":/main" data-filterable-set=":/main">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-persistence-read-callback/index.html"><span>Persistence</span><wbr></wbr><span>Read</span><wbr></wbr><span><span>Callback</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="-779279685%2FClasslikes%2F-251573632"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":/main"><div class="symbol monospace"><span class="token keyword">fun </span><span class="token keyword">interface </span><a href="-persistence-read-callback/index.html">PersistenceReadCallback</a></div><div class="brief "><p class="paragraph">Host-provided lookup for <a href="-custom-persistence-strategy/read.html">CustomPersistenceStrategy.read</a>.</p></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="1256238568%2FClasslikes%2F-251573632" anchor-label="PersistenceWriteCallback" id="1256238568%2FClasslikes%2F-251573632" data-filterable-set=":/main"></a>
+          <div class="table-row table-row_content" data-filterable-current=":/main" data-filterable-set=":/main">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-persistence-write-callback/index.html"><span>Persistence</span><wbr></wbr><span>Write</span><wbr></wbr><span><span>Callback</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="1256238568%2FClasslikes%2F-251573632"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":/main"><div class="symbol monospace"><span class="token keyword">fun </span><span class="token keyword">interface </span><a href="-persistence-write-callback/index.html">PersistenceWriteCallback</a></div><div class="brief "><p class="paragraph">Host-provided storage for <a href="-custom-persistence-strategy/write.html">CustomPersistenceStrategy.write</a>.</p></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+<a data-name="109242518%2FClasslikes%2F-251573632" anchor-label="PluginPersistenceStrategy" id="109242518%2FClasslikes%2F-251573632" data-filterable-set=":/main"></a>
+          <div class="table-row table-row_content" data-filterable-current=":/main" data-filterable-set=":/main">
+            <div class="main-subrow keyValue ">
+              <div class=""><span class="inline-flex">
+                  <div><a href="-plugin-persistence-strategy/index.html"><span>Plugin</span><wbr></wbr><span>Persistence</span><wbr></wbr><span><span>Strategy</span></span></a></div>
+<span class="anchor-wrapper"><span class="anchor-icon" pointing-to="109242518%2FClasslikes%2F-251573632"></span>
+                    <div class="copy-popup-wrapper "><span class="copy-popup-icon"></span><span>Link copied to clipboard</span></div>
+                  </span></span></div>
+              <div>
+                <div class="title">
+                  <div class="platform-hinted " data-platform-hinted="data-platform-hinted"><div class="content sourceset-dependent-content" data-active="" data-togglable=":/main"><div class="symbol monospace"><span class="token keyword">interface </span><a href="-plugin-persistence-strategy/index.html">PluginPersistenceStrategy</a></div><div class="brief "><p class="paragraph">Generic key-value persistence for per-plugin framework and host state (e.g. the accepted checksum of a plugin, or its enabled/disabled status).</p></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    <div class="footer">
+        <div class="footer--container">
+            <a href="#content" id="go-to-top-link" class="footer--button footer--button_go-to-top"></a>
+            <div class="footer--content">
+                <div>
+                    <span>Generated by </span>
+                    <a class="footer--link footer--link_external" href="https://github.com/Kotlin/dokka">
+                        Dokka
+                    </a>
+                    <div>© 2026 Copyright</div>
+                </div>
+            </div>
+        </div>
+    </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
