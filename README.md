@@ -14,8 +14,10 @@ discovery, isolation or lifecycle handling.
 * Plugin scanner with three load modes - `SINGLE_JAR`, `MULTI_JAR_WITH_OWN_FOLDER` and `ZIP_JAR`
   (default) _(planned)_
 * Distinction between builtin and external plugin locations _(planned)_
-* Configurable per-location security concept - `PLAIN`, `MUST_SIGN` (signature via host-provided
-  public key) and `CHECKSUM` (approval workflow for unknown/changed checksums) _(planned)_
+* Configurable per-location security concept - `PLAIN`, `MUST_SIGN` (signature via a public key
+  resolved through a pluggable `PublicKeyProviderStrategy`: Java truststore, directly supplied key,
+  or an OpenPGP keyserver) and `CHECKSUM` (approval workflow for unknown/changed checksums)
+  _(planned)_
 * Isolated plugin classpaths via parent-last `PluginClassLoader`s with a host-configured SDK
   whitelist, preventing plugins from reflecting into host-internal code; loading is unconditional,
   so a host can knowingly load a plugin that failed its security check

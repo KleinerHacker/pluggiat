@@ -64,9 +64,9 @@ protection for a location must be an explicit, visible choice.
 
 Requires the candidate to be signed with a key resolved via an injected
 `org.pcsoft.framework.pluggiat.security.publickey.PublicKeyProviderStrategy` (see
-the `PublicKeyProviderStrategy` KDoc in the API Docs), looked up by the plugin's manifest `id`.
-Verification uses the JDK's standard JAR code-signing mechanism (`jarsigner`/`JarFile(verify =
-true)`):
+[Public key providers](public-key-providers.md) for the shipped implementations), looked up by
+the plugin's manifest `id`. Verification uses the JDK's standard JAR code-signing mechanism
+(`jarsigner`/`JarFile(verify = true)`):
 
 * `SingleJarScanStrategy`/`ZipJarScanStrategy` candidates: the candidate file itself (the `.jar` or
   the `.zip`) must be signed. Signing a `.zip` uses the exact same mechanism as signing a `.jar` -
@@ -84,7 +84,7 @@ true)`):
 Signing is done entirely with the JDK's own `keytool`/`jarsigner` command line tools (shipped with
 every JDK) - no plugin-specific tooling is required. The public key handed to `keytool -genkeypair`
 is the one a `PublicKeyProviderStrategy` implementation must later resolve for the plugin's id (see
-the `PublicKeyProviderStrategy` KDoc in the API Docs).
+[Public key providers](public-key-providers.md)).
 
 **`SingleJarScanStrategy`** - sign the plugin's single JAR directly:
 

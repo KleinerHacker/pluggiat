@@ -85,6 +85,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `PluginScanResult` now keeps its `manifest` for every status except `MANIFEST_NOT_FOUND`/
   `MANIFEST_INVALID` (previously cleared on `SECURITY_PROBLEM` too), so a host can still inspect and
   force-load a candidate that failed security.
+- Three shipped `PublicKeyProviderStrategy` implementations for `SignatureSecurityStrategy`:
+  `TrustStorePublicKeyProviderStrategy` (resolves a certificate's public key from a Java `KeyStore`
+  by an alias derived from the plugin id), `DirectPublicKeyProviderStrategy` (always resolves the
+  same, directly supplied key) and `OpenPgpKeyserverPublicKeyProviderStrategy` (resolves a key from
+  an HKP-compatible OpenPGP keyserver, e.g. `keys.openpgp.org`, with configurable timeout and
+  result caching).
 
 ### Changed
 

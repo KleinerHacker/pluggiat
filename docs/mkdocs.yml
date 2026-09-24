@@ -67,6 +67,7 @@ nav:
       - Configuring plugin locations: host-integration/setup.md
       - Defining extension points: host-integration/extension-points.md
       - Security: host-integration/security.md
+      - Public key providers: host-integration/public-key-providers.md
       - SDK whitelist: host-integration/sdk-whitelist.md
       - Persistence: host-integration/persistence.md
       - PluginManager: host-integration/plugin-manager.md

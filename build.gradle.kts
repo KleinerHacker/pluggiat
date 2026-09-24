@@ -39,6 +39,7 @@ val slf4jVersion = "2.0.19"
 val h2Version = "2.5.250"
 val byteBuddyVersion = "1.17.8"
 val objenesisVersion = "3.6"
+val bouncyCastleVersion = "1.80"
 
 dependencies {
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jacksonVersion}")
@@ -49,6 +50,11 @@ dependencies {
     // Runtime enforcement proxy in front of extension instances (IP-06 task 6).
     implementation("net.bytebuddy:byte-buddy:${byteBuddyVersion}")
     implementation("org.objenesis:objenesis:${objenesisVersion}")
+    // RFC 9580 OpenPGP parsing for OpenPgpKeyserverPublicKeyProviderStrategy (IP-08 task 4).
+    implementation("org.bouncycastle:bcpg-jdk18on:${bouncyCastleVersion}")
+    // bcpg-jdk18on references ASN.1 object identifiers (e.g. CryptlibObjectIdentifiers) that live
+    // here, but does not declare it as a dependency itself.
+    implementation("org.bouncycastle:bcutil-jdk18on:${bouncyCastleVersion}")
 
     testImplementation(kotlin("reflect"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
@@ -88,6 +94,7 @@ licensee {
     allow("MIT")
     allow("EPL-1.0")
     allowUrl("https://opensource.org/license/mit")
+    allowUrl("https://www.bouncycastle.org/licence.html")
 }
 
 // Published so the artifact from `git tag` builds can be pushed to GitHub Packages by release.yml.

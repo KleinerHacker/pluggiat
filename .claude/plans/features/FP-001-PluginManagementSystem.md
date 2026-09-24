@@ -136,7 +136,7 @@
 | IP-05 | ClassLoader-Isolation & Abhängigkeitsgraph (COMPLETED, Erweiterung in IP-06) | Parent-Last-Isolation, host-konfigurierte SDK-Whitelist, Plugin-Abhängigkeitsgraph, `PluginLoader`-Klasse inkl. Force-Load (Schließen des ClassLoaders folgt in IP-06) | IP-01, IP-03   |
 | IP-06 | Lifecycle & Fehlerisolation (COMPLETED)        | `PluginManager`, Lifecycle-Hooks, `PluginPersistenceStrategy`, `PluginSecurity` (Rename+Re-Check), `ExceptionHandlingStrategy` mit Proxy-Durchsetzung (ByteBuddy) | IP-02, IP-05   |
 | IP-07 | Orchestrierung & Laufzeit-Runtime (COMPLETED)   | Host-steuerbare Gesamtsteuerung auf Basis von `PluginManager`, ID-Kollisionsauflösung, minVersion-Check, Force-Load-Einstiegspunkt | IP-04, IP-06 |
-| IP-08 | Public-Key-Provider-Strategien                  | `PublicKeyProviderStrategy`-Interface, Truststore-, Direkt- und OpenPGP-Provider | IP-04          |
+| IP-08 | Public-Key-Provider-Strategien (COMPLETED)      | `PublicKeyProviderStrategy`-Interface, Truststore-, Direkt- und OpenPGP-Provider | IP-04          |
 
 ## 7. Implementierungspläne
 
@@ -419,7 +419,7 @@ ExtensionPointRegistry` wird von `PluginManager` einmalig selbst daraus gebaut. 
 Extension-Zugriff über `getExtensions<T>(key)`/`getFirstExtension<T>(key)` statt direktem Zugriff auf
 `extensionsByKey`.
 
-### IP-08: Public-Key-Provider-Strategien
+### IP-08: Public-Key-Provider-Strategien (COMPLETED)
 
 **Ziel**
 
@@ -446,6 +446,10 @@ Die Signatur-Strategie kann wahlweise mit einem Truststore-, einem Direkt- oder 
 
 Für den OpenPGP-Provider ist vor Beginn der Detailplanung zu klären, welche Bibliothek RFC 9580 abdeckt und ob sie als neue Abhängigkeit freigegeben wird (siehe `dependencies.md`); ebenso ist das Zeitverhalten (Timeout, Caching aufgelöster Keys) und die Fehlerbehandlung bei nicht erreichbarem Keyserver festzulegen, damit der nicht-blockierende Scan-/Ladepfad (Abschnitt 4) nicht verletzt wird.
 
+**Tatsächliche Umsetzung (Abweichungen vom ursprünglichen Plan)**
+
+Bibliotheksauswahl mit dem Nutzer abgestimmt: Bouncy Castle (`org.bouncycastle:bcpg-jdk18on:1.80`), zusätzlich `org.bouncycastle:bcutil-jdk18on:1.80` als von `bcpg-jdk18on` benötigte, aber nicht selbst deklarierte Laufzeitabhängigkeit (`CryptlibObjectIdentifiers` u. a.) ergänzt; `licensee` um `allowUrl("https://www.bouncycastle.org/licence.html")` erweitert (Nutzerabstimmung, da die Bouncy-Castle-Lizenz über eine URL statt einer SPDX-ID deklariert wird). Truststore-Alias-Auflösung erfolgt über einen konfigurierbaren `aliasResolver: (String) -> String` (Default: Plugin-ID als Alias) statt einer festen Zuordnungsregel. Die im Plan genannte Key-ID/Fingerprint-Hinterlegung "im Manifest bzw. in der Ortskonfiguration" wurde, analog zur Truststore-Alias-Auflösung und ohne Manifest-Erweiterung, als konfigurierbarer `keyIdResolver: (String) -> String?` auf `OpenPgpKeyserverPublicKeyProviderStrategy` umgesetzt. Der OpenPGP-Provider nutzt den JDK-eigenen `java.net.http.HttpClient` (kein zusätzlicher HTTP-Client als Abhängigkeit) gegen den Standard-HKP-Endpunkt `GET /pks/lookup?op=get&options=mr&search=0x<keyId>`, wodurch jeder HKP-kompatible Keyserver konfigurierbar ist, nicht nur `keys.openpgp.org`. Caching erfolgt In-Memory (`ConcurrentHashMap`, konfigurierbare `cacheDuration`, Default 1 Stunde) und cacht sowohl erfolgreiche als auch fehlgeschlagene Auflösungen, damit ein dauerhaft nicht erreichbarer Keyserver den Scan-Pfad nicht wiederholt blockiert; `timeout` (Default 10 Sekunden) bindet Verbindungs- und Anfragezeit. Alle drei Provider werfen bei Auflösungsfehlern nie, sondern liefern `null` und loggen WARN (Truststore/OpenPGP; der Direkt-Provider kann naturgemäß nicht fehlschlagen).
+
 ## 8. Abhängigkeitsgraph
 
 ```text
@@ -456,7 +460,7 @@ IP-01 (COMPLETED)
 ├── IP-03 (COMPLETED)
 │   ├── IP-04 (COMPLETED, Persistenz-Migration in IP-06)
 │   │   ├── IP-07 (COMPLETED)
-│   │   └── IP-08
+│   │   └── IP-08 (COMPLETED)
 │   └── IP-05 (COMPLETED, Erweiterung in IP-06)
 │       └── IP-06 (COMPLETED)
 ```
@@ -466,8 +470,8 @@ IP-01 (COMPLETED)
 * Genaue Konfigurationsschnittstelle für die vom Host bereitgestellte SDK-Whitelist (Format, Granularität: Paket- vs. Klassenebene) ist in der Detailplanung von IP-05 festzulegen
 * Geklärt (IP-06): Deaktivierungsgrund (Nutzer vs. Laufzeitfehler) wird über einen eigenen Key in der `PluginPersistenceStrategy` unterschieden
 * Geklärt: `PENDING_APPROVAL` existiert nicht als Framework-Zustand; jede Strategie liefert nur Erfolg/Fehlschlag, ein Gesamtfehlschlag der Kette wird als `PluginScanStatus.SECURITY_PROBLEM` gemeldet, eine Freigabe ist reine Host-Entscheidung außerhalb von IP-04
-* Bibliotheksauswahl für RFC-9580-konformes OpenPGP-Parsing ist offen und mit dem Nutzer gemäß `dependencies.md` abzustimmen
-* Zeitverhalten (Timeout, Caching) und Fehlerbehandlung des OpenPGP-Keyserver-Zugriffs bei Netzwerkausfall sind in der Detailplanung von IP-08 zu klären
+* Geklärt (IP-08): Bibliotheksauswahl für RFC-9580-konformes OpenPGP-Parsing ist mit dem Nutzer abgestimmt - Bouncy Castle (`bcpg-jdk18on` + `bcutil-jdk18on`)
+* Geklärt (IP-08): Zeitverhalten (Timeout, Caching) und Fehlerbehandlung des OpenPGP-Keyserver-Zugriffs bei Netzwerkausfall - konfigurierbarer Timeout (Default 10s) und In-Memory-Cache (Default 1h) für erfolgreiche wie fehlgeschlagene Lookups
 * Geklärt: Force-Load benötigt keinen eigenen Audit-Trail-Callback; die Verantwortung für korrektes Logging des Vorgangs liegt bei der Host-Anwendung
 * Geklärt: Force-Load benötigt kein vom Host konfigurierbares generelles An/Aus; der Aufruf ist ein reiner, von der Host-Implementierung selbst gerufener API-Aufruf, eine zusätzliche Sperre wäre wirkungslos (der aufrufende Code kann sich nicht spontan selbst ändern)
 * Geklärt (IP-06): Es gibt ausschließlich eine host-weite `ExceptionHandlingStrategy`; ein Plugin kann das Handling nur indirekt über die Wahl der geworfenen Exception-Klasse beeinflussen, nicht über eine eigene registrierte Strategie
