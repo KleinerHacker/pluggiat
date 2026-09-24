@@ -45,10 +45,13 @@ This documentation is split by audience:
 * **Host integration** - for developers embedding pluggiat into their own application: plugin
   locations and load modes, security configuration, the SDK whitelist and plugin lifecycle
   management from the host's perspective.
-* **Troubleshooting** - log level overview and explanations for the error and conflict cases the
-  framework can report.
+* **[Troubleshooting](host-integration/troubleshooting.md)** - log level overview and explanations
+  for the error and conflict cases the framework can report.
 
 ## Where to go next
 
+* [Host integration: PluginManager](host-integration/plugin-manager.md) - the central entry point
+  for embedding pluggiat into your application
+* [Troubleshooting](host-integration/troubleshooting.md) - log levels, error and conflict cases
 * [API Docs](dokka/html/index.html) - the generated Dokka API documentation
 * [Licences](licences/index.html) - the dependency licence report

@@ -60,10 +60,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only `PluginExecutionException`/`PluginFatalException` ever reach the host. Proxy-eligible return
   values (interfaces/open classes), including array elements, `Collection` elements and `Map`
   values, are wrapped recursively the same way.
-- `PluginManager` central entry point with a `pluginManager { ... }` Kotlin builder DSL, bundling
-  plugin locations, default security chains, dependency strategy, persistence strategy, exception
-  handling strategy, SDK whitelist and host version; exposes pre-wired `scanner`/`security`/`loader`
-  instances and a `reactivate(...)` reactivation flow (security re-check, then reload).
+- `PluginManager` central, stateful entry point with a `pluginManager { ... }` Kotlin builder DSL,
+  bundling plugin locations, default security chains, dependency strategy, persistence strategy,
+  exception handling strategy, SDK whitelist, host version and extension points (`extensionPoint(...)`);
+  exposes pre-wired `scanner`/`security`/`loader`/`registry` instances.
+- `PluginManager.scan()` orchestrates the full scan-load-enable flow across all configured locations
+  in one call: security check, cross-location plugin ID collision resolution (version-based; on a
+  tie the whole group is rejected, no further tie-breaking), `minVersion` compatibility check against
+  `hostVersion`, dependency-ordered class loading and extension activation, exposed via the
+  `scanResults`/`loadedPlugins`/`extensionsByKey` properties. Two new `PluginScanStatus` values,
+  `ID_COLLISION` and `MIN_VERSION_VIOLATION`, plus `LOAD_FAILED` for a candidate that failed
+  `PluginLoader.load` after passing every earlier check.
+- `PluginManager.reload(pluginId)`/`unload(pluginId)` as the regular, secure (re-)activation and
+  deliberate host-initiated deactivation of a single loaded plugin; `unload` invokes
+  `onDisable`/`onUnload` on the plugin's real extension instances, persists it disabled and closes
+  its class loader.
+- `PluginManager.forceLoad(pluginId)` loads a plugin candidate unconditionally, bypassing its current
+  `scanResults` status; a `persistException` flag additionally records a permanent, generic security
+  exception for the plugin id, skipping every future security check for it. A new
+  `PersistableSecurityStrategy` interface lets a strategy persist its own accepted state instead
+  (implemented by `ChecksumSecurityStrategy`), invoked via `PluginManager.write<T>(pluginId)`.
+- `PluginManager.getExtensions<T>(key)`/`getFirstExtension<T>(key)` for typed access to currently
+  active extension implementations.
+- `PluginScanResult` now keeps its `manifest` for every status except `MANIFEST_NOT_FOUND`/
+  `MANIFEST_INVALID` (previously cleared on `SECURITY_PROBLEM` too), so a host can still inspect and
+  force-load a candidate that failed security.
 
 ### Changed
 
@@ -71,6 +92,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   usable public API, analogous to `PluginLoader`.
 - **Breaking:** `ChecksumSecurityStrategy` now takes a `PluginPersistenceStrategy` (key
   `"checksum"`) instead of a separate `ExpectedChecksumCallback`.
+- **Breaking:** the `pluginManager { ... }` builder DSL's `location(...)`, `defaultSecurityChain(...)`
+  and `sdkWhitelistEntry(...)` now take a nested builder block (`location { path = ...; type = ... }`,
+  `defaultSecurityChain { type = ...; addStrategy(...) }`, `securityOverride { addStrategy(...) }`)
+  instead of a pre-built value/list argument.
+- **Breaking:** `ExtensionAggregator`'s `classResolver: ExtensionClassResolver` constructor parameter
+  was replaced by `classResolverFor: (pluginId: String) -> ExtensionClassResolver`, so each plugin can
+  be resolved through its own isolated class loader.
 
 ### Removed
 

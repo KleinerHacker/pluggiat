@@ -135,7 +135,7 @@
 | IP-04 | Sicherheitskonzept (Strategy-Kette) (COMPLETED, Persistenz-Migration in IP-06) | `PluginSecurityStrategy`-Interface, Fallback-Kette, mitgelieferte Basis-Strategien, Checksum-Persistenz (ab IP-06 über `PluginPersistenceStrategy`) | IP-03          |
 | IP-05 | ClassLoader-Isolation & Abhängigkeitsgraph (COMPLETED, Erweiterung in IP-06) | Parent-Last-Isolation, host-konfigurierte SDK-Whitelist, Plugin-Abhängigkeitsgraph, `PluginLoader`-Klasse inkl. Force-Load (Schließen des ClassLoaders folgt in IP-06) | IP-01, IP-03   |
 | IP-06 | Lifecycle & Fehlerisolation (COMPLETED)        | `PluginManager`, Lifecycle-Hooks, `PluginPersistenceStrategy`, `PluginSecurity` (Rename+Re-Check), `ExceptionHandlingStrategy` mit Proxy-Durchsetzung (ByteBuddy) | IP-02, IP-05   |
-| IP-07 | Orchestrierung & Laufzeit-Runtime              | Host-steuerbare Gesamtsteuerung auf Basis von `PluginManager`, ID-Kollisionsauflösung, minVersion-Check, Force-Load-Einstiegspunkt | IP-04, IP-06 |
+| IP-07 | Orchestrierung & Laufzeit-Runtime (COMPLETED)   | Host-steuerbare Gesamtsteuerung auf Basis von `PluginManager`, ID-Kollisionsauflösung, minVersion-Check, Force-Load-Einstiegspunkt | IP-04, IP-06 |
 | IP-08 | Public-Key-Provider-Strategien                  | `PublicKeyProviderStrategy`-Interface, Truststore-, Direkt- und OpenPGP-Provider | IP-04          |
 
 ## 7. Implementierungspläne
@@ -360,7 +360,7 @@ entferntes Plugin fällt beim nächsten Aufruf einfach aus dieser Liste heraus. 
 `com.h2database:h2` (EPL-1.0) für den In-Memory-JDBC-Test von `DatabasePersistenceStrategy`, mit dem
 Nutzer abgestimmt. Details siehe Notiz zu IP-06 in `.claude/plans/features/FP-001-PluginManagementSystem-status.md`.
 
-### IP-07: Orchestrierung & Laufzeit-Runtime
+### IP-07: Orchestrierung & Laufzeit-Runtime (COMPLETED)
 
 **Ziel**
 
@@ -387,6 +387,37 @@ Der Framework-Nutzer kann das Gesamtsystem mit einer Liste von Orten starten (sy
 
 Keine framework-eigene Async-API — die öffentliche API besteht aus normalen (ggf. blockierenden) Funktionsaufrufen, die der Host bei Bedarf selbst in einen eigenen Thread/Coroutine/Executor auslagert.
 Der Force-Load-Einstiegspunkt nimmt die Plugin-ID (bzw. das zuvor im Scan-/Sicherheitsergebnis identifizierte Plugin) entgegen und delegiert intern an den `PluginLoader` aus IP-05; er verändert nicht das ursprüngliche Sicherheitsergebnis im Scan-Ergebnis, sondern ergänzt es um den Hinweis, dass das Plugin zusätzlich per Force-Load geladen wurde.
+
+**Tatsächliche Umsetzung (Abweichungen vom ursprünglichen Plan)**
+
+Im Dialog mit dem Nutzer wurde `PluginManager` bewusst zustandsbehaftet gestaltet statt ein
+zusammengesetztes Ergebnis-Objekt zurückzugeben: `scan()`/`reload(pluginId)`/`unload(pluginId)`/
+`forceLoad(pluginId)` mutieren die Properties `scanResults`/`loadedPlugins`/`extensionsByKey` direkt
+auf der Instanz (intern durch ein `ReentrantLock` abgesichert), der Host liest den jeweils aktuellen
+Zustand direkt vom `PluginManager` statt aus einem Rückgabewert. Wiederverwendung bestehender
+Modelle statt neuer Wrapper-Klassen: `PluginScanStatus` (IP-03) wurde um `ID_COLLISION`,
+`MIN_VERSION_VIOLATION` und `LOAD_FAILED` erweitert, `PluginScanResult` bleibt die einzige Struktur
+für Ablehnungsgründe; `PluginScanner.applySecurityCheck` (IP-03/04) setzt das Manifest bei
+`SECURITY_PROBLEM` seit IP-07 nicht mehr auf `null`, damit ein Force-Load weiterhin Zugriff darauf
+hat. ID-Kollisionsauflösung ohne Checksum-Vergleich als Tie-Breaker (auf ausdrücklichen
+Nutzerwunsch, abweichend vom Wortlaut oben): bei Versionsgleichheit wird die gesamte Gruppe sofort
+und ausnahmslos abgelehnt. Zwei neue Mechanismen, um einen Force-Load dauerhaft zu machen: ein
+`PersistableSecurityStrategy`-Interface (`persist(pluginId, result)`), implementiert von
+`ChecksumSecurityStrategy` (IP-04) und aufgerufen über `PluginManager.write<T>(pluginId)`; sowie ein
+generischer, dauerhafter Security-Exception-Mechanismus für nicht-persistierbare Strategien
+(`PluginSecurity.SECURITY_EXCEPTION_KEY`, zentral geprüft in `PluginSecurity.evaluate` (IP-04) vor
+der Kette, gesetzt über `forceLoad(pluginId, persistException = true)`) - dafür erhielt
+`PluginSecurity` einen `persistenceStrategy`-Konstruktorparameter. `ExtensionAggregator` (IP-02/06)
+wurde um `classResolverFor: (pluginId) -> ExtensionClassResolver` (statt eines einzelnen
+`classResolver`) sowie das interne `ExtensionAggregationResult.realInstancesByPlugin` erweitert,
+damit `unload` Zugriff auf die realen (ungeproxten) Instanzen für die Lifecycle-Hooks hat. Die
+Builder-DSL (`PluginManagerConfiguration`, IP-06) wurde durchgängig auf verschachtelte Blöcke
+umgestellt (`location { ... }`, `securityOverride { addStrategy(...) }`, `defaultSecurityChain {
+type = ...; addStrategy(...) }`, `sdkWhitelistEntry { ... }`) statt vorgefertigter Werte/Listen als
+Argument, plus eine neue `extensionPoint(KClass)`-Funktion/`extensionPointClasses`-Liste - `registry:
+ExtensionPointRegistry` wird von `PluginManager` einmalig selbst daraus gebaut. Typisierter
+Extension-Zugriff über `getExtensions<T>(key)`/`getFirstExtension<T>(key)` statt direktem Zugriff auf
+`extensionsByKey`.
 
 ### IP-08: Public-Key-Provider-Strategien
 
@@ -421,10 +452,10 @@ Für den OpenPGP-Provider ist vor Beginn der Detailplanung zu klären, welche Bi
 IP-01 (COMPLETED)
 ├── IP-02 (COMPLETED)
 │   └── IP-06 (COMPLETED)
-│       └── IP-07
+│       └── IP-07 (COMPLETED)
 ├── IP-03 (COMPLETED)
 │   ├── IP-04 (COMPLETED, Persistenz-Migration in IP-06)
-│   │   ├── IP-07
+│   │   ├── IP-07 (COMPLETED)
 │   │   └── IP-08
 │   └── IP-05 (COMPLETED, Erweiterung in IP-06)
 │       └── IP-06 (COMPLETED)

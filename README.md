@@ -29,9 +29,14 @@ discovery, isolation or lifecycle handling.
   (`java.lang.reflect.Proxy`/ByteBuddy) resolving escaping exceptions via a configurable
   `ExceptionHandlingStrategy` (`IGNORE`/`UNLOAD`/`CRASH`) - an unhandled exception forces only that
   plugin to be deactivated, not the whole host application
-* Central `PluginManager` entry point with a Kotlin builder DSL bundling host-wide configuration
-* Cross-location plugin ID collision resolution and a `minVersion` compatibility check against the
-  host application _(planned)_
+* Central, stateful `PluginManager` entry point with a Kotlin builder DSL bundling host-wide
+  configuration; `scan()`/`reload()`/`unload()`/`forceLoad()` orchestrate the full scan-load-enable
+  flow and typed `getExtensions<T>`/`getFirstExtension<T>` expose the active implementations
+* Cross-location plugin ID collision resolution (version-based, no further tie-breaking) and a
+  `minVersion` compatibility check against the host application
+* Two ways to make a force-loaded plugin's override stick: `PluginManager.write<T>` for a
+  `PersistableSecurityStrategy` (e.g. the checksum strategy persisting its own accepted checksum), or
+  a generic, persistent security exception via `forceLoad(pluginId, persistException = true)`
 
 ## AI transparency notice
 
@@ -78,4 +83,4 @@ dependencies {
 | Security concepts (`PLAIN`/`MUST_SIGN`/`CHECKSUM`)                  | planned |
 | Isolated classpaths and dependency graph                           | implemented |
 | Plugin lifecycle and runtime error isolation                       | implemented |
-| Orchestration runtime (ID collisions, `minVersion` check)           | planned |
+| Orchestration runtime (ID collisions, `minVersion` check)           | implemented |

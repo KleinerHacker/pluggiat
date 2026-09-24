@@ -1,5 +1,7 @@
 package org.pcsoft.framework.pluggiat.security
 
+import org.pcsoft.framework.pluggiat.persistence.NoPersistenceStrategy
+import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
 import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
@@ -14,16 +16,25 @@ import java.nio.file.Path
  * Public API, freely usable by a host directly (analogous to
  * `org.pcsoft.framework.pluggiat.classloader.PluginLoader`), independent of any reactivation flow -
  * not only used internally by `org.pcsoft.framework.pluggiat.scanner.PluginScanner`.
+ *
+ * @property persistenceStrategy source of truth for a plugin's [SECURITY_EXCEPTION_KEY] flag, set by
+ * `org.pcsoft.framework.pluggiat.PluginManager.forceLoad(pluginId, persistException = true)`
  */
-class PluginSecurity {
+class PluginSecurity(
+    private val persistenceStrategy: PluginPersistenceStrategy = NoPersistenceStrategy(),
+) {
     private val logger = LoggerFactory.getLogger(PluginSecurity::class.java)
 
     /**
      * Evaluates the security chain for [result].
      *
-     * The effective chain is [PluginScanResult.location]'s `securityOverride` if non-empty,
-     * otherwise the entry for the location's [PluginLocationType] in [defaultSecurityChains] (or
-     * an empty list if none is configured there either).
+     * If [SECURITY_EXCEPTION_KEY] is persisted as `"true"` for [result]'s plugin id, the chain is
+     * skipped entirely and this returns [PluginSecurityCheckResult.Success] - a WARN is logged every
+     * time this happens, since it silently bypasses every configured strategy for that plugin.
+     *
+     * Otherwise, the effective chain is [PluginScanResult.location]'s `securityOverride` if
+     * non-empty, otherwise the entry for the location's [PluginLocationType] in
+     * [defaultSecurityChains] (or an empty list if none is configured there either).
      *
      * The chain is checked in configured order; the first successful strategy ends the check
      * positively. A security problem is only reported once ALL strategies of the chain have
@@ -39,10 +50,15 @@ class PluginSecurity {
         result: PluginScanResult,
         defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
     ): PluginSecurityCheckResult {
-        val location = result.location
-        val chain = location.securityOverride.ifEmpty { defaultSecurityChains[location.type] ?: emptyList() }
+        val pluginId = result.manifest?.id
+        if (pluginId != null && persistenceStrategy.read(pluginId, SECURITY_EXCEPTION_KEY) == "true") {
+            logger.warn("Security exception active for plugin '{}', skipping the security chain entirely", pluginId)
+            return PluginSecurityCheckResult.Success
+        }
+
+        val chain = effectiveChain(result.location, defaultSecurityChains)
         check(chain.isNotEmpty()) {
-            "No security strategies configured for plugin location '${location.path}' (type=${location.type}); " +
+            "No security strategies configured for plugin location '${result.location.path}' (type=${result.location.type}); " +
                 "either set an override on the location or a default chain for its type"
         }
 
@@ -92,5 +108,27 @@ class PluginSecurity {
             )
         }
         return evaluate(rescanned, defaultSecurityChains)
+    }
+
+    companion object {
+        /**
+         * [PluginPersistenceStrategy] key holding a plugin's persistent security exception flag
+         * (`"true"`/absent). Set by `org.pcsoft.framework.pluggiat.PluginManager.forceLoad(pluginId,
+         * persistException = true)`; once set, [evaluate] skips the security chain entirely for that
+         * plugin id until the host clears the key itself.
+         */
+        const val SECURITY_EXCEPTION_KEY: String = "securityException"
+
+        /**
+         * The effective security fallback chain for [location]: its own `securityOverride` if
+         * non-empty, otherwise the entry for its [PluginLocationType] in [defaultSecurityChains] (or
+         * an empty list if none is configured there either). The single source of truth for this
+         * resolution rule, also used by `org.pcsoft.framework.pluggiat.PluginManager.write`.
+         */
+        fun effectiveChain(
+            location: PluginLocation,
+            defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+        ): List<PluginSecurityStrategy> =
+            location.securityOverride.ifEmpty { defaultSecurityChains[location.type] ?: emptyList() }
     }
 }

@@ -155,18 +155,57 @@ There is no `PENDING_APPROVAL` status in the framework. Whether and how to react
 1. The scan reports a candidate as `SECURITY_PROBLEM` (all chain strategies failed).
 2. The host application shows its own prompt/dialog to the user, e.g. "Plugin X's checksum
    changed - allow it anyway?".
-3. If the user approves, the host application explicitly force-loads the plugin via `PluginLoader`
-   (see the ClassLoader documentation), independent of the failed security result.
-4. As a consequence of that force-load, the host application persists the newly accepted checksum
-   through the same `PluginPersistenceStrategy` instance, so subsequent scans succeed on their own
-   without requiring another approval:
-
-```kotlin
-myPersistenceStrategy.write(pluginId, ChecksumSecurityStrategy.PERSISTENCE_KEY, newlyAcceptedChecksum)
-```
+3. If the user approves, the host application explicitly force-loads the plugin via
+   `PluginManager.forceLoad(pluginId)` (see [PluginManager](plugin-manager.md)), independent of the
+   failed security result.
+4. Optionally, the host makes that decision stick so subsequent scans succeed on their own without
+   requiring another approval - see the next two sections.
 
 None of this blocks the scan path: resolving an expected checksum, persisting an approved one, and
 prompting the user are all synchronous calls the host application controls the timing of.
+
+## Making a force-load stick: `PersistableSecurityStrategy`
+
+A strategy that knows how to persist its own accepted state can implement
+`PersistableSecurityStrategy` in addition to `PluginSecurityStrategy`:
+
+```kotlin
+interface PersistableSecurityStrategy : PluginSecurityStrategy {
+    fun persist(pluginId: String, result: PluginScanResult)
+}
+```
+
+`ChecksumSecurityStrategy` implements it: `persist` computes the candidate's actual checksum and
+writes it as the new expected checksum. A host does not need to know the strategy's persistence key
+or how to recompute its value itself - `PluginManager.write` looks up the configured strategy
+instance of the given type for the plugin and delegates to it:
+
+```kotlin
+manager.forceLoad(pluginId)
+manager.write<ChecksumSecurityStrategy>(pluginId) // persists the actual checksum as the new expected one
+```
+
+A later `reload`/`scan` then succeeds through the regular chain, without requiring another
+force-load. `write<T>` throws if the plugin's effective chain contains no strategy of type `T`.
+
+## Making a force-load stick: the generic security exception
+
+Not every strategy has meaningful state to persist (e.g. a signature strategy - there is no "new
+expected signature" to record). For these, `forceLoad` accepts a `persistException` flag instead:
+
+```kotlin
+manager.forceLoad(pluginId, persistException = true)
+```
+
+This persists a generic, permanent exception (`PluginSecurity.SECURITY_EXCEPTION_KEY`) for the
+plugin id. `PluginSecurity.evaluate` checks this flag **before** evaluating the chain at all - if
+set, the entire chain is skipped and the check succeeds, logged as a WARN every single time this
+happens (since it silently bypasses every configured strategy, including any custom ones). The host
+is responsible for clearing the persisted key itself if the exception should ever be revoked.
+
+Prefer `write<T>` over `persistException` whenever the strategy is a `PersistableSecurityStrategy` -
+it records the strategy's actual accepted state instead of unconditionally skipping every future
+check for that plugin.
 
 ## Adding a custom strategy
 

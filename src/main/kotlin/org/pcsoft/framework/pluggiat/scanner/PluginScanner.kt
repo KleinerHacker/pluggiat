@@ -47,7 +47,9 @@ class PluginScanner(
             is PluginSecurityCheckResult.Success -> result
             is PluginSecurityCheckResult.Failure -> {
                 logger.warn("Security problem for plugin candidate at '{}': {}", result.path, checkResult.reason)
-                result.copy(manifest = null, status = PluginScanStatus.SECURITY_PROBLEM, errorMessage = checkResult.reason)
+                // the manifest is kept (unlike MANIFEST_NOT_FOUND/MANIFEST_INVALID) so a host can
+                // still force-load this candidate via org.pcsoft.framework.pluggiat.PluginManager.forceLoad
+                result.copy(status = PluginScanStatus.SECURITY_PROBLEM, errorMessage = checkResult.reason)
             }
         }
     }

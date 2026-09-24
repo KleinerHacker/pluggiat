@@ -71,5 +71,6 @@ nav:
       - Persistence: host-integration/persistence.md
       - PluginManager: host-integration/plugin-manager.md
       - Plugin lifecycle management: host-integration/plugin-lifecycle-management.md
+      - Troubleshooting: host-integration/troubleshooting.md
   - API Docs: dokka/html/index.html
   - Licences: licences/index.html

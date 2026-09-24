@@ -28,8 +28,15 @@ class PluginManagerTest {
         PluginScannerTestFixtures.writeJar(jarPath, mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")))
 
         val manager = pluginManager {
-            defaultSecurityChain(PluginLocationType.EXTERNAL, listOf(InsecureSecurityStrategy()))
-            location(PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy()))
+            defaultSecurityChain {
+                type = PluginLocationType.EXTERNAL
+                addStrategy(InsecureSecurityStrategy())
+            }
+            location {
+                path = tempDir
+                type = PluginLocationType.EXTERNAL
+                scanStrategy = SingleJarScanStrategy()
+            }
         }
 
         assertNotNull(manager.scanner)
@@ -55,7 +62,10 @@ class PluginManagerTest {
                 readCallback = { pluginId, key -> store["$pluginId.$key"] },
                 writeCallback = { pluginId, key, value -> store["$pluginId.$key"] = value },
             )
-            defaultSecurityChain(PluginLocationType.EXTERNAL, listOf(InsecureSecurityStrategy()))
+            defaultSecurityChain {
+                type = PluginLocationType.EXTERNAL
+                addStrategy(InsecureSecurityStrategy())
+            }
         }
         val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
         val manifest = PluginManifest(id = "plugin-a", name = "plugin-a", version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==")
@@ -84,7 +94,10 @@ class PluginManagerTest {
                 readCallback = { pluginId, key -> store["$pluginId.$key"] },
                 writeCallback = { pluginId, key, value -> store["$pluginId.$key"] = value },
             )
-            defaultSecurityChain(PluginLocationType.EXTERNAL, listOf(alwaysFailingStrategy))
+            defaultSecurityChain {
+                type = PluginLocationType.EXTERNAL
+                addStrategy(alwaysFailingStrategy)
+            }
         }
         val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
         val manifest = PluginManifest(id = "plugin-a", name = "plugin-a", version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==")
@@ -94,5 +107,37 @@ class PluginManagerTest {
         assertTrue(result is PluginLoadResult.Invalid)
         assertEquals("false", store["plugin-a.${ExtensionAggregator.ENABLED_PERSISTENCE_KEY}"])
         assertEquals(PluginManager.SECURITY_RECHECK_FAILED_REASON, store["plugin-a.${ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY}"])
+    }
+
+    /**
+     * Use case: a successful security re-check does not guarantee a successful reload - a candidate
+     * with a missing `required` dependency still fails at [PluginManager.loader], without the
+     * re-check-failure persistence path being taken.
+     */
+    @Test
+    fun `reactivate does not persist as enabled when the loader itself fails after a successful re-check`(@TempDir tempDir: Path) {
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        PluginScannerTestFixtures.writeJar(jarPath, mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")))
+        val store = mutableMapOf<String, String>()
+        val manager = pluginManager {
+            persistenceStrategy = CustomPersistenceStrategy(
+                readCallback = { pluginId, key -> store["$pluginId.$key"] },
+                writeCallback = { pluginId, key, value -> store["$pluginId.$key"] = value },
+            )
+            defaultSecurityChain {
+                type = PluginLocationType.EXTERNAL
+                addStrategy(InsecureSecurityStrategy())
+            }
+        }
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val manifest = PluginManifest(
+            id = "plugin-a", name = "plugin-a", version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==",
+            dependencies = listOf(org.pcsoft.framework.pluggiat.manifest.PluginDependency(id = "missing-dependency", required = true)),
+        )
+
+        val result = manager.reactivate(location, jarPath, manifest)
+
+        assertTrue(result is PluginLoadResult.Invalid)
+        assertEquals(null, store["plugin-a.${ExtensionAggregator.ENABLED_PERSISTENCE_KEY}"])
     }
 }

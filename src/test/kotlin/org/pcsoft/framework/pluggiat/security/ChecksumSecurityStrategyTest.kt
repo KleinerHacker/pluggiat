@@ -108,4 +108,61 @@ class ChecksumSecurityStrategyTest {
 
         assertEquals(PluginSecurityCheckResult.Success, checkResult)
     }
+
+    /**
+     * Use case: [ChecksumSecurityStrategy.persist] computes the candidate's actual checksum and
+     * writes it as the new expected checksum, so a subsequent [ChecksumSecurityStrategy.check]
+     * succeeds without a separate manual write.
+     */
+    @Test
+    fun `persist records the actual checksum as the new expected checksum`(@TempDir tempDir: Path) {
+        val store = mutableMapOf<String, String>()
+        val persistence = object : PluginPersistenceStrategy {
+            override fun read(pluginId: String, key: String): String? = store["$pluginId.$key"]
+            override fun write(pluginId: String, key: String, value: String) {
+                store["$pluginId.$key"] = value
+            }
+        }
+        val strategy = ChecksumSecurityStrategy(persistence)
+        val result = candidate(tempDir)
+
+        strategy.persist("plugin-a", result)
+        val checkResult = strategy.check(result)
+
+        assertEquals(PluginSecurityCheckResult.Success, checkResult)
+    }
+
+    /**
+     * Use case: for a `MULTI_JAR_WITH_OWN_FOLDER`-style candidate (`path` is a folder), the checksum
+     * covers the concatenated bytes of every `*.jar` directly inside it, in sorted file name order.
+     */
+    @Test
+    fun `computes the checksum over every jar in a folder candidate`(@TempDir tempDir: Path) {
+        val folder = tempDir.resolve("plugin-a").also { java.nio.file.Files.createDirectories(it) }
+        PluginScannerTestFixtures.writeJar(folder.resolve("plugin-a-manifest.jar"), mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")))
+        PluginScannerTestFixtures.writeJar(folder.resolve("plugin-a-lib.jar"), mapOf("dummy.txt" to "content"))
+        val manifest = PluginManifest(id = "plugin-a", name = "plugin-a", version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==")
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, folder, manifest, PluginScanStatus.LOADED)
+        val expectedBytes = folder.resolve("plugin-a-lib.jar").toFile().readBytes() + folder.resolve("plugin-a-manifest.jar").toFile().readBytes()
+        val expected = MessageDigestChecksumAlgorithm("SHA-512").digest(expectedBytes)
+
+        val checkResult = ChecksumSecurityStrategy(persistenceOf(expected)).check(result)
+
+        assertEquals(PluginSecurityCheckResult.Success, checkResult)
+    }
+
+    /**
+     * Use case: [ChecksumSecurityStrategy.check] requires a [PluginScanResult] with a resolved
+     * manifest (i.e. `status == LOADED`); calling it for any other status is a programming error.
+     */
+    @Test
+    fun `check throws for a result without a manifest`(@TempDir tempDir: Path) {
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, tempDir.resolve("missing"), null, PluginScanStatus.MANIFEST_NOT_FOUND, "not found")
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+            ChecksumSecurityStrategy(persistenceOf(null)).check(result)
+        }
+    }
 }

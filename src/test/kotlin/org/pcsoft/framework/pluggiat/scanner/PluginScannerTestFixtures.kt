@@ -10,14 +10,15 @@ import java.util.zip.ZipOutputStream
 object PluginScannerTestFixtures {
 
     /**
-     * A minimal but schema-valid manifest YAML for a plugin with the given [id].
+     * A minimal but schema-valid manifest YAML for a plugin with the given [id], [version] and
+     * [minVersion].
      */
-    fun validManifestYaml(id: String): String = """
+    fun validManifestYaml(id: String, version: String = "1.0.0", minVersion: String = "1.0.0"): String = """
         ${'$'}version: 1
         id: $id
         name: $id
-        version: "1.0.0"
-        minVersion: "1.0.0"
+        version: "$version"
+        minVersion: "$minVersion"
         icon: aWNvbg==
     """.trimIndent()
 

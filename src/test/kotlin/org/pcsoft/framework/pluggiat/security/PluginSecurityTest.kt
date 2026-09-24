@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.pcsoft.framework.pluggiat.manifest.PluginManifest
+import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
 import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
@@ -143,5 +144,42 @@ class PluginSecurityTest {
         val result = PluginSecurity().reevaluate(location, jarPath, emptyMap())
 
         assertTrue(result is PluginSecurityCheckResult.Failure)
+    }
+
+    /**
+     * Use case: a persisted `securityException` flag for the candidate's plugin id skips the chain
+     * entirely, resolving to `Success` without invoking any configured strategy.
+     */
+    @Test
+    fun `a persisted security exception skips the chain entirely`() {
+        val strategy = FixedResultStrategy(PluginSecurityCheckResult.Failure("would fail"))
+        val location = PluginLocation(Path.of("."), PluginLocationType.EXTERNAL, SingleJarScanStrategy(), securityOverride = listOf(strategy))
+        val persistence = object : PluginPersistenceStrategy {
+            override fun read(pluginId: String, key: String): String? =
+                if (key == PluginSecurity.SECURITY_EXCEPTION_KEY) "true" else null
+
+            override fun write(pluginId: String, key: String, value: String) {}
+        }
+
+        val result = PluginSecurity(persistence).evaluate(scanResult(location), emptyMap())
+
+        assertEquals(PluginSecurityCheckResult.Success, result)
+        assertTrue(!strategy.invoked)
+    }
+
+    /**
+     * Use case: a result without a resolved manifest (no plugin id known yet) never even looks up a
+     * security exception, but is otherwise evaluated normally against the chain.
+     */
+    @Test
+    fun `a result without a manifest is evaluated normally, without a security exception lookup`() {
+        val strategy = FixedResultStrategy(PluginSecurityCheckResult.Success)
+        val location = PluginLocation(Path.of("."), PluginLocationType.EXTERNAL, SingleJarScanStrategy(), securityOverride = listOf(strategy))
+        val resultWithoutManifest = PluginScanResult(location, Path.of("plugin-a.jar"), null, PluginScanStatus.MANIFEST_INVALID, "broken")
+
+        val result = PluginSecurity().evaluate(resultWithoutManifest, emptyMap())
+
+        assertEquals(PluginSecurityCheckResult.Success, result)
+        assertTrue(strategy.invoked)
     }
 }

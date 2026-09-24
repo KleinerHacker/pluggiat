@@ -21,6 +21,27 @@ enum class PluginScanStatus {
      * fallback chain (see `org.pcsoft.framework.pluggiat.security.PluginSecurity`).
      */
     SECURITY_PROBLEM,
+
+    /**
+     * The candidate had a valid manifest and (if checked) passed security, but lost against another
+     * candidate with the same plugin id from a different location, or was rejected together with it
+     * because both had the same version but could not be told apart
+     * (see `org.pcsoft.framework.pluggiat.orchestration.IdCollisionResolver`).
+     */
+    ID_COLLISION,
+
+    /**
+     * The candidate's manifest declares a `minVersion` newer than the host's configured version
+     * (see `org.pcsoft.framework.pluggiat.orchestration.MinVersionChecker`).
+     */
+    MIN_VERSION_VIOLATION,
+
+    /**
+     * The candidate passed scanning, security, id collision and `minVersion` checks, but
+     * `org.pcsoft.framework.pluggiat.classloader.PluginLoader.load` still failed (e.g. a missing
+     * required dependency or a class loading error).
+     */
+    LOAD_FAILED,
 }
 
 /**
@@ -29,8 +50,11 @@ enum class PluginScanStatus {
  * @property location the location this candidate was found at
  * @property path the candidate's own location on disk (a single JAR, a plugin's own folder, or the
  * ZIP archive itself, depending on the location's [PluginLocation.scanStrategy])
- * @property manifest the candidate's parsed manifest, `null` unless [status] is [PluginScanStatus.LOADED]
- * @property status the outcome of scanning this candidate
+ * @property manifest the candidate's parsed manifest; `null` only for [PluginScanStatus.MANIFEST_NOT_FOUND]
+ * and [PluginScanStatus.MANIFEST_INVALID], present for every other status including the
+ * orchestration-level ones ([PluginScanStatus.ID_COLLISION], [PluginScanStatus.MIN_VERSION_VIOLATION],
+ * [PluginScanStatus.LOAD_FAILED])
+ * @property status the outcome of scanning (and, once assigned by `PluginManager.scan`, orchestrating) this candidate
  * @property errorMessage human-readable reason, `null` unless [status] is not [PluginScanStatus.LOADED]
  */
 data class PluginScanResult(

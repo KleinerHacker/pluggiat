@@ -67,10 +67,14 @@ data class PluginExtensionResult(
  * by extension point key; an entry's [ResolvedExtension.instance] is the runtime enforcement proxy
  * (see [ExtensionProxyFactory]) whenever its extension point's host plugin API type is proxy-eligible,
  * the real instance otherwise
+ * @property realInstancesByPlugin the same entries' real, unproxied instances grouped by plugin id
+ * instead of by key, for internal framework use (e.g. `org.pcsoft.framework.pluggiat.PluginManager.unload`
+ * invoking [PluginLifecycle] hooks directly) - never handed out to plugin-facing host code
  */
 data class ExtensionAggregationResult(
     val pluginResults: List<PluginExtensionResult>,
     val extensionsByKey: Map<String, List<ResolvedExtension>>,
+    internal val realInstancesByPlugin: Map<String, List<Any>> = emptyMap(),
 )
 
 /**
@@ -79,7 +83,9 @@ data class ExtensionAggregationResult(
  * IP-06's implementation plan).
  *
  * @property registry the host's extension point registry
- * @param classResolver resolves an entry's `implementation` FQCN to a [Class]
+ * @param classResolverFor resolves an entry's `implementation` FQCN to a [Class], per plugin id - a
+ * host loading each plugin through its own isolated class loader passes a resolver bound to that
+ * plugin's loader (see `org.pcsoft.framework.pluggiat.classloader.PluginExtensionClassResolver`)
  * @property persistenceStrategy source of truth for a plugin's enabled/disabled status (key
  * `"enabled"`, absent/anything but `"false"` means enabled) and disable reason (key
  * `"disabledReason"`)
@@ -88,11 +94,10 @@ data class ExtensionAggregationResult(
  */
 class ExtensionAggregator(
     private val registry: ExtensionPointRegistry,
-    classResolver: ExtensionClassResolver = DefaultExtensionClassResolver,
+    private val classResolverFor: (pluginId: String) -> ExtensionClassResolver = { DefaultExtensionClassResolver },
     private val persistenceStrategy: PluginPersistenceStrategy = NoPersistenceStrategy(),
     private val exceptionHandlingStrategy: ExceptionHandlingStrategy = DefaultExceptionHandlingStrategy(),
 ) {
-    private val decorator = ExtensionDecorator(registry, classResolver)
     private val logger = LoggerFactory.getLogger(ExtensionAggregator::class.java)
 
     /**
@@ -106,10 +111,11 @@ class ExtensionAggregator(
     fun aggregate(candidates: List<PluginExtensionCandidate>): ExtensionAggregationResult {
         val enabledIds = candidates.map { it.pluginId }.filter { isEnabled(it) }.toSet()
         val enabledCandidates = candidates.filter { it.pluginId in enabledIds }
+        val realInstances = mutableMapOf<String, MutableList<Any>>()
 
         val resolvedByPlugin: Map<String, List<ResolvedExtension>> = enabledCandidates.associate { candidate ->
             candidate.pluginId to candidate.manifest.extensions.flatMap { (key, entries) ->
-                entries.map { entry -> resolveAndEnforce(candidate, key, entry) }
+                entries.map { entry -> resolveAndEnforce(candidate, key, entry, realInstances) }
             }
         }
 
@@ -144,7 +150,9 @@ class ExtensionAggregator(
             .flatten()
             .groupBy { it.key }
 
-        return ExtensionAggregationResult(pluginResults, extensionsByKey)
+        val realInstancesByPlugin = realInstances.filterKeys { it !in rejectedPluginIds }
+
+        return ExtensionAggregationResult(pluginResults, extensionsByKey, realInstancesByPlugin)
     }
 
     private fun isEnabled(pluginId: String): Boolean =
@@ -154,9 +162,12 @@ class ExtensionAggregator(
         candidate: PluginExtensionCandidate,
         key: String,
         entry: org.pcsoft.framework.pluggiat.manifest.ExtensionEntry,
+        realInstances: MutableMap<String, MutableList<Any>>,
     ): ResolvedExtension {
+        val decorator = ExtensionDecorator(registry, classResolverFor(candidate.pluginId))
         val resolved = decorator.decorate(candidate.pluginId, key, entry)
         val realInstance = resolved.instance
+        realInstances.getOrPut(candidate.pluginId) { mutableListOf() }.add(realInstance)
         if (realInstance is PluginLifecycle) {
             logger.debug("Invoking onLoad on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
             realInstance.onLoad()

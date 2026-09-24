@@ -84,7 +84,18 @@ for (result in results) {
 ```
 
 `PluginScanner.scan` returns one `PluginScanResult` per plugin candidate found across all given
-locations, both valid (`status == LOADED`, with `manifest` set) and invalid ones (`manifest ==
-null`, with `errorMessage` describing why). Every location must resolve to a non-empty security
-chain - either its own `securityOverride` or a `defaultSecurityChains` entry for its `type` - or
-scanning throws a configuration error; see [Security](security.md) for details.
+locations, both valid (`status == LOADED`, with `manifest` set) and invalid ones (`errorMessage`
+describing why; `manifest` is only `null` for `MANIFEST_NOT_FOUND`/`MANIFEST_INVALID` - a candidate
+that failed the security chain keeps its manifest, so a host can still force-load it, see below).
+Every location must resolve to a non-empty security chain - either its own `securityOverride` or a
+`defaultSecurityChains` entry for its `type` - or scanning throws a configuration error; see
+[Security](security.md) for details.
+
+## Orchestration via `PluginManager`
+
+`PluginScanner` on its own only scans - it does not resolve plugin id collisions across locations,
+enforce `minVersion`, create class loaders or activate extensions. For the full, host-facing
+orchestration flow (`scan()`/`reload()`/`unload()`/`forceLoad()`, typed extension access via
+`getExtensions<T>`/`getFirstExtension<T>`, and the nested builder blocks shown above), configure a
+[`PluginManager`](plugin-manager.md) instead of using `PluginScanner` directly - it wires a
+`PluginScanner` internally and builds on top of it.

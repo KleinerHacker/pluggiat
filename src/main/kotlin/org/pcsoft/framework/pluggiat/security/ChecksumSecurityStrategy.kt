@@ -15,8 +15,8 @@ import java.nio.file.Path
  * @property persistenceStrategy resolves the expected checksum via
  * `persistenceStrategy.read(pluginId, "checksum")`; a host that force-loads a candidate despite a
  * failed check (see `org.pcsoft.framework.pluggiat.classloader.PluginLoader`) and wants that
- * decision to stick records the accepted checksum itself, via
- * `persistenceStrategy.write(pluginId, "checksum", <actual checksum>)`
+ * decision to stick can call `org.pcsoft.framework.pluggiat.PluginManager.write<ChecksumSecurityStrategy>(pluginId)`
+ * instead of persisting the accepted checksum itself, see [persist]
  * @property algorithm the [ChecksumAlgorithm] used to compute the candidate's actual checksum;
  * defaults to SHA-512 via [MessageDigestChecksumAlgorithm]
  *
@@ -28,7 +28,7 @@ import java.nio.file.Path
 class ChecksumSecurityStrategy(
     private val persistenceStrategy: PluginPersistenceStrategy,
     private val algorithm: ChecksumAlgorithm = MessageDigestChecksumAlgorithm("SHA-512"),
-) : PluginSecurityStrategy {
+) : PersistableSecurityStrategy {
     private val logger = LoggerFactory.getLogger(ChecksumSecurityStrategy::class.java)
 
     override fun check(result: PluginScanResult): PluginSecurityCheckResult {
@@ -47,6 +47,16 @@ class ChecksumSecurityStrategy(
         }
         logger.debug("Checksum check for candidate '{}' resulted in {}", result.path, checkResult)
         return checkResult
+    }
+
+    /**
+     * Computes [result]'s actual checksum and persists it as the new expected checksum for
+     * [pluginId], so a future [check] succeeds without requiring another force-load.
+     */
+    override fun persist(pluginId: String, result: PluginScanResult) {
+        val digest = algorithm.digest(candidateBytes(result.path))
+        persistenceStrategy.write(pluginId, PERSISTENCE_KEY, digest)
+        logger.warn("Accepted {} checksum {} persisted as the new expected checksum for plugin '{}'", algorithm.id, digest, pluginId)
     }
 
     /**
