@@ -65,12 +65,12 @@ nav:
       - Error handling: plugin-development/error-handling.md
   - Host integration:
       - Configuring plugin locations: host-integration/setup.md
+      - PluginManager: host-integration/plugin-manager.md
       - Defining extension points: host-integration/extension-points.md
       - Security: host-integration/security.md
       - Public key providers: host-integration/public-key-providers.md
       - SDK whitelist: host-integration/sdk-whitelist.md
       - Persistence: host-integration/persistence.md
-      - PluginManager: host-integration/plugin-manager.md
       - Plugin lifecycle management: host-integration/plugin-lifecycle-management.md
       - Troubleshooting: host-integration/troubleshooting.md
   - API Docs: dokka/html/index.html

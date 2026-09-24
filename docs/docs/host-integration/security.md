@@ -5,6 +5,18 @@ Every `PluginLocation` is protected by an ordered, freely extensible fallback ch
 checked against the chain: the first strategy that succeeds ends the check positively; a
 `SECURITY_PROBLEM` is only reported once **every** strategy in the chain has failed.
 
+## Which strategy should I use?
+
+* **No protection needed** (e.g. a `BUILTIN` location you fully control) - `InsecureSecurityStrategy`.
+* **You control the signing key and can re-sign on every release** - `SignatureSecurityStrategy`.
+  Strongest guarantee: verifies the candidate was produced by whoever holds the private key, not
+  just that it is unchanged.
+* **You cannot sign releases, but want to detect unexpected changes to an otherwise trusted file**
+  (e.g. a plugin a user manually approved once) - `ChecksumSecurityStrategy`.
+* **Defense in depth** - chain several strategies for the same location; the first to succeed wins,
+  so e.g. `SignatureSecurityStrategy` then `ChecksumSecurityStrategy` accepts either a properly
+  signed candidate or one whose checksum was previously approved.
+
 ## No implicit default
 
 There is no implicit "no check" default. A location's effective chain is:
@@ -46,7 +58,7 @@ algorithm name understood by the JVM (e.g. `"MD5"`, `"SHA-256"`, `"SHA-512"`, ..
 default to `MessageDigestChecksumAlgorithm("SHA-512")` unless configured otherwise:
 
 ```kotlin
-val strategy = ChecksumSecurityStrategy(myExpectedChecksumCallback, algorithm = MessageDigestChecksumAlgorithm("SHA-256"))
+val strategy = ChecksumSecurityStrategy(myPersistenceStrategy, algorithm = MessageDigestChecksumAlgorithm("SHA-256"))
 ```
 
 A custom algorithm - e.g. a non-JCA one, or one backed by external hardware - can be plugged in the

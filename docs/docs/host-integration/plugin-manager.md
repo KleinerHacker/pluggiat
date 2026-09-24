@@ -65,6 +65,11 @@ constructor parameters remain directly usable if you prefer to wire things yours
 itself rather than returning a combined result object from every call, so every part of your host
 can read the same current state directly off the instance:
 
+All public methods are internally synchronized and safe to call from any thread. A call blocks
+until any other call on the same instance finishes - e.g. `getExtensions` reading `extensionsByKey`
+during a concurrent `scan()` sees either the state from before or after that `scan()`, never a
+partially updated one.
+
 * `scanResults: List<PluginScanResult>` - every plugin candidate found by the last `scan()`, with
   its final status (including the orchestration-level ones below).
 * `loadedPlugins: Map<String, LoadedPlugin>` - currently loaded plugins, keyed by plugin id.

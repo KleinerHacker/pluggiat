@@ -41,8 +41,13 @@ val registry = ExtensionPointRegistry(
 )
 ```
 
-The registry validates that every registered class carries an `@ExtensionPoint` annotation and
-that no key is registered twice.
+The registry validates that every registered class carries an `@ExtensionPoint` annotation, that no
+key is registered twice, and that each extension point's resolved plugin API type `T` is
+proxy-eligible (an interface, or a non-final class - see [Error handling](../plugin-development/error-handling.md)),
+since extension instances are only ever handed to the host as a runtime enforcement proxy. Any of
+these violations throws `ExtensionRegistrationException` directly out of the `ExtensionPointRegistry`
+constructor - this is a host-side configuration error in your own `ExtensionConfiguration`
+declarations, caught at startup rather than degrading gracefully per extension point.
 
 ## Resolving extensions across all plugins
 
