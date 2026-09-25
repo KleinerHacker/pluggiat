@@ -80,6 +80,27 @@ nimmt `ObjectPersistenceStrategy` einfache Kotlin-Lambdas entgegen - nützlich, 
 ein kleines, inline definiertes Lese-/Schreibpaar besitzt, statt einer eigenen
 Funktionsinterface-Implementierung.
 
+## Integritätsschutz
+
+`IntegrityProtectedPersistenceStrategy` umschließt eine beliebige `PluginPersistenceStrategy` und
+schützt jeden gespeicherten Wert mit einem HMAC, sodass ein Plugin (oder ein Dritter), das die
+zugrunde liegende Speicherung direkt bearbeitet - z. B. seinen eigenen `checksum`- oder
+`enabled`-Eintrag -, keinen gefälschten Wert mehr als legitim geschrieben erscheinen lassen kann:
+
+```kotlin
+val strategy = IntegrityProtectedPersistenceStrategy(
+    delegate = FilePersistenceStrategy(Paths.get("/var/lib/myapp/plugin-state.properties")),
+    keyPath = Paths.get("/var/lib/myapp/plugin-state.properties.key"),
+)
+```
+
+Der Schlüssel unter `keyPath` wird beim ersten Zugriff einmalig per `SecureRandom` erzeugt (nie Teil
+einer JAR, nie hartkodiert) und bei jedem weiteren Start wiederverwendet. Ein gespeicherter Wert,
+dessen HMAC nicht mehr passt, wird bei `read` als `null` zurückgegeben, so als wäre er nie gesetzt
+worden, begleitet von einem `WARN`-Log-Eintrag - dies ist eine Erschwerung/Erkennung innerhalb
+desselben Prozesses und OS-Benutzers, keine Garantie gegen Code, der in genau diesem Prozess und
+unter demselben Benutzer läuft.
+
 ## Eine eigene Implementierung schreiben
 
 Jede Klasse, die `PluginPersistenceStrategy` implementiert, funktioniert, ohne Framework-Änderungen

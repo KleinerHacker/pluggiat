@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `IntegrityProtectedPersistenceStrategy`: an optional decorator for any `PluginPersistenceStrategy`
+  that HMAC-protects every stored value with a `SecureRandom`-generated key, so a value tampered
+  with directly in the underlying storage is detected and treated as unset instead of being
+  returned as if it were legitimately written.
+
 ## [0.1.0]
 
 ### Added

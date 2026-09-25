@@ -11,17 +11,21 @@ Status: NOT_STARTED
 | IP-03 | Thread- und Zeitlimit-Governance | NOT_STARTED |
 | IP-04 | Prozessisolation für hochriskante Plugins | NOT_STARTED |
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit | NOT_STARTED |
-| IP-06 | Persistenz-Integritätsschutz | NOT_STARTED |
+| IP-06 | Persistenz-Integritätsschutz | COMPLETED |
 | IP-07 | Checksum-/Signatur-Härtung (Byte-Pinning) | NOT_STARTED |
 | IP-08 | Kollisionsauflösung nach Sicherheitsstatus filtern | NOT_STARTED |
 
 ## Overall Progress
 
-0%
+12,5% (1/8 Implementierungsplänen abgeschlossen)
 
 ## Notes
 
-Feature Plan created. No implementation plan has been started yet.
+IP-06 (Persistenz-Integritätsschutz) umgesetzt: `IntegrityProtectedPersistenceStrategy` als
+Decorator, `SecureRandom`-basierter Schlüssel in separater Schlüsseldatei, HMAC-Schutz je
+`write`/`read`. Abweichung vom ursprünglichen Plan: der abgeleitete HMAC-Zusatzschlüssel verwendet
+den Suffix `_hmac` statt `.hmac`, da ein Punkt darin die `.`-basierte Flach-Properties-Kodierung von
+`FilePersistenceStrategy` (`PROPERTIES`/`XML`) beim Neuladen von der Platte falsch aufteilen würde.
 
 Offene Fragen aus Abschnitt 9 des Feature Plans (fehlender SecurityManager auf JDK 25, Host-seitige
 Java-Agent-Voraussetzung für IP-02, Umfang des Bouncy-Castle-Einsatzes für IP-04, Performance-

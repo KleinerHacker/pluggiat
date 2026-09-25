@@ -73,6 +73,26 @@ Unlike `CustomPersistenceStrategy`, which delegates to host-provided function in
 `ObjectPersistenceStrategy` takes plain Kotlin lambdas - useful when the host already has a small,
 inline read/write pair rather than a dedicated function interface implementation.
 
+## Integrity protection
+
+`IntegrityProtectedPersistenceStrategy` wraps any `PluginPersistenceStrategy` and protects every
+stored value with an HMAC, so a plugin (or a third party) editing the underlying storage directly -
+e.g. its own `checksum` or `enabled` entry - can no longer make a forged value come back as if it
+were legitimately written:
+
+```kotlin
+val strategy = IntegrityProtectedPersistenceStrategy(
+    delegate = FilePersistenceStrategy(Paths.get("/var/lib/myapp/plugin-state.properties")),
+    keyPath = Paths.get("/var/lib/myapp/plugin-state.properties.key"),
+)
+```
+
+The key at `keyPath` is generated once via `SecureRandom` on first access (never part of a JAR or
+hardcoded) and reused on every subsequent start. A stored value whose HMAC no longer matches is
+returned as `null` on `read`, as if it had never been set, with a `WARN` log entry - this is a
+same-process, same-OS-user hardening/detection measure, not a guarantee against code running in that
+same process and under that same user.
+
 ## Writing your own
 
 Any class implementing `PluginPersistenceStrategy` works, without framework changes - e.g. to back

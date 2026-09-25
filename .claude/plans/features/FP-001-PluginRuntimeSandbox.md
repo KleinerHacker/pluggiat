@@ -334,7 +334,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 | IP-03 | Thread- und Zeitlimit-Governance             | Dedizierte Executors, Watchdog für Lifecycle-/Extension-Aufrufe, angebunden über `PluginSandbox`            | IP-01        |
 | IP-04 | Prozessisolation für hochriskante Plugins    | Subprozess-basierte Isolation mit Bouncy-Castle-ASN.1-BER-IPC-Proxy, verwaltet über `PluginSandbox`         | IP-01        |
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit        | Meldung, Protokollierung und automatische Reaktion auf Sandbox-Verstöße über `PluginSandbox.reportViolation` | IP-02, IP-03 |
-| IP-06 | Persistenz-Integritätsschutz                 | HMAC-Schutz gegen selbstbegünstigende Manipulation des persistenten Zustands | -          |
+| IP-06 (COMPLETED) | Persistenz-Integritätsschutz                 | HMAC-Schutz gegen selbstbegünstigende Manipulation des persistenten Zustands | -          |
 | IP-07 | Checksum-/Signatur-Härtung (Byte-Pinning)    | TOCTOU-Lücke schließen, konsistente Zip-Interpretation, zeitkonstanter Digest-Vergleich, Zertifikats-Gültigkeitsprüfung | - |
 | IP-08 | Kollisionsauflösung nach Sicherheitsstatus filtern | Verhindern, dass ein sicherheitsgeprüft fehlgeschlagener Kandidat einen erfolgreich geladenen per Versions-Spoofing verdrängt | - |
 
@@ -578,7 +578,7 @@ Konsistenz mit dem bestehenden `DISABLED_REASON_PERSISTENCE_KEY`/`ENABLED_PERSIS
 aus `ExtensionAggregator` wahren, damit ein Host Sicherheits- und Sandbox-bedingte Deaktivierungen
 über denselben Mechanismus auswerten kann.
 
-### IP-06: Persistenz-Integritätsschutz
+### IP-06: Persistenz-Integritätsschutz (COMPLETED)
 
 **Objective**
 
@@ -765,7 +765,7 @@ IP-01
 │   └── IP-05
 └── IP-04
 
-IP-06 (eigenständig, keine Code-Abhängigkeit zu IP-01 - reiner Persistenz-Decorator)
+IP-06 (COMPLETED) (eigenständig, keine Code-Abhängigkeit zu IP-01 - reiner Persistenz-Decorator)
 IP-07 (eigenständig, keine Abhängigkeit zu IP-01..IP-06)
 IP-08 (eigenständig, keine Abhängigkeit zu IP-01..IP-07)
 ```

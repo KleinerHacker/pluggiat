@@ -27,6 +27,8 @@ discovery, isolation or lifecycle handling.
 * Generic, pluggable `PluginPersistenceStrategy` (no-op, custom callback, file in four formats,
   JDBC, or host object getter/setter) backing both the checksum security strategy and the
   enabled/disabled status
+* Optional `IntegrityProtectedPersistenceStrategy` decorator: HMAC-protects every stored value with
+  a `SecureRandom`-generated key, detecting direct tampering with the underlying storage
 * Runtime error isolation: every extension call is enforced through a runtime proxy resolving
   escaping exceptions via a configurable `ExceptionHandlingStrategy` (`IGNORE`/`UNLOAD`/`CRASH`) -
   an unhandled exception forces only that plugin to be deactivated, not the whole host application
@@ -135,6 +137,7 @@ be configured in `~/.m2/settings.xml`:
 | Isolated classpaths and dependency graph                             | implemented |
 | Plugin lifecycle and runtime error isolation                         | implemented |
 | Persistence strategies                                                | implemented |
+| Persistence integrity protection (HMAC decorator)                     | implemented |
 | Orchestration runtime (`PluginManager`, ID collisions, `minVersion` check, force-load) | implemented |
 
 All planned features of the initial feature plan (FP-001) are implemented.
