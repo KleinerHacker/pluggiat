@@ -335,7 +335,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 | IP-04 | Prozessisolation für hochriskante Plugins    | Subprozess-basierte Isolation mit Bouncy-Castle-ASN.1-BER-IPC-Proxy, verwaltet über `PluginSandbox`         | IP-01        |
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit        | Meldung, Protokollierung und automatische Reaktion auf Sandbox-Verstöße über `PluginSandbox.reportViolation` | IP-02, IP-03 |
 | IP-06 (COMPLETED) | Persistenz-Integritätsschutz                 | HMAC-Schutz gegen selbstbegünstigende Manipulation des persistenten Zustands | -          |
-| IP-07 | Checksum-/Signatur-Härtung (Byte-Pinning)    | TOCTOU-Lücke schließen, konsistente Zip-Interpretation, zeitkonstanter Digest-Vergleich, Zertifikats-Gültigkeitsprüfung | - |
+| IP-07 (COMPLETED) | Checksum-/Signatur-Härtung (Byte-Pinning)    | TOCTOU-Lücke schließen, konsistente Zip-Interpretation, zeitkonstanter Digest-Vergleich, Zertifikats-Gültigkeitsprüfung | - |
 | IP-08 | Kollisionsauflösung nach Sicherheitsstatus filtern | Verhindern, dass ein sicherheitsgeprüft fehlgeschlagener Kandidat einen erfolgreich geladenen per Versions-Spoofing verdrängt | - |
 
 ## 7. Implementation Plans
@@ -629,7 +629,7 @@ die zusammen mit IP-02 wirkt, nicht als eigenständige harte Garantie. Bewusst k
 OS-Benutzertrennung des Host-Prozesses selbst - das wurde vom Nutzer explizit abgelehnt, um keine
 zusätzlichen Plattform-Abhängigkeiten und Betriebskomplexität einzuführen.
 
-### IP-07: Checksum-/Signatur-Härtung (Byte-Pinning)
+### IP-07: Checksum-/Signatur-Härtung (Byte-Pinning) (COMPLETED)
 
 **Objective**
 
@@ -710,6 +710,24 @@ im Detailplan explizit zu adressieren sind:
   legitime Signatur ab dem Ablaufdatum fehlschlagen. Das ist als bewusste, einfache Lösung zu
   dokumentieren, nicht als Fehler zu behandeln.
 
+**Tatsächlich umgesetzt**
+
+Wie geplant, mit zwei Abweichungen:
+- `PluginSecurity` hat zusätzlich eine neue Methode `reevaluateAndPin(location, path,
+  defaultSecurityChains)` erhalten, statt `reactivate()` selbst neu scannen und pinnen zu lassen -
+  sie pinnt die Kandidatenbytes einmalig und prüft sie gegen dieselbe gepinnte Fassung, bevor
+  `PluginManager.reactivate()` mit genau diesem `PinnedPluginContent` lädt. Die bestehenden
+  öffentlichen Signaturen von `evaluate`/`reevaluate` bleiben dabei unverändert erhalten (rein
+  additiv), da beide direkt von `PluginSecurityTest` getestet werden.
+- Die kryptografische Signaturprüfung (`SignatureSecurityStrategy.verifyJarSignature`) liest weiterhin
+  direkt über `JarInputStream` aus den gepinnten Bytes, nicht über `resolveJarEntries` - die
+  JDK-eigene Codesigner-Verifikation ist an den `JarInputStream`/`JarFile`-Mechanismus gebunden und
+  lässt sich nicht auf eine bereits flach aufgelöste Entry-Map übertragen. `resolveJarEntries` wird
+  innerhalb der Signaturprüfung nur zum Auffinden der Manifest-JAR und der Checksum-Liste einer
+  `MultiJarWithOwnFolderScanStrategy`-Kandidatur eingesetzt (dort, wo zuvor `JarFile.getJarEntry`
+  verwendet wurde) - das schließt weiterhin die in Abschnitt 2 beschriebene
+  Duplicate-Entry-Divergenz für diese beiden Stellen.
+
 ### IP-08: Kollisionsauflösung nach Sicherheitsstatus filtern
 
 **Objective**
@@ -766,7 +784,7 @@ IP-01
 └── IP-04
 
 IP-06 (COMPLETED) (eigenständig, keine Code-Abhängigkeit zu IP-01 - reiner Persistenz-Decorator)
-IP-07 (eigenständig, keine Abhängigkeit zu IP-01..IP-06)
+IP-07 (COMPLETED) (eigenständig, keine Abhängigkeit zu IP-01..IP-06)
 IP-08 (eigenständig, keine Abhängigkeit zu IP-01..IP-07)
 ```
 

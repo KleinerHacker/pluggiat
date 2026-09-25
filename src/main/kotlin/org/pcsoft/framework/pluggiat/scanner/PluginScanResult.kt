@@ -68,6 +68,10 @@ enum class PluginScanStatus {
  * [PluginScanStatus.LOAD_FAILED])
  * @property status the outcome of scanning (and, once assigned by `PluginManager.scan`, orchestrating) this candidate
  * @property errorMessage human-readable reason, `null` unless [status] is not [PluginScanStatus.LOADED]
+ * @property pinnedContent the exact bytes of this candidate as read once by [PluginScanner] for its
+ * security check, `null` unless [status] is [PluginScanStatus.LOADED]; used by
+ * `org.pcsoft.framework.pluggiat.PluginManager` to load the very same bytes that were checked (see
+ * [PinnedPluginContent])
  */
 data class PluginScanResult(
     val location: PluginLocation,
@@ -75,4 +79,5 @@ data class PluginScanResult(
     val manifest: PluginManifest?,
     val status: PluginScanStatus,
     val errorMessage: String? = null,
+    val pinnedContent: PinnedPluginContent? = null,
 )

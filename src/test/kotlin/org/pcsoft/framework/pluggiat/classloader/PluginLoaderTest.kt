@@ -97,4 +97,49 @@ class PluginLoaderTest {
 
         assertTrue(result is PluginLoadResult.Loaded)
     }
+
+    /**
+     * Use case: loading a candidate from its already-pinned [org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent]
+     * (as [PluginScanner] produces for every successfully checked candidate) uses exactly the bytes
+     * that were pinned, even if the file on disk is swapped out afterward - the TOCTOU window between
+     * a security check and the actual load is closed.
+     */
+    @Test
+    fun `loading pinned content uses the pinned bytes even after the file on disk is swapped`() {
+        val pluginPath = tempDir.resolve("plugin-a.jar")
+        org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.writeJar(
+            pluginPath,
+            mapOf(
+                "META-INF/plugin.yml" to org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.validManifestYaml("a"),
+                "marker.txt" to "original",
+            ),
+        )
+        val alwaysSucceedingStrategy = object : PluginSecurityStrategy {
+            override fun check(result: org.pcsoft.framework.pluggiat.scanner.PluginScanResult) = PluginSecurityCheckResult.Success
+        }
+        val location = PluginLocation(
+            path = tempDir, type = PluginLocationType.EXTERNAL,
+            scanStrategy = SingleJarScanStrategy(), securityOverride = listOf(alwaysSucceedingStrategy),
+        )
+        val scanResult = PluginScanner().scan(listOf(location)).single()
+        assertEquals(PluginScanStatus.LOADED, scanResult.status)
+        val pinnedContent = requireNotNull(scanResult.pinnedContent)
+
+        // Swap the file on disk after pinning, before loading - simulates an attacker replacing the
+        // candidate in the TOCTOU window between security check and load.
+        org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.writeJar(
+            pluginPath,
+            mapOf(
+                "META-INF/plugin.yml" to org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.validManifestYaml("a"),
+                "marker.txt" to "swapped",
+            ),
+        )
+
+        val result = PluginLoader().load(pinnedContent, manifest("a"))
+
+        assertTrue(result is PluginLoadResult.Loaded)
+        val markerContent = (result as PluginLoadResult.Loaded).plugin.classLoader
+            .getResourceAsStream("marker.txt")!!.bufferedReader().readText()
+        assertEquals("original", markerContent)
+    }
 }

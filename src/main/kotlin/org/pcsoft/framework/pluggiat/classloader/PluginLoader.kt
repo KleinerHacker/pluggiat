@@ -13,6 +13,7 @@
 package org.pcsoft.framework.pluggiat.classloader
 
 import org.pcsoft.framework.pluggiat.manifest.PluginManifest
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import java.nio.file.FileSystem
 import java.nio.file.FileSystems
 import java.nio.file.Files
@@ -22,11 +23,11 @@ import java.nio.file.Path
  * Creates isolated [PluginClassLoader]s for scanned plugin candidates.
  *
  * Deliberately unaware of [org.pcsoft.framework.pluggiat.scanner.PluginScanResult] or any other
- * scanner/security type - it only needs a candidate's own [Path] (single JAR, own folder, or ZIP
- * file, auto-detected) and its already-parsed [PluginManifest]. It performs no security check of
- * its own and is unconditionally callable regardless of any prior security outcome - deciding
- * *whether* loading a given plugin is warranted, and logging that decision, is entirely up to the
- * caller.
+ * scanner/security type beyond [PinnedPluginContent] - it only needs a candidate's own [Path]
+ * (single JAR, own folder, or ZIP file, auto-detected) or already-pinned [PinnedPluginContent], and
+ * its already-parsed [PluginManifest]. It performs no security check of its own and is
+ * unconditionally callable regardless of any prior security outcome - deciding *whether* loading a
+ * given plugin is warranted, and logging that decision, is entirely up to the caller.
  *
  * @property hostClassLoader the host application's own class loader, consulted for
  * whitelisted/platform classes
@@ -37,7 +38,10 @@ class PluginLoader(
     private val sdkWhitelist: List<SdkWhitelistEntry> = emptyList(),
 ) {
     /**
-     * Loads the plugin candidate at [path] with the already-parsed [manifest].
+     * Loads the plugin candidate at [path] with the already-parsed [manifest], reading its JAR(s)
+     * freshly from disk. Prefer the [PinnedPluginContent] overload wherever the candidate's bytes
+     * were already pinned at security-check time, to guarantee the exact same bytes are loaded that
+     * were checked.
      *
      * [dependencies] must contain every already-loaded plugin [manifest] declares a dependency on,
      * keyed by plugin id; a declared `required` dependency missing from [dependencies] invalidates
@@ -47,6 +51,30 @@ class PluginLoader(
         path: Path,
         manifest: PluginManifest,
         dependencies: Map<String, LoadedPlugin> = emptyMap(),
+    ): PluginLoadResult = load(manifest, dependencies) { dependencyClassLoaders ->
+        createClassLoader(path, dependencyClassLoaders)
+    }
+
+    /**
+     * Loads [manifest] from its already-pinned [pinnedContent] instead of reading it from disk - the
+     * exact same bytes checked by
+     * `org.pcsoft.framework.pluggiat.security.PluginSecurityStrategy` are used to define every
+     * class, closing the check-to-load TOCTOU window (see [PinnedPluginContent]).
+     *
+     * [dependencies] behaves exactly as in the [Path] overload.
+     */
+    fun load(
+        pinnedContent: PinnedPluginContent,
+        manifest: PluginManifest,
+        dependencies: Map<String, LoadedPlugin> = emptyMap(),
+    ): PluginLoadResult = load(manifest, dependencies) { dependencyClassLoaders ->
+        PinnedPluginClassLoader(pinnedContent, hostClassLoader, sdkWhitelist, dependencyClassLoaders) to null
+    }
+
+    private fun load(
+        manifest: PluginManifest,
+        dependencies: Map<String, LoadedPlugin>,
+        createClassLoader: (List<PluginClassLoader>) -> Pair<PluginClassLoader, FileSystem?>,
     ): PluginLoadResult {
         val dependencyClassLoaders = mutableListOf<PluginClassLoader>()
         for (dependency in manifest.dependencies) {
@@ -60,7 +88,7 @@ class PluginLoader(
             dependencyClassLoaders.add(loaded.classLoader)
         }
 
-        val (classLoader, mountedFileSystem) = createClassLoader(path, dependencyClassLoaders)
+        val (classLoader, mountedFileSystem) = createClassLoader(dependencyClassLoaders)
         return PluginLoadResult.Loaded(LoadedPlugin(manifest.id, manifest, classLoader, mountedFileSystem))
     }
 

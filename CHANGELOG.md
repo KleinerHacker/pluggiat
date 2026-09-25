@@ -14,6 +14,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with directly in the underlying storage is detected and treated as unset instead of being
   returned as if it were legitimately written.
 
+### Security
+
+- `SignatureSecurityStrategy` now rejects a candidate whose signing certificate has expired or is
+  not yet valid, instead of accepting it exactly like a currently valid certificate as long as the
+  public key matched.
+
 ## [0.1.0]
 
 ### Added

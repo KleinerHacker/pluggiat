@@ -12,6 +12,7 @@
 
 package org.pcsoft.framework.pluggiat.security
 
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
 
 /**
@@ -26,6 +27,18 @@ interface PluginSecurityStrategy {
     /**
      * Checks [result], which is guaranteed to have [org.pcsoft.framework.pluggiat.scanner.PluginScanStatus.LOADED]
      * as its status (i.e. its manifest was already successfully resolved).
+     *
+     * Re-reads [result]'s candidate bytes from disk itself; prefer the [PinnedPluginContent]
+     * overload wherever the candidate's bytes were already pinned (see [PluginSecurity.evaluate]),
+     * to close the TOCTOU window between this check and the later
+     * `org.pcsoft.framework.pluggiat.classloader.PluginLoader.load` call.
      */
     fun check(result: PluginScanResult): PluginSecurityCheckResult
+
+    /**
+     * Checks [result] against its already-pinned [pinnedContent] instead of re-reading the
+     * candidate from disk. Defaults to delegating to [check] for a strategy that does not need
+     * pinned bytes (e.g. one that only inspects [result.manifest][PluginScanResult.manifest]).
+     */
+    fun check(result: PluginScanResult, pinnedContent: PinnedPluginContent): PluginSecurityCheckResult = check(result)
 }

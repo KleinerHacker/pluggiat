@@ -12,10 +12,13 @@
 
 package org.pcsoft.framework.pluggiat.security
 
+import org.pcsoft.framework.pluggiat.manifest.PluginManifest
 import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
 import org.pcsoft.framework.pluggiat.security.checksum.ChecksumAlgorithm
 import org.pcsoft.framework.pluggiat.security.checksum.MessageDigestChecksumAlgorithm
+import org.pcsoft.framework.pluggiat.security.checksum.digestsEqual
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
@@ -44,13 +47,25 @@ class ChecksumSecurityStrategy(
     private val logger = LoggerFactory.getLogger(ChecksumSecurityStrategy::class.java)
 
     override fun check(result: PluginScanResult): PluginSecurityCheckResult {
-        val manifest = requireNotNull(result.manifest) { "check() must only be called for LOADED results" }
+        val manifest = requireManifest(result)
+        return check(manifest, result, candidateBytes(result.path))
+    }
+
+    override fun check(result: PluginScanResult, pinnedContent: PinnedPluginContent): PluginSecurityCheckResult {
+        val manifest = requireManifest(result)
+        return check(manifest, result, candidateBytes(pinnedContent))
+    }
+
+    private fun requireManifest(result: PluginScanResult): PluginManifest =
+        requireNotNull(result.manifest) { "check() must only be called for LOADED results" }
+
+    private fun check(manifest: PluginManifest, result: PluginScanResult, actualBytes: ByteArray): PluginSecurityCheckResult {
         logger.debug("Checking {} checksum of candidate '{}' for plugin '{}'", algorithm.id, result.path, manifest.id)
         val expectedDigest = persistenceStrategy.read(manifest.id, PERSISTENCE_KEY)
             ?: return PluginSecurityCheckResult.Failure("No expected ${algorithm.id} checksum known for plugin '${manifest.id}'")
 
-        val actualDigest = algorithm.digest(candidateBytes(result.path))
-        val checkResult = if (expectedDigest.equals(actualDigest, ignoreCase = true)) {
+        val actualDigest = algorithm.digest(actualBytes)
+        val checkResult = if (digestsEqual(expectedDigest, actualDigest)) {
             PluginSecurityCheckResult.Success
         } else {
             PluginSecurityCheckResult.Failure(
@@ -86,6 +101,16 @@ class ChecksumSecurityStrategy(
         }
         logger.trace("Computing {} checksum of candidate '{}' over {} file(s): {}", algorithm.id, path, files.size, files)
         return files.fold(ByteArray(0)) { acc, file -> acc + Files.readAllBytes(file) }
+    }
+
+    /**
+     * The bytes covered by the checksum for an already-pinned [content] - the pinned equivalent of
+     * [candidateBytes], over the same deterministic (sorted) file name order for a [PinnedPluginContent.Multi]
+     * candidate.
+     */
+    private fun candidateBytes(content: PinnedPluginContent): ByteArray = when (content) {
+        is PinnedPluginContent.Single -> content.bytes
+        is PinnedPluginContent.Multi -> content.filesByName.toSortedMap().values.fold(ByteArray(0)) { acc, bytes -> acc + bytes }
     }
 
     companion object {

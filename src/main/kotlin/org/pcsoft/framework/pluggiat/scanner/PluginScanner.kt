@@ -55,8 +55,12 @@ class PluginScanner(
             return result
         }
 
-        return when (val checkResult = security.evaluate(result, defaultSecurityChains)) {
-            is PluginSecurityCheckResult.Success -> result
+        // Read the candidate's bytes exactly once here and check the security chain against them, so
+        // the same bytes can be loaded later without a second, potentially divergent disk read
+        // (closes the check-to-load TOCTOU window, see PinnedPluginContent).
+        val pinnedContent = PinnedPluginContentReader.read(result.path)
+        return when (val checkResult = security.evaluate(result, pinnedContent, defaultSecurityChains)) {
+            is PluginSecurityCheckResult.Success -> result.copy(pinnedContent = pinnedContent)
             is PluginSecurityCheckResult.Failure -> {
                 logger.warn("Security problem for plugin candidate at '{}': {}", result.path, checkResult.reason)
                 // the manifest is kept (unlike MANIFEST_NOT_FOUND/MANIFEST_INVALID) so a host can

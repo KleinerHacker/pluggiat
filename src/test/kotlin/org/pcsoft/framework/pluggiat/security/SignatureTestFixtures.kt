@@ -40,6 +40,23 @@ object SignatureTestFixtures {
     }
 
     /**
+     * Generates a new self-signed key pair under [alias] into a new keystore file inside [dir],
+     * with a certificate validity period that already lies entirely in the past (started 2 years
+     * ago, valid for 30 days) - for testing that an expired signing certificate is rejected.
+     */
+    fun generateExpiredSelfSignedKeystore(dir: Path, alias: String): Path {
+        val keystorePath = dir.resolve("$alias-keystore.jks")
+        runJdkTool(
+            "keytool",
+            "-genkeypair", "-alias", alias, "-keyalg", "RSA", "-keysize", "2048",
+            "-startdate", "-2y", "-validity", "30",
+            "-keystore", keystorePath.toString(), "-storepass", STORE_PASSWORD, "-keypass", STORE_PASSWORD,
+            "-dname", "CN=Plugin Test Signer $alias, OU=Test, O=Test, L=Test, ST=Test, C=DE",
+        )
+        return keystorePath
+    }
+
+    /**
      * Signs [jarPath] in place using the key pair under [alias] in [keystorePath].
      */
     fun signJar(jarPath: Path, keystorePath: Path, alias: String) {

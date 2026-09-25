@@ -176,6 +176,25 @@ class SignatureSecurityStrategyTest {
     }
 
     /**
+     * Use case: a SINGLE_JAR candidate signed with a key whose certificate has already expired is
+     * rejected, even though the public key itself matches - closing the gap where an expired
+     * certificate used to be accepted exactly like a valid one.
+     */
+    @Test
+    fun `rejects a SINGLE_JAR candidate signed with an expired certificate`(@TempDir tempDir: Path) {
+        val keystorePath = SignatureTestFixtures.generateExpiredSelfSignedKeystore(tempDir, "signer")
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        PluginScannerTestFixtures.writeJar(jarPath, mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")))
+        SignatureTestFixtures.signJar(jarPath, keystorePath, "signer")
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, jarPath, manifest, PluginScanStatus.LOADED)
+
+        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
+
+        assertTrue(checkResult is PluginSecurityCheckResult.Failure)
+    }
+
+    /**
      * Use case: a candidate is rejected outright when the public-key provider cannot resolve any
      * key for its plugin id.
      */

@@ -285,7 +285,10 @@ class PluginManager(val config: PluginManagerConfiguration) {
                         pathOf = { id -> resultByManifest.values.firstOrNull { it.manifest?.id == id }?.path },
                         available = newLoaded,
                     )
-                    when (val loadResult = loader.load(scanResult.path, manifest, dependencies)) {
+                    val pinnedContent = requireNotNull(scanResult.pinnedContent) {
+                        "No pinned content for plugin '${manifest.id}' with status LOADED"
+                    }
+                    when (val loadResult = loader.load(pinnedContent, manifest, dependencies)) {
                         is PluginLoadResult.Loaded -> newLoaded[manifest.id] = loadResult.plugin
                         is PluginLoadResult.Invalid -> markLoadFailed(finalResults, scanResult, loadResult.reason)
                     }
@@ -353,15 +356,16 @@ class PluginManager(val config: PluginManagerConfiguration) {
         manifest: PluginManifest,
         dependencies: Map<String, LoadedPlugin> = emptyMap(),
     ): PluginLoadResult {
-        val check = security.reevaluate(location, path, config.defaultSecurityChains)
-        if (check is PluginSecurityCheckResult.Failure) {
-            logger.warn("Security re-check failed for plugin '{}' on reactivation: {}", manifest.id, check.reason)
+        val (check, pinnedContent) = security.reevaluateAndPin(location, path, config.defaultSecurityChains)
+        if (check is PluginSecurityCheckResult.Failure || pinnedContent == null) {
+            val reason = (check as? PluginSecurityCheckResult.Failure)?.reason ?: "no pinned content"
+            logger.warn("Security re-check failed for plugin '{}' on reactivation: {}", manifest.id, reason)
             config.persistenceStrategy.write(manifest.id, ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY, SECURITY_RECHECK_FAILED_REASON)
             config.persistenceStrategy.write(manifest.id, ExtensionAggregator.ENABLED_PERSISTENCE_KEY, "false")
-            return PluginLoadResult.Invalid(manifest.id, "Security re-check failed on reactivation: ${check.reason}")
+            return PluginLoadResult.Invalid(manifest.id, "Security re-check failed on reactivation: $reason")
         }
 
-        val result = loader.load(path, manifest, dependencies)
+        val result = loader.load(pinnedContent, manifest, dependencies)
         if (result is PluginLoadResult.Loaded) {
             logger.info("Plugin '{}' passed the security re-check and was reloaded, persisted as enabled again", manifest.id)
             config.persistenceStrategy.write(manifest.id, ExtensionAggregator.ENABLED_PERSISTENCE_KEY, "true")

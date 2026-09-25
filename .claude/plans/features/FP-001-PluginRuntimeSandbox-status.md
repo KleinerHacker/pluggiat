@@ -12,12 +12,12 @@ Status: NOT_STARTED
 | IP-04 | Prozessisolation für hochriskante Plugins | NOT_STARTED |
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit | NOT_STARTED |
 | IP-06 | Persistenz-Integritätsschutz | COMPLETED |
-| IP-07 | Checksum-/Signatur-Härtung (Byte-Pinning) | NOT_STARTED |
+| IP-07 | Checksum-/Signatur-Härtung (Byte-Pinning) | COMPLETED |
 | IP-08 | Kollisionsauflösung nach Sicherheitsstatus filtern | NOT_STARTED |
 
 ## Overall Progress
 
-12,5% (1/8 Implementierungsplänen abgeschlossen)
+25% (2/8 Implementierungsplänen abgeschlossen)
 
 ## Notes
 
@@ -40,3 +40,25 @@ statt pragmatischer TOCTOU-Behebung gewählt.
 IP-08 wurde bei einer Sicherheitsanalyse der Ladepipeline entdeckt (Kollisionsauflösung
 berücksichtigt bisher keinen Sicherheits-/Scan-Status - Downgrade-/DoS-Vektor). Klein und
 eigenständig, unabhängig von allen anderen Plänen priorisierbar.
+
+IP-07 (Checksum-/Signatur-Härtung, Byte-Pinning) umgesetzt: `PinnedPluginContent`
+(`Single`/`Multi`) wird einmalig in `PluginScanner.applySecurityCheck` gelesen und über eine neue
+`PluginSecurityStrategy.check(result, pinnedContent)`-Überladung geprüft; `PluginScanResult` trägt
+das Ergebnis bis zum Laden weiter. `ChecksumSecurityStrategy` und `SignatureSecurityStrategy`
+vergleichen Digests jetzt zeitkonstant über eine neue `digestsEqual`-Hilfsfunktion
+(`MessageDigest.isEqual`). Ein neues, gemeinsames Modul
+`org.pcsoft.framework.pluggiat.classloader.jar` (`resolveJarEntries`) löst ZIP/JAR-Einträge
+deterministisch auf (letzter Eintrag gewinnt bei Duplikaten) und wird sowohl von
+`SignatureSecurityStrategy` (Auffinden von Manifest-JAR und Checksum-Liste) als auch vom neuen
+`PinnedPluginClassLoader` (Klassen-/Ressourcenladen aus gepinnten Bytes) verwendet.
+`SignatureSecurityStrategy` prüft zusätzlich `certificate.checkValidity()` und behandelt ein
+abgelaufenes/noch nicht gültiges Zertifikat als `Failure`. `PluginLoader` hat eine neue
+`load(PinnedPluginContent, ...)`-Überladung; `PluginManager.scan()`/`reactivate()` nutzen
+ausschließlich noch den gepinnten Pfad. Abweichung vom ursprünglichen Plan: `PluginSecurity` hat
+zusätzlich eine `reevaluateAndPin`-Methode erhalten (statt `reactivate()` selbst neu zu scannen und
+zu pinnen), damit die Reaktivierung dieselbe, einmalig gelesene Bytefolge für Prüfung und Laden
+verwendet, ohne die bestehenden öffentlichen `evaluate`/`reevaluate`-Signaturen zu brechen; die
+kryptografische Signaturprüfung selbst liest weiterhin über `JarInputStream` direkt aus den
+gepinnten Bytes (nicht über `resolveJarEntries`), da die JDK-eigene Codesigner-Verifikation an den
+`JarInputStream`-Mechanismus gebunden ist - `resolveJarEntries` wird dort nur zum Auffinden der
+Manifest-JAR und der Checksum-Liste eingesetzt.

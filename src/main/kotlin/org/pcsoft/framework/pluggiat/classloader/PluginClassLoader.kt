@@ -32,7 +32,7 @@ import java.net.URLClassLoader
  * @property dependencyClassLoaders class loaders of this plugin's already-loaded dependencies, in
  * declaration order
  */
-class PluginClassLoader(
+open class PluginClassLoader(
     urls: Array<URL>,
     private val hostClassLoader: ClassLoader,
     private val sdkWhitelist: List<SdkWhitelistEntry>,

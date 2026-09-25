@@ -14,6 +14,8 @@ package org.pcsoft.framework.pluggiat.security
 
 import org.pcsoft.framework.pluggiat.persistence.NoPersistenceStrategy
 import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContentReader
 import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
@@ -38,7 +40,10 @@ class PluginSecurity(
     private val logger = LoggerFactory.getLogger(PluginSecurity::class.java)
 
     /**
-     * Evaluates the security chain for [result].
+     * Evaluates the security chain for [result], re-reading each strategy's required bytes from
+     * disk itself. Prefer the [PinnedPluginContent] overload wherever the candidate's bytes were
+     * already pinned, to close the TOCTOU window between this check and the later
+     * `org.pcsoft.framework.pluggiat.classloader.PluginLoader.load` call.
      *
      * If [SECURITY_EXCEPTION_KEY] is persisted as `"true"` for [result]'s plugin id, the chain is
      * skipped entirely and this returns [PluginSecurityCheckResult.Success] - a WARN is logged every
@@ -61,6 +66,24 @@ class PluginSecurity(
     fun evaluate(
         result: PluginScanResult,
         defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+    ): PluginSecurityCheckResult = evaluateChain(result, defaultSecurityChains) { strategy -> strategy.check(result) }
+
+    /**
+     * Evaluates the security chain for [result] exactly like [evaluate], but checks every strategy
+     * against the already-pinned [pinnedContent] instead of letting each strategy re-read the
+     * candidate from disk itself - the bytes checked here are then reused, unchanged, for the
+     * candidate's actual load.
+     */
+    fun evaluate(
+        result: PluginScanResult,
+        pinnedContent: PinnedPluginContent,
+        defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+    ): PluginSecurityCheckResult = evaluateChain(result, defaultSecurityChains) { strategy -> strategy.check(result, pinnedContent) }
+
+    private fun evaluateChain(
+        result: PluginScanResult,
+        defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+        checkWith: (PluginSecurityStrategy) -> PluginSecurityCheckResult,
     ): PluginSecurityCheckResult {
         val pluginId = result.manifest?.id
         if (pluginId != null && persistenceStrategy.read(pluginId, SECURITY_EXCEPTION_KEY) == "true") {
@@ -77,7 +100,7 @@ class PluginSecurity(
         logger.trace("Evaluating chain of {} strategy(ies) for '{}': {}", chain.size, result.path, chain.map { it::class.simpleName })
         val failureReasons = mutableListOf<String>()
         for (strategy in chain) {
-            when (val checkResult = strategy.check(result)) {
+            when (val checkResult = checkWith(strategy)) {
                 is PluginSecurityCheckResult.Success -> {
                     logger.trace("Security strategy {} succeeded for '{}', chain ends positively", strategy::class.simpleName, result.path)
                     return checkResult
@@ -113,14 +136,53 @@ class PluginSecurity(
         path: Path,
         defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
     ): PluginSecurityCheckResult {
-        val rescanned = location.scanStrategy.scan(location).first { it.path == path }
-        if (rescanned.status != PluginScanStatus.LOADED) {
-            return PluginSecurityCheckResult.Failure(
-                "Candidate at '$path' is no longer a valid plugin candidate on re-check: ${rescanned.errorMessage} (${rescanned.status})",
-            )
-        }
+        val rescanned = rescan(location, path) ?: return PluginSecurityCheckResult.Failure(rescanFailureMessage(location, path))
         return evaluate(rescanned, defaultSecurityChains)
     }
+
+    /**
+     * Like [reevaluate], but also pins the candidate's bytes at [path] once (see
+     * [PinnedPluginContentReader]) and checks the chain against that pinned content, so the returned
+     * [PinnedPluginContent] can be reused unchanged for the candidate's actual (re-)load - closing
+     * the same TOCTOU window on reactivation that [org.pcsoft.framework.pluggiat.scanner.PluginScanner]
+     * closes on the initial scan.
+     *
+     * @return the check result together with the pinned content on success, or a failed check result
+     * with `null` content if [path] is no longer a valid candidate or the chain rejects it
+     */
+    fun reevaluateAndPin(
+        location: PluginLocation,
+        path: Path,
+        defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+    ): PinnedReevaluationResult {
+        val rescanned = rescan(location, path)
+            ?: return PinnedReevaluationResult(PluginSecurityCheckResult.Failure(rescanFailureMessage(location, path)), null)
+
+        val pinnedContent = PinnedPluginContentReader.read(path)
+        val checkResult = evaluate(rescanned, pinnedContent, defaultSecurityChains)
+        return PinnedReevaluationResult(checkResult, pinnedContent.takeIf { checkResult is PluginSecurityCheckResult.Success })
+    }
+
+    private fun rescan(location: PluginLocation, path: Path): PluginScanResult? {
+        val rescanned = location.scanStrategy.scan(location).first { it.path == path }
+        return rescanned.takeIf { it.status == PluginScanStatus.LOADED }
+    }
+
+    private fun rescanFailureMessage(location: PluginLocation, path: Path): String {
+        val rescanned = location.scanStrategy.scan(location).first { it.path == path }
+        return "Candidate at '$path' is no longer a valid plugin candidate on re-check: ${rescanned.errorMessage} (${rescanned.status})"
+    }
+
+    /**
+     * Outcome of [reevaluateAndPin].
+     *
+     * @property checkResult the security check outcome
+     * @property pinnedContent the candidate's pinned bytes, `null` unless [checkResult] is [PluginSecurityCheckResult.Success]
+     */
+    data class PinnedReevaluationResult(
+        val checkResult: PluginSecurityCheckResult,
+        val pinnedContent: PinnedPluginContent?,
+    )
 
     companion object {
         /**
