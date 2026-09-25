@@ -1,7 +1,7 @@
 # pluggiat
 
 <p align="center">
-  <img src="docs/docs/assets/images/logo.png" alt="pluggiat logo" width="128" />
+  <img src="docs/docs/assets/images/logo.png" alt="pluggiat logo" width="368" />
 </p>
 
 pluggiat is a plugin manager system for the JVM, written in Kotlin. It discovers, loads and
