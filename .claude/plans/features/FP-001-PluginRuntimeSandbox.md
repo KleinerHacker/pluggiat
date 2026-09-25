@@ -336,7 +336,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit        | Meldung, Protokollierung und automatische Reaktion auf Sandbox-Verstöße über `PluginSandbox.reportViolation` | IP-02, IP-03 |
 | IP-06 (COMPLETED) | Persistenz-Integritätsschutz                 | HMAC-Schutz gegen selbstbegünstigende Manipulation des persistenten Zustands | -          |
 | IP-07 (COMPLETED) | Checksum-/Signatur-Härtung (Byte-Pinning)    | TOCTOU-Lücke schließen, konsistente Zip-Interpretation, zeitkonstanter Digest-Vergleich, Zertifikats-Gültigkeitsprüfung | - |
-| IP-08 | Kollisionsauflösung nach Sicherheitsstatus filtern | Verhindern, dass ein sicherheitsgeprüft fehlgeschlagener Kandidat einen erfolgreich geladenen per Versions-Spoofing verdrängt | - |
+| IP-08 (COMPLETED) | Kollisionsauflösung nach Sicherheitsstatus filtern | Verhindern, dass ein sicherheitsgeprüft fehlgeschlagener Kandidat einen erfolgreich geladenen per Versions-Spoofing verdrängt | - |
 
 ## 7. Implementation Plans
 
@@ -728,7 +728,7 @@ Wie geplant, mit zwei Abweichungen:
   verwendet wurde) - das schließt weiterhin die in Abschnitt 2 beschriebene
   Duplicate-Entry-Divergenz für diese beiden Stellen.
 
-### IP-08: Kollisionsauflösung nach Sicherheitsstatus filtern
+### IP-08: Kollisionsauflösung nach Sicherheitsstatus filtern (COMPLETED)
 
 **Objective**
 
@@ -773,6 +773,14 @@ Verhalten ab und müssen um Testfälle ergänzt werden, die genau dieses Szenari
 `SECURITY_PROBLEM`-Kandidat mit höherer Version neben einem `LOADED`-Kandidaten derselben `id`) -
 `testing`-Skill vor der Testklassen-Änderung laden.
 
+**Tatsächlich umgesetzt**
+
+Wie geplant, ohne Abweichung: `IdCollisionResolver.resolve()` bildet die `byId`-Gruppierung nur noch
+aus Kandidaten mit `status == LOADED`; Kandidaten mit anderem Status werden über eine separate
+`notLoaded`-Liste unverändert durchgereicht. `IdCollisionResolverTest` und
+`IdCollisionAndMinVersionIntegrationTest` wurden je um einen Testfall ergänzt, der einen
+`SECURITY_PROBLEM`-Kandidaten mit höherer Version neben einem `LOADED`-Kandidaten prüft.
+
 ## 8. Dependency Graph
 
 ```text
@@ -785,7 +793,7 @@ IP-01
 
 IP-06 (COMPLETED) (eigenständig, keine Code-Abhängigkeit zu IP-01 - reiner Persistenz-Decorator)
 IP-07 (COMPLETED) (eigenständig, keine Abhängigkeit zu IP-01..IP-06)
-IP-08 (eigenständig, keine Abhängigkeit zu IP-01..IP-07)
+IP-08 (COMPLETED) (eigenständig, keine Abhängigkeit zu IP-01..IP-07)
 ```
 
 ## 9. Risks and Open Questions
@@ -845,12 +853,11 @@ IP-08 (eigenständig, keine Abhängigkeit zu IP-01..IP-07)
   inzwischen abgelaufenes Signaturzertifikat führt nach IP-07 zu einem neuen Fehlschlag, wo zuvor
   keiner war - dies ist eine gewollte Verhaltensänderung, die dem Nutzer vor Beginn von IP-07
   explizit zu kommunizieren ist.
-* **Kollisionsauflösung vor IP-08**: Bis IP-08 umgesetzt ist, kann ein Kandidat mit
+* **Kollisionsauflösung vor IP-08 (COMPLETED)**: Bis zur Umsetzung von IP-08 konnte ein Kandidat mit
   fehlgeschlagener Sicherheitsprüfung einen bereits erfolgreich geladenen Kandidaten derselben
   Plugin-`id` per höherer deklarierter Version aus der Kollisionsauflösung verdrängen
-  (Downgrade-/DoS-Vektor, siehe Abschnitt 2) - dies ist unabhängig von allen anderen Plänen dieses
-  Features und sollte unabhängig priorisiert werden, da es die Checksum-/Signaturprüfung
-  vollständig umgeht, statt sie anzugreifen.
+  (Downgrade-/DoS-Vektor, siehe Abschnitt 2) - mit IP-08 behoben: `IdCollisionResolver` lässt nur
+  noch `LOADED`-Kandidaten um die Version konkurrieren.
 * **Fremdabhängigkeiten**: die Bytecode-Umschreibe-Bibliothek für IP-02 (z. B. ASM) ist laut
   `dependencies.md` weiterhin separat mit dem Nutzer abzustimmen. Für IP-04 ist **Bouncy Castle**
   bereits vom Nutzer als Fremdabhängigkeit bestätigt. IP-06, IP-07 und IP-08 benötigen keine neue

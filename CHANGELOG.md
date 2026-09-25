@@ -19,6 +19,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `SignatureSecurityStrategy` now rejects a candidate whose signing certificate has expired or is
   not yet valid, instead of accepting it exactly like a currently valid certificate as long as the
   public key matched.
+- Plugin id collision resolution no longer lets a candidate that failed its security chain displace
+  an already successfully verified candidate of the same id by declaring a higher manifest version;
+  only candidates that passed their security chain now compete on version.
 
 ## [0.1.0]
 

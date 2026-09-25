@@ -13,11 +13,11 @@ Status: NOT_STARTED
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit | NOT_STARTED |
 | IP-06 | Persistenz-Integritätsschutz | COMPLETED |
 | IP-07 | Checksum-/Signatur-Härtung (Byte-Pinning) | COMPLETED |
-| IP-08 | Kollisionsauflösung nach Sicherheitsstatus filtern | NOT_STARTED |
+| IP-08 | Kollisionsauflösung nach Sicherheitsstatus filtern | COMPLETED |
 
 ## Overall Progress
 
-25% (2/8 Implementierungsplänen abgeschlossen)
+38% (3/8 Implementierungsplänen abgeschlossen)
 
 ## Notes
 
@@ -40,6 +40,12 @@ statt pragmatischer TOCTOU-Behebung gewählt.
 IP-08 wurde bei einer Sicherheitsanalyse der Ladepipeline entdeckt (Kollisionsauflösung
 berücksichtigt bisher keinen Sicherheits-/Scan-Status - Downgrade-/DoS-Vektor). Klein und
 eigenständig, unabhängig von allen anderen Plänen priorisierbar.
+
+IP-08 (Kollisionsauflösung nach Sicherheitsstatus filtern) umgesetzt: `IdCollisionResolver.resolve()`
+bildet die konkurrierende Gruppe je Plugin-ID jetzt nur noch aus Kandidaten mit Status `LOADED`;
+Kandidaten mit einem anderen Status (z. B. `SECURITY_PROBLEM`) werden unverändert durchgereicht und
+können keinen `LOADED`-Kandidaten mehr per Versions-Spoofing verdrängen. Keine Abweichung vom
+ursprünglichen Plan.
 
 IP-07 (Checksum-/Signatur-Härtung, Byte-Pinning) umgesetzt: `PinnedPluginContent`
 (`Single`/`Multi`) wird einmalig in `PluginScanner.applySecurityCheck` gelesen und über eine neue

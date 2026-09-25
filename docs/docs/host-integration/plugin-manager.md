@@ -154,10 +154,12 @@ picture.
 ## Id collisions and minVersion
 
 Two locations contributing a candidate with the same plugin id are resolved purely by version
-(Maven version scheme): the strictly higher version wins, the rest is marked `ID_COLLISION` in
-`scanResults`. If the highest version is tied between two or more candidates, the whole group is
-rejected immediately (`ID_COLLISION`, logged as a security warning) - there is no further
-tie-breaking.
+(Maven version scheme) among the candidates that already passed their security chain (`LOADED`):
+the strictly higher version wins, the rest is marked `ID_COLLISION` in `scanResults`. If the highest
+version is tied between two or more of them, the whole group is rejected immediately
+(`ID_COLLISION`, logged as a security warning) - there is no further tie-breaking. A candidate that
+failed its security chain (e.g. `SECURITY_PROBLEM`) never competes on version and cannot displace a
+`LOADED` candidate of the same id, no matter which version it declares.
 
 A candidate whose manifest declares a `minVersion` newer than the configured `hostVersion` is marked
 `MIN_VERSION_VIOLATION` and never loaded. Setting `hostVersion = null` (the default) skips this check

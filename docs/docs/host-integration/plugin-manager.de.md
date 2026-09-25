@@ -162,10 +162,14 @@ für das Gesamtbild.
 ## ID-Kollisionen und minVersion
 
 Tragen zwei Verzeichnisse einen Kandidaten mit derselben Plugin-ID bei, wird dies rein anhand der
-Version aufgelöst (Maven-Versionsschema): Die strikt höhere Version gewinnt, der Rest wird in
-`scanResults` als `ID_COLLISION` markiert. Ist die höchste Version zwischen zwei oder mehr
-Kandidaten gleich, wird die gesamte Gruppe sofort abgelehnt (`ID_COLLISION`, als
-Sicherheitswarnung protokolliert) - es gibt keine weitere Konfliktauflösung.
+Version aufgelöst (Maven-Versionsschema), und zwar nur unter den Kandidaten, die ihre
+Sicherheitskette bereits erfolgreich durchlaufen haben (`LOADED`): Die strikt höhere Version
+gewinnt, der Rest wird in `scanResults` als `ID_COLLISION` markiert. Ist die höchste Version
+zwischen zwei oder mehr davon gleich, wird die gesamte Gruppe sofort abgelehnt (`ID_COLLISION`, als
+Sicherheitswarnung protokolliert) - es gibt keine weitere Konfliktauflösung. Ein Kandidat, dessen
+Sicherheitskette fehlgeschlagen ist (z. B. `SECURITY_PROBLEM`), konkurriert nie um die Version und
+kann einen `LOADED`-Kandidaten derselben ID nicht verdrängen, unabhängig davon, welche Version er
+deklariert.
 
 Ein Kandidat, dessen Manifest ein `minVersion` deklariert, das neuer als die konfigurierte
 `hostVersion` ist, wird als `MIN_VERSION_VIOLATION` markiert und nie geladen. `hostVersion = null`

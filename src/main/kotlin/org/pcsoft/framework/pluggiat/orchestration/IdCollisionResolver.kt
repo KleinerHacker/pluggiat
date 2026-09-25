@@ -22,30 +22,39 @@ import org.slf4j.LoggerFactory
  * from the same location never collide on id - that is already handled by the respective
  * `org.pcsoft.framework.pluggiat.scanner.PluginScanStrategy`).
  *
- * Rule: the candidate with the strictly higher `manifest.version` (Maven version scheme) wins, the
- * rest of the group is rejected with [PluginScanStatus.ID_COLLISION]. If the highest version is tied
- * between two or more candidates, the whole group is rejected immediately with
- * [PluginScanStatus.ID_COLLISION] and a security warning - there is no further tie-breaking (e.g. by
- * checksum).
+ * Only candidates with status [PluginScanStatus.LOADED] (i.e. that already passed the security
+ * chain) compete for a colliding plugin id. A candidate with any other status (e.g.
+ * [PluginScanStatus.SECURITY_PROBLEM]) is returned unchanged - it cannot displace a [PluginScanStatus.LOADED]
+ * candidate of the same id by declaring a higher `manifest.version`, since it never entered the
+ * competing group in the first place.
+ *
+ * Rule among the competing [PluginScanStatus.LOADED] candidates: the one with the strictly higher
+ * `manifest.version` (Maven version scheme) wins, the rest of that subgroup is rejected with
+ * [PluginScanStatus.ID_COLLISION]. If the highest version is tied between two or more of them, the
+ * whole subgroup is rejected immediately with [PluginScanStatus.ID_COLLISION] and a security
+ * warning - there is no further tie-breaking (e.g. by checksum).
  */
 internal class IdCollisionResolver {
     private val logger = LoggerFactory.getLogger(IdCollisionResolver::class.java)
 
     /**
-     * Returns [results] with every losing/tied candidate of a colliding plugin id group replaced by
-     * a copy carrying [PluginScanStatus.ID_COLLISION]; candidates without a manifest, or the sole
-     * candidate for their plugin id, are returned unchanged.
+     * Returns [results] with every losing/tied [PluginScanStatus.LOADED] candidate of a colliding
+     * plugin id group replaced by a copy carrying [PluginScanStatus.ID_COLLISION]; candidates
+     * without a manifest, candidates with a non-[PluginScanStatus.LOADED] status, or the sole
+     * [PluginScanStatus.LOADED] candidate for their plugin id, are returned unchanged.
      */
     fun resolve(results: List<PluginScanResult>): List<PluginScanResult> {
         val withManifest = results.filter { it.manifest != null }
         val withoutManifest = results.filter { it.manifest == null }
-        val byId = withManifest.groupBy { it.manifest!!.id }
+        val loaded = withManifest.filter { it.status == PluginScanStatus.LOADED }
+        val notLoaded = withManifest.filter { it.status != PluginScanStatus.LOADED }
+        val byId = loaded.groupBy { it.manifest!!.id }
 
         val resolved = byId.values.flatMap { candidates ->
             if (candidates.size == 1) candidates else resolveGroup(candidates)
         }
 
-        return resolved + withoutManifest
+        return resolved + notLoaded + withoutManifest
     }
 
     private fun resolveGroup(candidates: List<PluginScanResult>): List<PluginScanResult> {

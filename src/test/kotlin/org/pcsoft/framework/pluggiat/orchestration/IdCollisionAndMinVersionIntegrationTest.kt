@@ -17,10 +17,13 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.pcsoft.framework.pluggiat.pluginManager
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
+import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
 import org.pcsoft.framework.pluggiat.scanner.PluginScanStatus
 import org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures
 import org.pcsoft.framework.pluggiat.scanner.SingleJarScanStrategy
 import org.pcsoft.framework.pluggiat.security.InsecureSecurityStrategy
+import org.pcsoft.framework.pluggiat.security.PluginSecurityCheckResult
+import org.pcsoft.framework.pluggiat.security.PluginSecurityStrategy
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -30,6 +33,10 @@ import java.nio.file.Path
  * tests.
  */
 class IdCollisionAndMinVersionIntegrationTest {
+
+    private val alwaysFailingStrategy = object : PluginSecurityStrategy {
+        override fun check(result: PluginScanResult) = PluginSecurityCheckResult.Failure("always fails")
+    }
 
     private fun managerFor(vararg locations: Path, hostVersion: String? = null) = pluginManager {
         this.hostVersion = hostVersion
@@ -88,5 +95,54 @@ class IdCollisionAndMinVersionIntegrationTest {
 
         assertEquals(emptySet<String>(), manager.loadedPlugins.keys)
         assertEquals(PluginScanStatus.MIN_VERSION_VIOLATION, manager.scanResults.single().status)
+    }
+
+    /**
+     * Use case: one location's candidate fails its security chain (`SECURITY_PROBLEM`) but declares
+     * a higher version than a second location's candidate of the same plugin id that passes its
+     * security chain (`LOADED`) - the `LOADED` candidate must end up loaded, and the
+     * `SECURITY_PROBLEM` candidate must not be turned into `ID_COLLISION` by the version-spoofing
+     * attempt.
+     */
+    @Test
+    fun `a security-failed candidate cannot displace a loaded candidate of the same id via id collision resolution`(@TempDir tempDir: Path) {
+        val locationA = tempDir.resolve("a").also(Files::createDirectories)
+        val locationB = tempDir.resolve("b").also(Files::createDirectories)
+        PluginScannerTestFixtures.writeJar(
+            locationA.resolve("plugin.jar"),
+            mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a", version = "1.0.0")),
+        )
+        PluginScannerTestFixtures.writeJar(
+            locationB.resolve("plugin.jar"),
+            mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a", version = "9.0.0")),
+        )
+
+        val manager = pluginManager {
+            defaultSecurityChain {
+                type = PluginLocationType.EXTERNAL
+                addStrategy(InsecureSecurityStrategy())
+            }
+            location {
+                path = locationA
+                type = PluginLocationType.EXTERNAL
+                scanStrategy = SingleJarScanStrategy()
+            }
+            location {
+                path = locationB
+                type = PluginLocationType.EXTERNAL
+                scanStrategy = SingleJarScanStrategy()
+                securityOverride {
+                    addStrategy(alwaysFailingStrategy)
+                }
+            }
+        }
+        manager.scan()
+
+        assertEquals(setOf("plugin-a"), manager.loadedPlugins.keys)
+        assertEquals("1.0.0", manager.loadedPlugins.getValue("plugin-a").manifest.version)
+        assertEquals(
+            PluginScanStatus.SECURITY_PROBLEM,
+            manager.scanResults.single { it.path == locationB.resolve("plugin.jar") }.status,
+        )
     }
 }
