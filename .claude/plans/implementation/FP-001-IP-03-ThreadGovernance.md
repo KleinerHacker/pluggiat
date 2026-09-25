@@ -4,7 +4,7 @@ Feature Plan: [FP-001-PluginRuntimeSandbox](../features/FP-001-PluginRuntimeSand
 
 ## Aufgabe 1: Executor-Infrastruktur
 
-- [ ] `ThreadWatchdogEnforcer`-Klasse erstellen
+- [ ] `ThreadWatchdogStrategy`-Klasse erstellen
 - [ ] Dedizierten `ExecutorService` pro Plugin-Id verwalten
 - [ ] `ThreadGroup` pro Plugin-Id anlegen
 

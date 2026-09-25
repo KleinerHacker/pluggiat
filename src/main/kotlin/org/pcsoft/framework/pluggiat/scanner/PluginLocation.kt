@@ -13,6 +13,7 @@
 package org.pcsoft.framework.pluggiat.scanner
 
 import org.pcsoft.framework.pluggiat.classloader.PluginDependencyStrategy
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
 import org.pcsoft.framework.pluggiat.security.PluginSecurityStrategy
 import java.nio.file.Path
 
@@ -32,6 +33,10 @@ import java.nio.file.Path
  * dependency-visibility strategy for this location; `null` means the global default applies. A
  * location can always see plugins within itself, regardless of the effective strategy, unless that
  * strategy is `org.pcsoft.framework.pluggiat.classloader.DisallowPluginDependencyStrategy`.
+ * @property sandboxOverride [PluginSandboxPolicy] overriding the default policy configured for this
+ * location's [type]; `null` means the type's default policy applies (or
+ * [PluginSandboxPolicy.UNRESTRICTED] if that is unconfigured too) - unlike [securityOverride], an
+ * unconfigured sandbox never fails a load, see `org.pcsoft.framework.pluggiat.sandbox.PluginSandbox.effectivePolicy`
  */
 data class PluginLocation(
     val path: Path,
@@ -39,4 +44,5 @@ data class PluginLocation(
     val scanStrategy: PluginScanStrategy = ZipJarScanStrategy(),
     val securityOverride: List<PluginSecurityStrategy> = emptyList(),
     val dependencyStrategyOverride: PluginDependencyStrategy? = null,
+    val sandboxOverride: PluginSandboxPolicy? = null,
 )

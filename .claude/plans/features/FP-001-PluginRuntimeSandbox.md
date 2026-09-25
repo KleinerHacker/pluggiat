@@ -101,7 +101,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   Verstoßbehandlung) sind hinter einer einzigen Fassadenklasse **`PluginSandbox`** gebündelt -
   analog zu `PluginSecurity` als bestehender Anlaufstelle für die Sicherheitskette. `PluginManager`
   hält genau eine `PluginSandbox`-Instanz (`val sandbox: PluginSandbox`) und ruft ausschließlich
-  deren Methoden auf; kein anderer Teil des Frameworks spricht Enforcer, Executors oder den
+  deren Methoden auf; kein anderer Teil des Frameworks spricht Strategien, Executors oder den
   Java-Agent direkt an.
 * Die Sandbox wirkt auf zwei Ebenen, die unabhängig zuschaltbar sind:
   1. **API-Mediation innerhalb der JVM**: direkter Zugriff auf risikobehaftete JDK-APIs
@@ -169,7 +169,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 * Ein Host kann ein Plugin als "prozessisoliert" markieren; ein solches Plugin läuft in einem
   eigenen JVM-Subprozess.
 * Sämtliche Sandbox-Funktionalität ist über eine einzige Klasse `PluginSandbox` erreichbar; ein
-  Host (und der Rest des Frameworks) muss nicht wissen, welcher konkrete Enforcer im Hintergrund
+  Host (und der Rest des Frameworks) muss nicht wissen, welche konkrete Strategie im Hintergrund
   zuständig ist.
 * Sandbox-Verstöße werden über die bestehende `ExceptionHandlingStrategy` bzw. einen neuen,
   analogen Mechanismus gemeldet und führen zu einem definierten Zustand des betroffenen Plugins
@@ -197,7 +197,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   ASN.1-BER-Bibliothek vom Nutzer vorgegeben und damit als Fremdabhängigkeit bestätigt - eine
   eigene Serialisierungslösung entfällt dadurch für diesen Teil.
 * `PluginSandbox` ist die einzige öffentliche API-Oberfläche der Laufzeit-Sandbox; die konkreten
-  `PluginSandboxEnforcer`-Implementierungen (Agent, Thread-Watchdog, Prozessisolation) sind
+  `PluginSandboxStrategy`-Implementierungen (Agent, Thread-Watchdog, Prozessisolation) sind
   intern und werden nicht direkt von `PluginManager` oder dem Host angesprochen - analog dazu, wie
   `PluginSecurityStrategy`-Implementierungen nur über `PluginSecurity` erreicht werden.
 * Ein Java-Agent zur Bytecode-Instrumentierung (IP-02) benötigt entweder einen vom Host gesetzten
@@ -225,7 +225,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 
 * Neue Fassadenklasse `PluginSandbox` in `org.pcsoft.framework.pluggiat.sandbox`, analog zu
   `PluginSecurity` - die zentrale Anlaufstelle für alles Sandbox-bezogene. Hält die konfigurierten
-  `PluginSandboxEnforcer`-Implementierungen intern und bündelt:
+  `PluginSandboxStrategy`-Implementierungen intern und bündelt:
   * `activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult` -
     aktiviert Mediation/Thread-Governance für ein frisch geladenes Plugin; aufgerufen von
     `PluginManager` direkt nach `loader.load()` und vor der Extension-Aktivierung (analog zu
@@ -242,10 +242,10 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   * `PluginSandboxPolicy` (Datenklasse/Konfiguration je Location bzw. global, analog zu
     `PluginSecurityStrategy`-Ketten): erlaubte API-Kategorien, Zeitlimits, Isolationsstufe.
   * `SandboxViolation`-Modell, angelehnt an `PluginSecurityCheckResult`.
-* `PluginSandboxEnforcer`-Schnittstelle mit austauschbaren, **ausschließlich intern von
+* `PluginSandboxStrategy`-Schnittstelle mit austauschbaren, **ausschließlich intern von
   `PluginSandbox` verwendeten** Implementierungen (analog zur `PluginSecurityStrategy`-Kette, die
   ebenfalls nie direkt vom Host, sondern nur über `PluginSecurity` angesprochen wird): z. B.
-  `AgentInstrumentationEnforcer`, `ThreadWatchdogEnforcer`, `ProcessIsolationEnforcer`.
+  `AgentInstrumentationStrategy`, `ThreadWatchdogStrategy`, `ProcessIsolationStrategy`.
 * Ein separates, neues Modul/Package `org.pcsoft.framework.pluggiat.sandbox.agent` enthält den
   Java-Agent (`premain`/`agentmain`-Einstiegspunkt): Er registriert einen `ClassFileTransformer`
   über `java.lang.instrument.Instrumentation`, der beim Laden einer Plugin-Klasse riskante
@@ -268,7 +268,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   `ExtensionPointRegistry` müssen diesen Proxy-Fall transparent wie eine normale
   Extension-Implementierung behandeln können (dynamische Proxy-Klasse pro Extension-Interface, die
   Methodenaufrufe in ASN.1-BER-kodierte Nachrichten über den Socket überträgt); der
-  `ProcessIsolationEnforcer` innerhalb von `PluginSandbox` verwaltet diesen Subprozess und dessen
+  `ProcessIsolationStrategy` innerhalb von `PluginSandbox` verwaltet diesen Subprozess und dessen
   Lebenszyklus.
 * `PluginManager` bindet die Sandbox-Konfiguration analog zu `defaultSecurityChains` in
   `PluginManagerConfiguration` ein (`sandboxPolicies: Map<PluginLocationType, PluginSandboxPolicy>`,
@@ -329,7 +329,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 
 | ID    | Implementation Plan                         | Objective                                                                 | Dependencies |
 | ----- | -------------------------------------------- | -------------------------------------------------------------------------- | ------------ |
-| IP-01 | Sandbox-Grundmodell, `PluginSandbox`-Fassade und Konfiguration | Policy-/Enforcer-Abstraktionen, `PluginSandbox` als Anlaufstelle, Einbindung in `PluginManagerConfiguration` | -            |
+| IP-01 (COMPLETED) | Sandbox-Grundmodell, `PluginSandbox`-Fassade und Konfiguration | Policy-/Strategie-Abstraktionen, `PluginSandbox` als Anlaufstelle, Einbindung in `PluginManagerConfiguration` | -            |
 | IP-02 | Agent-basierte Bytecode-API-Mediation        | Zugriffskontrolle auf riskante JDK-APIs via Java-Agent/Instrumentierung, angebunden über `PluginSandbox`     | IP-01        |
 | IP-03 | Thread- und Zeitlimit-Governance             | Dedizierte Executors, Watchdog für Lifecycle-/Extension-Aufrufe, angebunden über `PluginSandbox`            | IP-01        |
 | IP-04 | Prozessisolation für hochriskante Plugins    | Subprozess-basierte Isolation mit Bouncy-Castle-ASN.1-BER-IPC-Proxy, verwaltet über `PluginSandbox`         | IP-01        |
@@ -340,7 +340,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 
 ## 7. Implementation Plans
 
-### IP-01: Sandbox-Grundmodell, `PluginSandbox`-Fassade und Konfiguration
+### IP-01: Sandbox-Grundmodell, `PluginSandbox`-Fassade und Konfiguration (COMPLETED)
 
 **Objective**
 
@@ -353,10 +353,10 @@ zu implementieren.
 
 Enthalten: `PluginSandbox` als öffentliche Fassadenklasse mit den (in diesem Schritt als No-Op
 implementierten) Methoden `activate`, `runGoverned`, `reportViolation`, `deactivate`;
-`PluginSandboxPolicy`, `PluginSandboxEnforcer`-Interface, `SandboxCheckResult`/`SandboxViolation`
+`PluginSandboxPolicy`, `PluginSandboxStrategy`-Interface, `SandboxCheckResult`/`SandboxViolation`
 (analog `PluginSecurityCheckResult`), Konfigurationspunkte in `PluginManagerConfiguration`
 (`sandboxPolicies`) und `PluginLocationBuilder`/`PluginLocation` (`sandboxOverride`), ein
-No-Op-Enforcer als Default. Nicht enthalten: jegliche echte Durchsetzungslogik (das ist
+No-Op-Strategie als Default. Nicht enthalten: jegliche echte Durchsetzungslogik (das ist
 IP-02/03/04); `PluginManager` ruft `sandbox.activate`/`runGoverned` bereits auf, jedoch noch ohne
 Wirkung.
 
@@ -374,7 +374,7 @@ Keine.
 
 Ein Host kann eine (zunächst wirkungslose) Sandbox-Konfiguration pro Location/global setzen;
 `PluginManager` spricht ausschließlich `PluginSandbox` an; die Struktur ist bereit, damit
-IP-02/IP-03/IP-04 konkrete Enforcer *innerhalb* von `PluginSandbox` andocken können, ohne dass sich
+IP-02/IP-03/IP-04 konkrete Strategien *innerhalb* von `PluginSandbox` andocken können, ohne dass sich
 die Aufrufstellen in `PluginManager` nochmals ändern.
 
 **Technical Considerations**
@@ -383,6 +383,16 @@ Muster von `SecurityChainBuilder`/`DefaultSecurityChainBuilder` sowie das Verhä
 `PluginManager.security: PluginSecurity` wiederverwenden, um Konsistenz mit der bestehenden DSL
 und Architektur zu wahren. Keine Bruch-Änderung an bestehenden Signaturen von `PluginManager`,
 `PluginLoader.load()` etc. in diesem Schritt - `PluginSandbox` wird rein additiv eingehängt.
+
+**Tatsächliche Umsetzung**
+
+Wie geplant umgesetzt, mit einer Präzisierung: `sandbox.activate(...)` wird nach jedem
+`loader.load()`-Aufruf in `scan`, `reactivate` UND `forceLoad` aufgerufen (nicht nur in `scan`, wie
+in einer früheren Planfassung angenommen) - `reactivate`/`forceLoad` sind seit IP-06/IP-07/IP-08
+weitere Lade-Einstiegspunkte neben `scan`. `sandbox.runGoverned` umschließt aktuell nur die direkten
+`PluginLifecycle`-Aufrufe in `PluginManager.unload()`, da dies die einzige Stelle ist, an der
+`PluginManager` selbst Lifecycle-Hooks aufruft; die Anbindung der `onLoad`/`onEnable`-Aufrufe in
+`ExtensionAggregator` bleibt Aufgabe von IP-03.
 
 ### IP-02: Agent-basierte Bytecode-API-Mediation
 
@@ -399,8 +409,8 @@ Enthalten: Java-Agent-Modul mit `premain`/`agentmain`-Einstiegspunkt, ein
 `ClassFileTransformer`, der Plugin-Bytecode beim Laden umschreibt und vor riskanten Aufrufen
 Guard-Checks gegen die aktive `PluginSandboxPolicy` einfügt, zusätzliche Instrumentierung von
 `Method.invoke`/`Class.forName`/`MethodHandles.Lookup`, um Reflection-basierte Umgehungen zur
-Laufzeit abzufangen; `AgentInstrumentationEnforcer` als interne, von `PluginSandbox.activate`
-aufgerufene Implementierung von `PluginSandboxEnforcer`; Konfigurationsmodell für erlaubte
+Laufzeit abzufangen; `AgentInstrumentationStrategy` als interne, von `PluginSandbox.activate`
+aufgerufene Implementierung von `PluginSandboxStrategy`; Konfigurationsmodell für erlaubte
 API-Kategorien in `PluginSandboxPolicy`; Dokumentation der Host-seitigen Voraussetzung
 (`-javaagent`-Start oder freigeschaltetes dynamisches Attachment). Nicht enthalten:
 Thread-/Zeitlimits (IP-03), Prozessisolation (IP-04).
@@ -408,7 +418,7 @@ Thread-/Zeitlimits (IP-03), Prozessisolation (IP-04).
 **Affected Areas**
 
 Neues Agent-Modul/Package `org.pcsoft.framework.pluggiat.sandbox.agent`, `PluginSandbox`
-(Einhängen des `AgentInstrumentationEnforcer`), `PluginLoader`.
+(Einhängen des `AgentInstrumentationStrategy`), `PluginLoader`.
 
 **Dependencies**
 
@@ -449,7 +459,7 @@ Lifecycle-Hooks und Extension-Aufrufen begrenzen, angebunden über `PluginSandbo
 
 **Scope**
 
-Enthalten: `ThreadWatchdogEnforcer` als interne `PluginSandboxEnforcer`-Implementierung mit
+Enthalten: `ThreadWatchdogStrategy` als interne `PluginSandboxStrategy`-Implementierung mit
 dediziertem Executor/ThreadGroup pro geladenem Plugin, aufgerufen über
 `PluginSandbox.runGoverned(pluginId, policy) { ... }` für `PluginLifecycle.onEnable/onDisable/
 onUnload`-Aufrufe und Extension-Methodenaufrufe (soweit über den Aggregator/Proxy-Mechanismus
@@ -458,7 +468,7 @@ abgefangen werden kann), Watchdog-Logik. Nicht enthalten: API-Mediation (IP-02),
 
 **Affected Areas**
 
-`PluginSandbox` (Einhängen des `ThreadWatchdogEnforcer`, Implementierung von `runGoverned`),
+`PluginSandbox` (Einhängen des `ThreadWatchdogStrategy`, Implementierung von `runGoverned`),
 `PluginManager` (Lifecycle-Aufrufe in `unload`/`reload`/`scan` rufen `sandbox.runGoverned` statt
 direkt auf), `ExtensionAggregator`.
 
@@ -493,7 +503,7 @@ Socket-Schnittstelle zum Host anbieten, verwaltet über `PluginSandbox`.
 
 **Scope**
 
-Enthalten: `ProcessIsolationEnforcer` als interne `PluginSandboxEnforcer`-Implementierung,
+Enthalten: `ProcessIsolationStrategy` als interne `PluginSandboxStrategy`-Implementierung,
 Subprozess-Start und -Lebenszyklus-Management, ein IPC-Modul
 (`org.pcsoft.framework.pluggiat.sandbox.process.ber`), das Extension-Aufrufe und Rückgabewerte über
 **Bouncy Castle** (`org.bouncycastle:bcprov-jdk18on`) auf ASN.1-BER-TLV-Nachrichten abbildet und
@@ -506,7 +516,7 @@ ausgeschlossen, siehe Abschnitt 9).
 
 **Affected Areas**
 
-`PluginSandbox` (Einhängen des `ProcessIsolationEnforcer`), `PluginLoader`,
+`PluginSandbox` (Einhängen des `ProcessIsolationStrategy`), `PluginLoader`,
 `LoadedPlugin`/`PluginLoadResult`, `ExtensionAggregator`, `ExtensionPointRegistry`, neues Package
 `org.pcsoft.framework.pluggiat.sandbox.process` inkl. Unterpackage
 `org.pcsoft.framework.pluggiat.sandbox.process.ber`, `build.gradle.kts`
@@ -784,7 +794,7 @@ aus Kandidaten mit `status == LOADED`; Kandidaten mit anderem Status werden übe
 ## 8. Dependency Graph
 
 ```text
-IP-01
+IP-01 (COMPLETED)
 ├── IP-02
 │   └── IP-05
 ├── IP-03
@@ -869,7 +879,7 @@ IP-08 (COMPLETED) (eigenständig, keine Abhängigkeit zu IP-01..IP-07)
   ohne explizite Konfiguration wirkungslos ist (kein impliziter Sicherheitsgewinn ohne
   Host-Entscheidung, analog zu `InsecureSecurityStrategy`).
 * Sämtliche Laufzeit-Sandbox-Funktionalität ist ausschließlich über `PluginSandbox` erreichbar;
-  `PluginManager` und Host sprechen keinen konkreten Enforcer direkt an.
+  `PluginManager` und Host sprechen keine konkrete Strategie direkt an.
 * Ein In-VM-Plugin mit aktivierter, agent-basierter API-Mediation kann nachweislich nicht mehr
   uneingeschränkt auf mindestens Dateisystem, Netzwerk und Prozessstart zugreifen - weder direkt
   noch über Reflection -, sofern die Policy dies verbietet.

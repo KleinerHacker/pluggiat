@@ -13,6 +13,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that HMAC-protects every stored value with a `SecureRandom`-generated key, so a value tampered
   with directly in the underlying storage is detected and treated as unset instead of being
   returned as if it were legitimately written.
+- `PluginSandbox`: a new host-wide facade for a plugin's runtime sandbox, configurable per
+  `PluginLocation` (`sandboxOverride`) or globally per location type (`defaultSandboxPolicy`). As of
+  this release every sandbox check is a no-op placeholder; actual runtime enforcement follows in a
+  later release.
 
 ### Security
 

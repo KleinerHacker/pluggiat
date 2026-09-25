@@ -31,9 +31,9 @@ Feature Plan: [FP-001-PluginRuntimeSandbox](../features/FP-001-PluginRuntimeSand
 ## Aufgabe 5: Policy-Anbindung
 
 - [ ] API-Kategorien-Feld in `PluginSandboxPolicy` ergänzen (Dateisystem, Netzwerk, Reflection, Prozessstart)
-- [ ] `AgentInstrumentationEnforcer`-Klasse erstellen
+- [ ] `AgentInstrumentationStrategy`-Klasse erstellen
 - [ ] Guard-Checks gegen aktive `PluginSandboxPolicy` prüfen lassen
-- [ ] `AgentInstrumentationEnforcer` in `PluginSandbox.activate` einhängen
+- [ ] `AgentInstrumentationStrategy` in `PluginSandbox.activate` einhängen
 - [ ] Verstöße an `PluginSandbox.reportViolation` übergeben
 
 ## Aufgabe 6: Host-Dokumentation

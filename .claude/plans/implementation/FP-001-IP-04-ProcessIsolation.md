@@ -26,7 +26,7 @@ Feature Plan: [FP-001-PluginRuntimeSandbox](../features/FP-001-PluginRuntimeSand
 
 - [ ] Zweiten Rückgabepfad in `PluginLoader.load()` für Prozessisolation ergänzen
 - [ ] `LoadedPlugin`-Äquivalent mit IPC-Proxy-Handle erstellen
-- [ ] `ProcessIsolationEnforcer`-Klasse erstellen und in `PluginSandbox` einhängen
+- [ ] `ProcessIsolationStrategy`-Klasse erstellen und in `PluginSandbox` einhängen
 
 ## Aufgabe 5: Extension-Proxy
 

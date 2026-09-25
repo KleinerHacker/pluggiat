@@ -1,12 +1,12 @@
 # Feature Status: Plugin Runtime Sandbox
 
-Status: NOT_STARTED
+Status: IN_PROGRESS
 
 ## Implementation Plans
 
 | ID | Implementation Plan | Status |
 |----|---------------------|--------|
-| IP-01 | Sandbox-Grundmodell und Konfiguration | NOT_STARTED |
+| IP-01 | Sandbox-Grundmodell und Konfiguration | COMPLETED |
 | IP-02 | Agent-basierte Bytecode-API-Mediation | NOT_STARTED |
 | IP-03 | Thread- und Zeitlimit-Governance | NOT_STARTED |
 | IP-04 | Prozessisolation für hochriskante Plugins | NOT_STARTED |
@@ -17,9 +17,23 @@ Status: NOT_STARTED
 
 ## Overall Progress
 
-38% (3/8 Implementierungsplänen abgeschlossen)
+50% (4/8 Implementierungsplänen abgeschlossen)
 
 ## Notes
+
+IP-01 (Sandbox-Grundmodell, `PluginSandbox`-Fassade und Konfiguration) umgesetzt: neues Package
+`org.pcsoft.framework.pluggiat.sandbox` mit `PluginSandboxPolicy`, `SandboxViolation`,
+`SandboxCheckResult`, `PluginSandboxStrategy`/`NoOpSandboxStrategy` und der Fassade `PluginSandbox`
+(`activate`/`runGoverned`/`reportViolation`/`deactivate`, aktuell vollständig No-Op).
+`PluginManagerConfiguration.sandboxPolicies`/`defaultSandboxPolicy` und
+`PluginLocation.sandboxOverride`/`PluginLocationBuilder.sandboxOverride` spiegeln das
+Security-Chain-Muster; `PluginManager.sandbox` ruft `sandbox.activate(...)` nach jedem
+`loader.load()` in `scan`, `reactivate` und `forceLoad` auf. Abweichung vom ursprünglichen Plan:
+`sandbox.runGoverned` umschließt nur die direkten `PluginLifecycle`-Aufrufe in
+`PluginManager.unload()`, da dies aktuell die einzige Stelle ist, an der `PluginManager` selbst
+Lifecycle-Hooks aufruft; die Anbindung der `onLoad`/`onEnable`-Aufrufe in `ExtensionAggregator` ist
+laut Architekturabschnitt Aufgabe von IP-03. Details siehe Notiz im (entfernten) Implementierungsplan
+IP-01, festgehalten im zugehörigen Commit.
 
 IP-06 (Persistenz-Integritätsschutz) umgesetzt: `IntegrityProtectedPersistenceStrategy` als
 Decorator, `SecureRandom`-basierter Schlüssel in separater Schlüsseldatei, HMAC-Schutz je

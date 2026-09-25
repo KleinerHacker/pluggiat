@@ -34,6 +34,8 @@ import org.pcsoft.framework.pluggiat.orchestration.IdCollisionResolver
 import org.pcsoft.framework.pluggiat.orchestration.MinVersionChecker
 import org.pcsoft.framework.pluggiat.persistence.NoPersistenceStrategy
 import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandbox
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
 import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
@@ -67,6 +69,9 @@ class PluginLocationBuilder {
     /** See [PluginLocation.dependencyStrategyOverride]. */
     var dependencyStrategyOverride: PluginDependencyStrategy? = null
 
+    /** See [PluginLocation.sandboxOverride]. */
+    var sandboxOverride: PluginSandboxPolicy? = null
+
     private var securityOverrideChain: List<PluginSecurityStrategy> = emptyList()
 
     /**
@@ -82,6 +87,7 @@ class PluginLocationBuilder {
         scanStrategy = scanStrategy,
         securityOverride = securityOverrideChain,
         dependencyStrategyOverride = dependencyStrategyOverride,
+        sandboxOverride = sandboxOverride,
     )
 }
 
@@ -112,6 +118,18 @@ class DefaultSecurityChainBuilder : SecurityChainBuilder() {
 }
 
 /**
+ * Builder for a [PluginManagerConfiguration.defaultSandboxPolicy] entry: a [PluginSandboxPolicy]
+ * bound to the [PluginLocationType] it becomes the default for.
+ */
+class DefaultSandboxPolicyBuilder {
+    /** The [PluginLocationType] [policy] becomes the default for. */
+    lateinit var type: PluginLocationType
+
+    /** The [PluginSandboxPolicy] to use as the default for [type]. */
+    var policy: PluginSandboxPolicy = PluginSandboxPolicy.UNRESTRICTED
+}
+
+/**
  * Builder for a single [SdkWhitelistEntry], used by [PluginManagerConfiguration.sdkWhitelistEntry].
  */
 class SdkWhitelistEntryBuilder {
@@ -131,6 +149,8 @@ class SdkWhitelistEntryBuilder {
  * @property pluginLocations plugin locations to scan, see [PluginScanner.scan]
  * @property defaultSecurityChains default security fallback chain per [PluginLocationType], used
  * by locations without their own [PluginLocation.securityOverride]
+ * @property sandboxPolicies default sandbox policy per [PluginLocationType], used by locations
+ * without their own [PluginLocation.sandboxOverride]; see [PluginSandbox.effectivePolicy]
  * @property dependencyStrategy global [PluginDependencyStrategy], used by locations without their
  * own `dependencyStrategyOverride`
  * @property persistenceStrategy the single [PluginPersistenceStrategy] instance for the whole
@@ -144,6 +164,7 @@ class SdkWhitelistEntryBuilder {
 class PluginManagerConfiguration {
     val pluginLocations: MutableList<PluginLocation> = mutableListOf()
     val defaultSecurityChains: MutableMap<PluginLocationType, List<PluginSecurityStrategy>> = mutableMapOf()
+    val sandboxPolicies: MutableMap<PluginLocationType, PluginSandboxPolicy> = mutableMapOf()
     var dependencyStrategy: PluginDependencyStrategy = UnrestrictedPluginDependencyStrategy()
     var persistenceStrategy: PluginPersistenceStrategy = NoPersistenceStrategy()
     var exceptionHandlingStrategy: ExceptionHandlingStrategy = DefaultExceptionHandlingStrategy()
@@ -168,6 +189,15 @@ class PluginManagerConfiguration {
     }
 
     /**
+     * Builds the default sandbox policy for one [PluginLocationType] via [block] and sets it in
+     * [sandboxPolicies].
+     */
+    fun defaultSandboxPolicy(block: DefaultSandboxPolicyBuilder.() -> Unit) {
+        val builder = DefaultSandboxPolicyBuilder().apply(block)
+        sandboxPolicies[builder.type] = builder.policy
+    }
+
+    /**
      * Builds an [SdkWhitelistEntry] via [block] and adds it to [sdkWhitelist].
      */
     fun sdkWhitelistEntry(block: SdkWhitelistEntryBuilder.() -> Unit) {
@@ -188,8 +218,8 @@ class PluginManagerConfiguration {
  * Built via the [pluginManager] Kotlin builder DSL from a [PluginManagerConfiguration]. Bundles the framework's
  * host-wide configuration (plugin locations, default security chains, dependency strategy,
  * persistence strategy, exception handling strategy, SDK whitelist, host version, extension points)
- * in one place and exposes pre-wired [scanner], [security], [loader] and [registry] instances built
- * from it.
+ * in one place and exposes pre-wired [scanner], [security], [sandbox], [loader] and [registry]
+ * instances built from it.
  *
  * Stateful by design: [scan] (and [reload]/[unload]/[forceLoad] afterward) mutate [scanResults],
  * [loadedPlugins] and [extensionsByKey] in place rather than returning a combined result object, so
@@ -213,6 +243,13 @@ class PluginManager(val config: PluginManagerConfiguration) {
      * honored.
      */
     val security: PluginSecurity = PluginSecurity(config.persistenceStrategy)
+
+    /**
+     * The single, host-wide [PluginSandbox] instance - the only sandbox-related object this class
+     * (or a host) ever addresses directly, analogous to [security] for the pre-load security chain.
+     * As of IP-01 it is backed by a no-op enforcer; see [PluginSandbox] for details.
+     */
+    val sandbox: PluginSandbox = PluginSandbox()
 
     /**
      * A [PluginScanner] pre-wired with [PluginManagerConfiguration.defaultSecurityChains].
@@ -289,7 +326,10 @@ class PluginManager(val config: PluginManagerConfiguration) {
                         "No pinned content for plugin '${manifest.id}' with status LOADED"
                     }
                     when (val loadResult = loader.load(pinnedContent, manifest, dependencies)) {
-                        is PluginLoadResult.Loaded -> newLoaded[manifest.id] = loadResult.plugin
+                        is PluginLoadResult.Loaded -> {
+                            newLoaded[manifest.id] = loadResult.plugin
+                            sandbox.activate(loadResult.plugin, effectiveSandboxPolicyFor(scanResult.location))
+                        }
                         is PluginLoadResult.Invalid -> markLoadFailed(finalResults, scanResult, loadResult.reason)
                     }
                 }
@@ -314,6 +354,12 @@ class PluginManager(val config: PluginManagerConfiguration) {
 
     private fun dependencyStrategyFor(location: PluginLocation): PluginDependencyStrategy =
         location.dependencyStrategyOverride ?: config.dependencyStrategy
+
+    /**
+     * The effective [PluginSandboxPolicy] for [location], see [PluginSandbox.effectivePolicy].
+     */
+    private fun effectiveSandboxPolicyFor(location: PluginLocation): PluginSandboxPolicy =
+        PluginSandbox.effectivePolicy(location, config.sandboxPolicies)
 
     /**
      * Filters [manifest]'s declared dependencies down to those actually present in [available] AND
@@ -368,6 +414,7 @@ class PluginManager(val config: PluginManagerConfiguration) {
         val result = loader.load(pinnedContent, manifest, dependencies)
         if (result is PluginLoadResult.Loaded) {
             logger.info("Plugin '{}' passed the security re-check and was reloaded, persisted as enabled again", manifest.id)
+            sandbox.activate(result.plugin, effectiveSandboxPolicyFor(location))
             config.persistenceStrategy.write(manifest.id, ExtensionAggregator.ENABLED_PERSISTENCE_KEY, "true")
         }
         return result
@@ -393,6 +440,7 @@ class PluginManager(val config: PluginManagerConfiguration) {
 
             val result = reactivate(scanResult.location, scanResult.path, manifest, dependencies)
             if (result is PluginLoadResult.Loaded) {
+                sandbox.deactivate(pluginId)
                 loadedPlugins[pluginId]?.close()
                 loadedPlugins = loadedPlugins + (pluginId to result.plugin)
                 scanResults = scanResults.map { if (it === scanResult) it.copy(status = PluginScanStatus.LOADED, errorMessage = null) else it }
@@ -405,25 +453,31 @@ class PluginManager(val config: PluginManagerConfiguration) {
     /**
      * Deliberate, host-initiated deactivation of a loaded plugin: the counterpart to [reload].
      * Invokes [PluginLifecycle.onDisable]/[PluginLifecycle.onUnload] on the plugin's real (unproxied)
-     * extension instances, persists it as disabled (reason [ExtensionAggregator.USER_REASON]), closes
-     * its class loader and removes it from [loadedPlugins]/[extensionsByKey].
+     * extension instances - under [sandbox]'s governance for this plugin's effective sandbox policy -
+     * persists it as disabled (reason [ExtensionAggregator.USER_REASON]), closes its class loader,
+     * releases the plugin's [sandbox] state and removes it from [loadedPlugins]/[extensionsByKey].
      *
      * A no-op if [pluginId] is not currently in [loadedPlugins].
      */
     fun unload(pluginId: String) {
         lock.withLock {
             val plugin = loadedPlugins[pluginId] ?: return
-            lastAggregation.realInstancesByPlugin[pluginId].orEmpty().forEach { instance ->
-                if (instance is PluginLifecycle) {
-                    logger.debug("Invoking onDisable on extension implementation {} of plugin '{}'", instance::class.java.name, pluginId)
-                    runCatching { instance.onDisable() }
-                    logger.debug("Invoking onUnload on extension implementation {} of plugin '{}'", instance::class.java.name, pluginId)
-                    runCatching { instance.onUnload() }
+            val location = scanResults.firstOrNull { it.manifest?.id == pluginId }?.location
+            val policy = location?.let { effectiveSandboxPolicyFor(it) } ?: PluginSandboxPolicy.UNRESTRICTED
+            sandbox.runGoverned(pluginId, policy) {
+                lastAggregation.realInstancesByPlugin[pluginId].orEmpty().forEach { instance ->
+                    if (instance is PluginLifecycle) {
+                        logger.debug("Invoking onDisable on extension implementation {} of plugin '{}'", instance::class.java.name, pluginId)
+                        runCatching { instance.onDisable() }
+                        logger.debug("Invoking onUnload on extension implementation {} of plugin '{}'", instance::class.java.name, pluginId)
+                        runCatching { instance.onUnload() }
+                    }
                 }
             }
             config.persistenceStrategy.write(pluginId, ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY, ExtensionAggregator.USER_REASON)
             config.persistenceStrategy.write(pluginId, ExtensionAggregator.ENABLED_PERSISTENCE_KEY, "false")
             plugin.close()
+            sandbox.deactivate(pluginId)
             loadedPlugins = loadedPlugins - pluginId
             logger.info("Plugin '{}' unloaded and persisted as disabled (reason={})", pluginId, ExtensionAggregator.USER_REASON)
             reaggregateExtensions()
@@ -460,6 +514,7 @@ class PluginManager(val config: PluginManagerConfiguration) {
             )
             val result = loader.load(scanResult.path, manifest, dependencies)
             if (result is PluginLoadResult.Loaded) {
+                sandbox.activate(result.plugin, effectiveSandboxPolicyFor(scanResult.location))
                 loadedPlugins = loadedPlugins + (pluginId to result.plugin)
                 reaggregateExtensions()
             }
@@ -527,6 +582,7 @@ class PluginManager(val config: PluginManagerConfiguration) {
     private fun closeAfterRuntimeUnload(pluginId: String) {
         lock.withLock {
             loadedPlugins[pluginId]?.close()
+            sandbox.deactivate(pluginId)
             loadedPlugins = loadedPlugins - pluginId
         }
     }
