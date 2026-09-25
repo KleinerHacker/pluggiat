@@ -1,5 +1,9 @@
 # pluggiat
 
+<p align="center">
+  <img src="docs/docs/assets/images/logo.png" alt="pluggiat logo" width="128" />
+</p>
+
 pluggiat is a plugin manager system for the JVM, written in Kotlin. It discovers, loads and
 manages plugins for a host application, so the host itself does not have to implement plugin
 discovery, isolation or lifecycle handling.

@@ -32,6 +32,8 @@ theme:
     - toc.follow
   icon:
     repo: fontawesome/brands/github
+  logo: assets/images/logo.png
+  favicon: assets/images/logo.png
 
 extra:
   version:
