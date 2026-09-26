@@ -100,11 +100,14 @@ class SandboxViolationHandlingTest {
     }
 
     /**
-     * Use case: a category-less violation (reserved for a future IP-03 time-limit violation) is left
-     * untouched by [PluginManager]'s handler as of IP-02 - the plugin stays loaded, no status change.
+     * Use case: a single category-less violation (an IP-03 time-limit violation) does not yet unload
+     * the plugin - [PluginManager.handleSandboxViolation] only escalates to a forced unload once
+     * [PluginManager.MAX_TIMEOUT_VIOLATIONS] consecutive category-less violations are reported for the
+     * same plugin id (see `PluginManagerOrchestrationTest`'s escalation test), so a lone violation
+     * leaves the plugin loaded with no status change.
      */
     @Test
-    fun `a category-less violation is not acted upon yet`(@TempDir tempDir: Path) {
+    fun `a single category-less violation does not yet escalate to an unload`(@TempDir tempDir: Path) {
         val manager = managerWithLoadedPlugin(tempDir, mutableMapOf())
 
         manager.sandbox.reportViolation("plugin-a", SandboxViolation("plugin-a", null, "hypothetical timeout"))
