@@ -1,6 +1,6 @@
 # Implementierungsplan: Prozessisolation für hochriskante Plugins
 
-Feature Plan: [FP-001-PluginRuntimeSandbox](../features/FP-001-PluginRuntimeSandbox.md), IP-04
+Feature Plan: [FP-002-PluginRuntimeSandbox](../features/FP-002-PluginRuntimeSandbox.md), IP-04
 
 ## Aufgabe 1: Bouncy-Castle-Anbindung
 

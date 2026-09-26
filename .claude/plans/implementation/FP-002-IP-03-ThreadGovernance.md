@@ -1,6 +1,6 @@
 # Implementierungsplan: Thread- und Zeitlimit-Governance
 
-Feature Plan: [FP-001-PluginRuntimeSandbox](../features/FP-001-PluginRuntimeSandbox.md), IP-03
+Feature Plan: [FP-002-PluginRuntimeSandbox](../features/FP-002-PluginRuntimeSandbox.md), IP-03
 
 ## Aufgabe 1: Executor-Infrastruktur
 

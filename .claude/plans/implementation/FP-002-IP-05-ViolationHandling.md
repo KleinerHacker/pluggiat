@@ -1,6 +1,6 @@
 # Implementierungsplan: Verstoßbehandlung und Beobachtbarkeit
 
-Feature Plan: [FP-001-PluginRuntimeSandbox](../features/FP-001-PluginRuntimeSandbox.md), IP-05
+Feature Plan: [FP-002-PluginRuntimeSandbox](../features/FP-002-PluginRuntimeSandbox.md), IP-05
 
 ## Aufgabe 1: Zeitlimit-Verstöße (IP-03) an bestehende Logik anschließen
 

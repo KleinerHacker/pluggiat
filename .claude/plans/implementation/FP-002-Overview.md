@@ -1,19 +1,19 @@
 # Übersicht: Plugin Runtime Sandbox
 
-Feature Plan: [FP-001-PluginRuntimeSandbox](../features/FP-001-PluginRuntimeSandbox.md)
+Feature Plan: [FP-002-PluginRuntimeSandbox](../features/FP-002-PluginRuntimeSandbox.md)
 
 ## Implementation Plans
 
 | ID | Name | Dateiname |
 |----|------|-----------|
-| IP-01 | Sandbox-Grundmodell und Konfiguration | FP-001-IP-01-SandboxFoundation.md |
-| IP-02 (COMPLETED) | Agent-basierte Bytecode-API-Mediation | FP-001-IP-02-AgentApiMediation.md (entfernt, siehe Feature Plan) |
-| IP-03 | Thread- und Zeitlimit-Governance | FP-001-IP-03-ThreadGovernance.md |
-| IP-04 | Prozessisolation für hochriskante Plugins | FP-001-IP-04-ProcessIsolation.md |
-| IP-05 | Verstoßbehandlung und Beobachtbarkeit | FP-001-IP-05-ViolationHandling.md |
-| IP-06 | Persistenz-Integritätsschutz | FP-001-IP-06-PersistenceIntegrity.md |
-| IP-07 | Checksum-/Signatur-Härtung (Byte-Pinning) | FP-001-IP-07-ChecksumHardening.md |
-| IP-08 | Kollisionsauflösung nach Sicherheitsstatus filtern | FP-001-IP-08-CollisionResolverFix.md |
+| IP-01 | Sandbox-Grundmodell und Konfiguration | FP-002-IP-01-SandboxFoundation.md |
+| IP-02 (COMPLETED) | Agent-basierte Bytecode-API-Mediation | FP-002-IP-02-AgentApiMediation.md (entfernt, siehe Feature Plan) |
+| IP-03 | Thread- und Zeitlimit-Governance | FP-002-IP-03-ThreadGovernance.md |
+| IP-04 | Prozessisolation für hochriskante Plugins | FP-002-IP-04-ProcessIsolation.md |
+| IP-05 | Verstoßbehandlung und Beobachtbarkeit | FP-002-IP-05-ViolationHandling.md |
+| IP-06 | Persistenz-Integritätsschutz | FP-002-IP-06-PersistenceIntegrity.md |
+| IP-07 | Checksum-/Signatur-Härtung (Byte-Pinning) | FP-002-IP-07-ChecksumHardening.md |
+| IP-08 | Kollisionsauflösung nach Sicherheitsstatus filtern | FP-002-IP-08-CollisionResolverFix.md |
 
 Keine dieser Dateien existiert bisher - sie werden erst bei Bedarf als eigene Implementation Plans
 angelegt.

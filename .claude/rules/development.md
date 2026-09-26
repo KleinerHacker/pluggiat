@@ -39,6 +39,20 @@ name: development
           what was planned - a moved module boundary, a widened constant, a changed order
         * FORBIDDEN: removing the plan files while the feature plan still shows the plan as open
 * ask user for EACH plan CHANGE
+* As soon as a FEATURE PLAN'S status file shows `COMPLETED` (every implementation plan completed),
+  the Feature Plan file MUST be finalized in the same change set
+    * The status file MUST be removed, with `git rm`
+    * The Feature Plan file's own title MUST be marked completed, e.g. `(COMPLETED)`
+    * The Feature Plan content MUST be condensed to what remains essential as a lasting record
+        * REMOVED: the Implementation Plan Overview table
+        * REMOVED: the per-IP Implementation Plans section
+        * REMOVED: the Dependency Graph
+        * REMOVED: every reference to individual implementation plans (`IP-<NUMBER>`) from all
+          remaining sections
+        * KEPT: the Feature Completion Criteria, as the record of the completed outcome
+        * Open questions that were only relevant during implementation MUST be resolved or dropped
+    * The derived implementation plans and their overview file in `.claude/plans/implementation`
+      are NOT removed by this step - they already follow the existing plan-removal rule above
 
 ## Implementation
 

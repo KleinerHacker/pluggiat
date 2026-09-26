@@ -155,5 +155,5 @@ be configured in `~/.m2/settings.xml`:
 | Orchestration runtime (`PluginManager`, ID collisions, `minVersion` check, force-load) | implemented |
 | Runtime sandbox facade and policy configuration; bytecode API mediation via Java agent (`PluginSandbox`) | in progress |
 
-All planned features of the initial feature plan (FP-001) are implemented. The runtime sandbox
+All planned features of the initial feature plan (FP-002) are implemented. The runtime sandbox
 feature plan (`PluginSandbox` and its concrete enforcers) is in progress; see the sandbox row above.

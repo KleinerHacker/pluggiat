@@ -403,6 +403,28 @@ status of the feature stays in the status file of the Feature Plan.
 The overview file stays in place until the last implementation plan of the feature is finished, and
 is removed together with it.
 
+## Feature Completion
+
+When the status file shows the feature as `COMPLETED` (every implementation plan is completed),
+finalize the Feature Plan:
+
+1. Delete the status file (`git rm`).
+2. Mark the Feature Plan file itself as completed, e.g. `# Feature Plan: <Feature Name> (COMPLETED)`.
+3. Condense the Feature Plan content down to what remains essential as a lasting record of the
+   feature:
+   * Remove the "Implementation Plan Overview" table.
+   * Remove the "Implementation Plans" section (the per-IP breakdown).
+   * Remove the "Dependency Graph".
+   * Remove every reference to individual implementation plans (`IP-<NUMBER>`) from the remaining
+     sections (Objective, Current State, Target State, Requirements, Architecture, Risks and Open
+     Questions, Feature Completion Criteria).
+   * Keep the Feature Completion Criteria - they document the completed outcome.
+   * Resolve or drop open questions that were only relevant during implementation.
+4. Do not remove the derived implementation plans and their overview file from
+   `.claude/plans/implementation/` as part of this step - that follows the existing rule that the
+   overview file and its plans are removed together with the last implementation plan being
+   finished, before this Feature Completion step runs.
+
 ## Important Rules
 
 * Do not implement anything.
