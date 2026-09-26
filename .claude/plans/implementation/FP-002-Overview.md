@@ -8,7 +8,8 @@ Feature Plan: [FP-002-PluginRuntimeSandbox](../features/FP-002-PluginRuntimeSand
 |----|------|-----------|
 | IP-01 | Sandbox-Grundmodell und Konfiguration | FP-002-IP-01-SandboxFoundation.md |
 | IP-02 (COMPLETED) | Agent-basierte Bytecode-API-Mediation | FP-002-IP-02-AgentApiMediation.md (entfernt, siehe Feature Plan) |
-| IP-03 | Thread- und Zeitlimit-Governance | FP-002-IP-03-ThreadGovernance.md |
+| IP-03 (COMPLETED) | Thread- und Zeitlimit-Governance | FP-002-IP-03-ThreadGovernance.md (entfernt, siehe Feature Plan) |
+| IP-03b (COMPLETED) | Sicherheitsbefunde aus dem IP-03-Review beheben | FP-002-IP-03b-ThreadGovernanceFixes.md (entfernt, siehe Feature Plan) |
 | IP-04 | Prozessisolation für hochriskante Plugins | FP-002-IP-04-ProcessIsolation.md |
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit | FP-002-IP-05-ViolationHandling.md |
 | IP-06 | Persistenz-Integritätsschutz | FP-002-IP-06-PersistenceIntegrity.md |
@@ -30,3 +31,5 @@ angelegt.
 6. **IP-08** - keine Abhängigkeit zu IP-01..IP-07, kleinster und am leichtesten unabhängig
    umsetzbarer Plan, jederzeit parallelisierbar.
 7. **IP-05** - abhängig von IP-02 UND IP-03, muss nach beiden umgesetzt werden.
+8. **IP-03b** - abhängig von IP-03 (Nachbesserung eines Security-Reviews), unabhängig von den übrigen
+   Plänen parallelisierbar.

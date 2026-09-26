@@ -13,6 +13,7 @@
 package org.pcsoft.framework.pluggiat.sandbox
 
 import org.pcsoft.framework.pluggiat.classloader.LoadedPlugin
+import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxGuardRegistry
 import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.slf4j.LoggerFactory
@@ -29,20 +30,25 @@ import org.slf4j.LoggerFactory
  * Since IP-02, [activate] is backed by default by [AgentInstrumentationStrategy] (bytecode API
  * mediation via the `pluggiat` Java agent) and [reportViolation] performs real handling for
  * category-attributed violations (immediate unload, [org.pcsoft.framework.pluggiat.exception.ExceptionHandlingStrategy]
- * forwarding) via [violationListener], set by [org.pcsoft.framework.pluggiat.PluginManager]. IP-03
- * (thread/time-limit governance) and IP-04 (process isolation) add further concrete enforcement
- * behind these same methods without any other caller of [PluginSandbox] having to change.
+ * forwarding) via [violationListener], set by [org.pcsoft.framework.pluggiat.PluginManager]. Since
+ * IP-03, [runGoverned] is backed by [watchdog] (thread/time-limit governance), and both [activate]/
+ * [deactivate] additionally clear/set its per-plugin state so a governed call can never silently keep
+ * running for a plugin id that was just deactivated. IP-04 (process isolation) adds further concrete
+ * enforcement behind these same methods without any other caller of [PluginSandbox] having to change.
  *
  * @property strategy the concrete [PluginSandboxStrategy] backing [activate]; defaults to
  * [AgentInstrumentationStrategy]
+ * @property watchdog the [ThreadWatchdog] backing [runGoverned]
  */
 class PluginSandbox(
     private val strategy: PluginSandboxStrategy = AgentInstrumentationStrategy(),
+    private val watchdog: ThreadWatchdog = ThreadWatchdog(),
 ) {
     private val logger = LoggerFactory.getLogger(PluginSandbox::class.java)
 
     init {
         (strategy as? AgentInstrumentationStrategy)?.onViolation = ::reportViolation
+        watchdog.onViolation = ::reportViolation
     }
 
     /**
@@ -57,25 +63,34 @@ class PluginSandbox(
      * Activates the sandbox for [loadedPlugin] under [policy] - called by
      * [org.pcsoft.framework.pluggiat.PluginManager] right after a successful
      * [org.pcsoft.framework.pluggiat.classloader.PluginLoader.load], before the plugin's extensions
-     * are activated. A no-op returning [SandboxCheckResult.Success] as of IP-01.
+     * are activated. Also clears any [ThreadWatchdog] deactivation marker left over from an earlier
+     * [deactivate] of the same plugin id (see [ThreadWatchdog.activate]), so a freshly (re)loaded
+     * plugin is governed normally again instead of being permanently rejected.
      */
-    fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult =
-        strategy.activate(loadedPlugin, policy)
+    fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult {
+        watchdog.activate(loadedPlugin.pluginId)
+        return strategy.activate(loadedPlugin, policy)
+    }
 
     /**
      * Runs [block] under this sandbox's governance for [pluginId] according to [policy] (e.g. a
-     * lifecycle hook or extension call) - a direct, unmodified invocation of [block] as of IP-01;
-     * IP-03 adds actual thread/time-limit governance behind this call.
+     * lifecycle hook or extension call), delegating to [watchdog]: directly on the calling thread if
+     * [PluginSandboxPolicy.callTimeout] is `null`, otherwise bounded by that timeout - see
+     * [ThreadWatchdog.runGoverned].
+     *
+     * @throws SandboxTimeoutException if [block] does not complete within [policy]'s [PluginSandboxPolicy.callTimeout]
+     * @throws SandboxDeactivatedException if [pluginId] was [deactivate]d and not [activate]d since
      */
-    fun <T> runGoverned(pluginId: String, policy: PluginSandboxPolicy, block: () -> T): T = block()
+    fun <T> runGoverned(pluginId: String, policy: PluginSandboxPolicy, block: () -> T): T =
+        watchdog.runGoverned(pluginId, policy, block)
 
     /**
      * Reports [violation] for [pluginId]: always logged, then forwarded to [violationListener] (if
      * any) so it can act on it (see [org.pcsoft.framework.pluggiat.PluginManager]'s handler, which
      * immediately unloads the plugin for a category-attributed - i.e. potential-attack - violation
      * and forwards it to [org.pcsoft.framework.pluggiat.exception.ExceptionHandlingStrategy]). A
-     * category-less violation (e.g. a future IP-03 time-limit violation) is logged the same way but
-     * left for [violationListener] to decide how to react.
+     * category-less violation (e.g. an IP-03 time-limit violation) is logged the same way but left
+     * for [violationListener] to decide how to react.
      */
     fun reportViolation(pluginId: String, violation: SandboxViolation) {
         if (violation.category != null) {
@@ -91,11 +106,19 @@ class PluginSandbox(
 
     /**
      * Releases any sandbox-side state held for [pluginId], called by
-     * [org.pcsoft.framework.pluggiat.PluginManager] as part of unloading/reloading a plugin. A no-op
-     * as of IP-01.
+     * [org.pcsoft.framework.pluggiat.PluginManager] as part of unloading/reloading a plugin: shuts
+     * down [pluginId]'s [ThreadWatchdog] executor (if any) and marks it deactivated so a governed call
+     * racing against this deactivation cannot silently keep it running (see [ThreadWatchdog.deactivate]),
+     * and - if [classLoader] is given - removes its [SandboxGuardRegistry] entry so a stale entry does
+     * not keep the class loader (and everything it reaches) reachable after it should have been
+     * discarded.
+     *
+     * @param classLoader the deactivated plugin's class loader, if known; `null` skips the
+     * [SandboxGuardRegistry] cleanup (e.g. when no plugin was ever actually loaded for [pluginId])
      */
-    fun deactivate(pluginId: String) {
-        // No sandbox-side state to release yet - concrete strategies (IP-02/IP-03/IP-04) add cleanup here.
+    fun deactivate(pluginId: String, classLoader: ClassLoader? = null) {
+        watchdog.deactivate(pluginId)
+        classLoader?.let(SandboxGuardRegistry::unregister)
     }
 
     companion object {

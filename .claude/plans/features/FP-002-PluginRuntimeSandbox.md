@@ -343,7 +343,8 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 | ----- | -------------------------------------------- | -------------------------------------------------------------------------- | ------------ |
 | IP-01 (COMPLETED) | Sandbox-Grundmodell, `PluginSandbox`-Fassade und Konfiguration | Policy-/Strategie-Abstraktionen, `PluginSandbox` als Anlaufstelle, Einbindung in `PluginManagerConfiguration` | -            |
 | IP-02 (COMPLETED) | Agent-basierte Bytecode-API-Mediation        | Zugriffskontrolle auf riskante JDK-APIs via Java-Agent/Instrumentierung, angebunden über `PluginSandbox`; bei Verstoß Sofort-Entladung und `POTENTIAL_ATTACK`-Status | IP-01        |
-| IP-03 | Thread- und Zeitlimit-Governance             | Dedizierte Executors, Watchdog für Lifecycle-/Extension-Aufrufe, angebunden über `PluginSandbox`            | IP-01        |
+| IP-03 (COMPLETED) | Thread- und Zeitlimit-Governance             | Dedizierte Executors, Watchdog für Lifecycle-/Extension-Aufrufe, angebunden über `PluginSandbox`            | IP-01        |
+| IP-03b (COMPLETED) | Sicherheitsbefunde aus dem IP-03-Review beheben | Races/Thread-Leaks/Reentranz-Selbstblockade in `ThreadWatchdog` schließen, Zeitlimit-Umgehung über verschachtelte Rückgabewerte schließen, Eskalation bei wiederholtem Timeout | IP-03        |
 | IP-04 | Prozessisolation für hochriskante Plugins    | Subprozess-basierte Isolation mit Bouncy-Castle-ASN.1-BER-IPC-Proxy, verwaltet über `PluginSandbox`         | IP-01        |
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit        | Zeitlimit-Verstöße (IP-03) an die bereits von IP-02 real implementierte `PluginSandbox.reportViolation`-Logik anschließen | IP-02, IP-03 |
 | IP-06 (COMPLETED) | Persistenz-Integritätsschutz                 | HMAC-Schutz gegen selbstbegünstigende Manipulation des persistenten Zustands | -          |
@@ -532,7 +533,7 @@ IP-02 - zwei Nachbesserungsrunden, ausgelöst durch die Fragen nach `java.nio` u
   im Auftrag des Plugins ausführt, bleibt unmediiert (in `sandbox.md`/`.de.md` als Einschränkung
   dokumentiert, inkl. Empfehlung zur Whitelist-Gestaltung).
 
-### IP-03: Thread- und Zeitlimit-Governance
+### IP-03: Thread- und Zeitlimit-Governance (COMPLETED)
 
 **Objective**
 
@@ -574,6 +575,84 @@ eingeschränkt möglich (`Thread.stop()` ist unsicher und seit Langem als gefäh
 Governance kann Timeouts erkennen und den Thread als "verwaist" markieren/isolieren, aber ein
 garantiertes hartes Abbrechen ist nur über Prozessisolation (IP-04) erreichbar - diese Grenze ist
 in Abschnitt 9 zu dokumentieren.
+
+**Tatsächliche Umsetzung**
+
+Wie geplant umgesetzt, mit folgenden Präzisierungen: Statt einer `ThreadWatchdogStrategy`, die als
+`PluginSandboxStrategy` delegiert würde, wurde `ThreadWatchdog` als eigenständiger, zweiter
+Kollaborator von `PluginSandbox` eingeführt (analog zu `strategy`) - `PluginSandboxStrategy` blieb
+unverändert ein reines `activate`-Interface, da `PluginSandbox.runGoverned`/`deactivate` bereits seit
+IP-01 selbst implementiert werden statt delegiert zu sein. Ein Aufruf ohne gesetztes
+`PluginSandboxPolicy.callTimeout` läuft weiterhin direkt auf dem Aufrufer-Thread (kein Overhead); mit
+gesetztem Zeitlimit läuft er auf einem dedizierten Einzel-Thread-Executor je Plugin-Id, wodurch
+gleichzeitige Aufrufe für dasselbe Plugin serialisiert statt parallelisiert werden - eine bewusste
+Vereinfachung, die eine hängende Aufgabe die Executor-Warteschlange dieses Plugins blockieren lässt,
+bis auch der wartende Aufruf seinerseits in ein Timeout läuft. Bei Zeitüberschreitung wird der Task
+per `Future.cancel(true)` best-effort unterbrochen, aber nicht erzwungen gestoppt; der Executor wird
+verworfen und durch einen neuen ersetzt, damit ein späterer Aufruf für dasselbe Plugin nicht hinter
+dem verwaisten Task hängen bleibt. Alle Watchdog-Threads sind Daemon-Threads unter der `ThreadGroup`
+`"pluggiat-sandbox"` (mit Kind-Gruppe je Plugin-Id), sodass ein verwaister Thread den Host-JVM-Shutdown
+nie verhindern kann. Über die im Implementierungsplan skizzierte Integration hinaus wurde
+`ExtensionAggregator` (statt nur `PluginManager.unload()`, das seine Policy-Auflösung bereits korrekt
+nutzte) um `sandbox`/`policyResolver`-Konstruktorparameter erweitert, sodass auch `onLoad`/`onEnable`
+(in `resolveAndEnforce`) und `onDisable`/`onUnload` (in `forceDisable`) über `runGoverned` laufen, und
+`ExtensionProxyFactory.create`/dessen `Interceptor` wurden um optionale `pluginId`/`sandbox`/`policy`-
+Parameter erweitert, sodass auch der eigentliche, von einem Host aufgerufene Extension-Methodenaufruf
+governiert wird - eine dabei geworfene `SandboxTimeoutException` durchläuft dieselbe
+`ExceptionHandlingStrategy`-Behandlung wie jede andere aus dem Aufruf entkommende Exception. Zunächst
+bewusst nicht erneut governiert: ein rekursiv über `wrapReturnValue` erzeugter, verschachtelter Proxy
+(z. B. der Rückgabewert einer Factory-Methode) - diese Einschränkung wurde in IP-03b als
+Sicherheitslücke identifiziert und dort behoben (siehe unten).
+
+### IP-03b: Sicherheitsbefunde aus dem IP-03-Review beheben (COMPLETED)
+
+**Objective**
+
+Die in einem nach IP-03 durchgeführten Sicherheitsreview gefundenen 15 Befunde beheben, ohne den
+architektonischen Ansatz von IP-03 zu ändern - insbesondere unbegrenzte Thread-Akkumulation, Races
+zwischen Timeout-Behandlung und Deaktivierung, eine Reentranz-Selbstblockade, ein einzelnes hängendes
+Plugin, das die Aggregation aller Plugins mitreißt, sowie eine Umgehung des Zeitlimits über
+verschachtelte Rückgabewerte.
+
+**Scope**
+
+Enthalten: Slot-Modell (`Ready`/`Deactivated`) in `ThreadWatchdog` statt reiner Executor-Map, sofortiges
+`shutdownNow()` bei Timeout-Ersetzung und bei `deactivate`, neue `ThreadWatchdog.activate(pluginId)` zum
+Zurücksetzen des Deactivated-Markers, neue `SandboxDeactivatedException` bei einem Aufruf gegen einen
+deaktivierten Slot, Reentranz-Erkennung über `ThreadLocal`, `InterruptedException`-Behandlung,
+Plugin-Id-Sanitisierung für Thread-/`ThreadGroup`-Namen, `Duration.toMillis()`-Untergrenze;
+`PluginSandbox.deactivate` mit neuem optionalen `classLoader`-Parameter und
+`SandboxGuardRegistry.unregister`-Aufruf; `PluginManager.unload()` fängt eine `SandboxTimeoutException`
+selbst und räumt garantiert vollständig auf; `PluginManager.handleSandboxViolation` eskaliert
+wiederholte kategorielose Verstöße nach einem Schwellwert zum Zwangs-Unload; `ExtensionAggregator.
+resolveAndEnforce` isoliert einen `onLoad`/`onEnable`-Timeout auf das betroffene Plugin statt die
+gesamte Aggregation abzubrechen; `ExtensionProxyFactory`s rekursive Rückgabewert-Wrapper reichen
+Sandbox-Kontext durch. Nicht enthalten: Änderungen an der Zeitlimit-Semantik selbst (`callTimeout`
+bleibt best-effort, kein hartes Abbrechen - weiterhin nur über Prozessisolation/IP-04 erreichbar).
+
+**Affected Areas**
+
+`ThreadWatchdog`, neue `SandboxDeactivatedException`, `PluginSandbox`, `PluginManager`,
+`ExtensionAggregator`, `ExtensionProxyFactory`.
+
+**Dependencies**
+
+IP-03.
+
+**Expected Result**
+
+Siehe die aktualisierten Beschreibungen in Abschnitt 5 und im IP-03-Abschnitt oben sowie
+`sandbox.md`/`.de.md` (Abschnitte "Thread and time-limit governance" und "Escalation on repeated
+timeouts") - dort ist das tatsächliche Verhalten nach IP-03b vollständig dokumentiert, eine gesonderte
+Wiederholung entfällt hier.
+
+**Tatsächliche Umsetzung**
+
+Wie geplant umgesetzt, ausgelöst durch einen Sicherheitsreview mit 15 Befunden (u. a. unbegrenzter
+Thread-Leak ohne Eskalation, Race zwischen `runGoverned` und `deactivate`, Reentranz-Selbstblockade,
+ein hängendes Plugin reißt alle anderen mit, Zeitlimit über verschachtelte Rückgabewerte umgehbar,
+fehlender `SandboxGuardRegistry.unregister`-Aufruf). Details siehe Notiz im (entfernten)
+Implementierungsplan IP-03b, festgehalten im zugehörigen Commit und in der Feature-Status-Datei.
 
 ### IP-04: Prozessisolation für hochriskante Plugins
 

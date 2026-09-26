@@ -120,6 +120,62 @@ Ein `POTENTIAL_ATTACK`-Kandidat kann **nie** erneut per Force-Load geladen werde
 derselben Plugin-ID über den `IdCollisionResolver` verdrängen - anders als jeder andere
 Nicht-`LOADED`-Status gibt es dafür keine Host-Überschreibung.
 
+## Thread- und Zeitlimit-Governance
+
+`PluginSandboxPolicy.callTimeout` begrenzt, wie lange ein einzelner `PluginLifecycle`-Hook
+(`onLoad`/`onEnable`/`onDisable`/`onUnload`) oder ein per Proxy vermittelter Aufruf einer
+Erweiterungspunkt-Methode laufen darf:
+
+```kotlin
+policy = PluginSandboxPolicy(
+    callTimeout = Duration.ofSeconds(5),
+)
+```
+
+* Bleibt `callTimeout` ungesetzt (`null`, der Standard), läuft jeder betroffene Aufruf direkt auf dem
+  aufrufenden Thread, ohne jeden Zusatzaufwand - genau wie vor diesem Feature.
+* Einmal gesetzt, läuft ein betroffener Aufruf eines Plugins auf dem eigenen, dedizierten
+  Single-Thread-Executor dieses Plugins. Gleichzeitige Aufrufe *desselben* Plugins werden dadurch
+  serialisiert statt parallel ausgeführt; ein reentranter Aufruf (aus einem bereits betroffenen
+  Aufruf desselben Plugins heraus) läuft direkt, statt erneut eingereiht zu werden, damit dieser eine
+  Worker-Thread sich nicht selbst blockiert.
+* Ein Aufruf, der `callTimeout` überschreitet, wirft eine `SandboxTimeoutException` an seinen Aufrufer
+  und meldet einen Sandbox-Verstoß (als `WARN` protokolliert, ohne zugeordnete `SandboxApiCategory` -
+  ein Timeout allein ist kein Beleg für einen Angriff, er markiert das Plugin also **nicht** von sich
+  aus als `POTENTIAL_ATTACK`; siehe
+  [Eskalation bei wiederholten Timeouts](#eskalation-bei-wiederholten-timeouts) unten). Was danach
+  geschieht, entscheidet die umschließende Aufrufstelle: Ein per Proxy vermittelter
+  Erweiterungsaufruf löst die Ausnahme wie jede andere über die konfigurierte
+  `ExceptionHandlingStrategy` auf (standardmäßig: zwangsweises Entladen, siehe
+  [Einschränkungen](#einschrankungen)), während `PluginManager.unload()` sie protokolliert und das
+  Entladen trotzdem vollständig abschließt - ein Plugin kann sein eigenes Entladen nie blockieren,
+  indem es in `onDisable`/`onUnload` hängt.
+* Der Worker-Thread des betroffenen Aufrufs wird *nicht* zwangsweise gestoppt - die JVM bietet dafür
+  keinen sicheren Weg. Er wird bestmöglich unterbrochen und dann aufgegeben; der Executor des Plugins
+  wird verworfen und ersetzt, damit ein späterer Aufruf nicht dahinter festhängt. Ein aufgegebener
+  Thread ist immer ein Daemon-Thread und kann die Host-JVM daher nie von sich aus am Leben halten, er
+  kann aber unbegrenzt im Hintergrund weiterlaufen (und die von ihm gehaltenen Ressourcen weiter
+  belegen).
+* Ein rekursiv umhüllter, verschachtelter Rückgabewert (z. B. das Ergebnis einer Factory-Methode oder
+  ein Element einer Collection/Map/eines Arrays) unterliegt derselben Policy wie der Aufruf, der ihn
+  erzeugt hat - ein zwei Ebenen tief hängender Aufruf wird ebenfalls über `callTimeout` aufgelöst,
+  nicht nur der äußerste Aufruf.
+* Wird ein Plugin deaktiviert (Entladen/Neuladen oder zwangsweises Entladen nach einem
+  Sandbox-Verstoß), schlägt jeder betroffene Aufruf, der noch gegen diese Deaktivierung läuft, mit
+  einer `SandboxDeactivatedException` fehl, statt stillschweigend einen neuen Executor für Code zu
+  starten, der nicht mehr laufen sollte.
+
+### Eskalation bei wiederholten Timeouts
+
+Ein einzelner Timeout gilt als Performance-Problem, nicht als Angriff. Drei
+(`PluginManager.MAX_TIMEOUT_VIOLATIONS`) *aufeinanderfolgende* Timeouts derselben Plugin-ID werden
+anders behandelt: Das Plugin wird über denselben Weg wie bei einem kategoriezugeordneten Verstoß
+zwangsweise entladen - als `POTENTIAL_ATTACK` markiert, mit dem Grund `SANDBOX_TIMEOUT_LIMIT`
+persistiert und an `exceptionHandlingStrategy` gemeldet -, sodass ein Plugin, das sein Timeout
+dauerhaft überschreitet, nicht dazu genutzt werden kann, unbegrenzt viele aufgegebene Worker-Threads
+anzusammeln, selbst unter einer Host-`ExceptionHandlingStrategy`, die auf eine `RuntimeException`
+sonst nie reagieren würde.
+
 ## Sicherheitsempfehlungen
 
 !!! tip "Sicherheitsempfehlungen"
@@ -132,7 +188,11 @@ Nicht-`LOADED`-Status gibt es dafür keine Host-Überschreibung.
       schränkt ein, was ein bereits geladenes Plugin tun kann, sie prüft nicht, wer es erzeugt hat.
     * Einen `POTENTIAL_ATTACK`-Status als Vorfall behandeln, nicht als Routineablehnung: anders als
       bei `SECURITY_PROBLEM` gibt es bewusst keine Überschreibung - vor einer erneuten Verteilung
-      dieses Plugin-Builds erst untersuchen.
+      dieses Plugin-Builds erst untersuchen - gleich ob er durch einen kategoriezugeordneten Verstoß
+      oder durch wiederholte Timeouts ausgelöst wurde.
+    * Für jedes Verzeichnis, das nicht vertrauenswürdige Plugins ausführt, ein `callTimeout` setzen -
+      ohne dieses blockiert ein Plugin, das in einem Lifecycle-Hook oder Erweiterungsaufruf ewig
+      hängt, auch den aufrufenden Host-Thread ewig.
     * Die Lücke bei sehr früher Klasseninitialisierung unten im Blick behalten - die Mediation ist
       stark, aber nicht absolut.
 
@@ -150,6 +210,9 @@ Nicht-`LOADED`-Status gibt es dafür keine Host-Überschreibung.
 * **Nativer Code liegt vollständig außerhalb der Reichweite** einer Bytecode-Instrumentierung. Sein
   Laden ist deshalb als `PROCESS_START` abgesichert - ein Plugin, dem das Laden nativen Codes erlaubt
   ist, ist faktisch nicht mehr durch die Sandbox eingeschränkt.
-* **Thread-/Zeitlimit-Governance und Prozessisolation** sind eigene, spätere Teile der
-  Laufzeit-Sandbox und nicht durch API-Mediation allein abgedeckt - `THREAD_CREATION` blockiert das
-  *Erzeugen* von Threads, begrenzt aber nicht die Laufzeit eines bereits laufenden.
+* **`callTimeout` kann einen laufenden Aufruf nicht zwangsweise stoppen**, sondern ihn nur aufgeben
+  (siehe oben) - ein Plugin, das die Unterbrechung ignoriert, belegt die von ihm gehaltenen Ressourcen
+  weiter, solange es läuft.
+* **Prozessisolation** ist ein eigener, späterer Teil der Laufzeit-Sandbox und gibt dem Code eines
+  Plugins keine Möglichkeit, eine harte Grenze auf Betriebssystemebene zu überdauern, wie es ein
+  aufgegebener Thread innerhalb der VM kann.

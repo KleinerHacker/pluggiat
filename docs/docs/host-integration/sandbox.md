@@ -111,6 +111,52 @@ A `POTENTIAL_ATTACK` candidate can **never** be force-loaded again (`PluginManag
 `IllegalStateException`) and can never displace a `LOADED` candidate of the same plugin id via
 `IdCollisionResolver` - unlike every other non-`LOADED` status, there is no host override for it.
 
+## Thread and time-limit governance
+
+`PluginSandboxPolicy.callTimeout` bounds how long a single `PluginLifecycle` hook
+(`onLoad`/`onEnable`/`onDisable`/`onUnload`) or proxied extension-point method call may run:
+
+```kotlin
+policy = PluginSandboxPolicy(
+    callTimeout = Duration.ofSeconds(5),
+)
+```
+
+* Leaving `callTimeout` unset (`null`, the default) runs every governed call directly on the calling
+  thread, at zero overhead - the same as before this feature existed.
+* Once set, a governed call for a plugin runs on that plugin's own, dedicated single-thread executor.
+  Concurrent calls for the *same* plugin are therefore serialized rather than running in parallel; a
+  reentrant call (from within an already-governed call for the same plugin) runs directly instead of
+  being submitted again, to avoid deadlocking that single worker thread against itself.
+* A call exceeding `callTimeout` throws `SandboxTimeoutException` to its caller and reports a sandbox
+  violation (logged as a `WARN`, with no `SandboxApiCategory` attached - a single timeout alone is not
+  evidence of an attack, so it does not by itself mark the plugin `POTENTIAL_ATTACK`; see
+  [Escalation on repeated timeouts](#escalation-on-repeated-timeouts) below). The wrapping call site
+  decides what happens next: a proxied extension-point call resolves the exception through the
+  configured `ExceptionHandlingStrategy` like any other (by default: forced unload, see
+  [Restrictions](#restrictions)), while `PluginManager.unload()` logs it and still fully completes the
+  unload regardless - a plugin can never block its own unload by hanging in `onDisable`/`onUnload`.
+* The offending call's worker thread is *not* forcibly stopped - the JVM has no safe way to do that.
+  It is interrupted best-effort and then abandoned; the plugin's executor is shut down immediately and
+  replaced so a later call is not stuck behind it. An abandoned thread is always a daemon thread, so it
+  can never keep the host JVM alive on its own, but it may keep running (and holding whatever resources
+  it held) in the background indefinitely.
+* A recursively wrapped, nested return value (e.g. a factory method's result, or a collection/map/array
+  element) is governed by the same policy as the call that produced it - a hanging call two levels deep
+  still resolves via `callTimeout`, not just the outermost call.
+* Deactivating a plugin (unload/reload, or a forced unload after a sandbox violation) fails any
+  governed call still racing against that deactivation with `SandboxDeactivatedException` instead of
+  silently starting a fresh executor for code that should no longer be running.
+
+### Escalation on repeated timeouts
+
+A single timeout is treated as a performance problem, not an attack. Three (`PluginManager.MAX_TIMEOUT_VIOLATIONS`)
+*consecutive* timeouts for the same plugin id are treated differently: the plugin is forcibly unloaded
+through the same path as a category-attributed violation - marked `POTENTIAL_ATTACK`, persisted with
+reason `SANDBOX_TIMEOUT_LIMIT`, and reported to `exceptionHandlingStrategy` - so a plugin that keeps
+exceeding its timeout cannot be used to accumulate an unbounded number of abandoned worker threads, even
+under a host `ExceptionHandlingStrategy` that would otherwise never react to a `RuntimeException`.
+
 ## Security recommendations
 
 !!! tip "Security recommendations"
@@ -123,7 +169,10 @@ A `POTENTIAL_ATTACK` candidate can **never** be force-loaded again (`PluginManag
       already-loaded plugin can do, it does not vet who produced it.
     * Treat a `POTENTIAL_ATTACK` status as an incident, not a routine rejection: unlike
       `SECURITY_PROBLEM`, there is deliberately no override - investigate before considering
-      re-distribution of that plugin build.
+      re-distribution of that plugin build, whether it was triggered by a category-attributed violation
+      or by repeated timeouts.
+    * Set a `callTimeout` for any location running untrusted plugins - without it, a plugin blocking
+      forever in a lifecycle hook or extension call blocks the calling host thread forever too.
     * Remember the very-early-class-initialization gap below - mediation is strong but not absolute.
 
 ## Restrictions
@@ -138,6 +187,7 @@ A `POTENTIAL_ATTACK` candidate can **never** be force-loaded again (`PluginManag
   retroactively.
 * **Native code is outside the reach of bytecode instrumentation** entirely. Loading it is therefore
   guarded as `PROCESS_START`, but a plugin permitted to load native code is effectively unsandboxed.
-* **Thread/time-limit governance and process isolation** are separate, later parts of the runtime
-  sandbox and not covered by API mediation alone - `THREAD_CREATION` blocks *creating* threads, it
-  does not bound the runtime of one already running.
+* **`callTimeout` cannot forcibly stop a running call**, only abandon it (see above) - a plugin that
+  ignores interruption keeps consuming whatever resources it held for as long as it keeps running.
+* **Process isolation** is a separate, later part of the runtime sandbox, giving a plugin's code no
+  way to outlive a hard OS-level boundary the way an abandoned in-VM thread can.

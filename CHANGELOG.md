@@ -25,8 +25,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   call immediately unloads the plugin, marks it `PluginScanStatus.POTENTIAL_ATTACK` (never eligible for
   `forceLoad` again) and reports it to the host's `ExceptionHandlingStrategy`. Requires the host JVM to
   be started with this module's own JAR as a `-javaagent`; a restrictive policy activated without it
-  aborts startup with `SandboxAgentNotActiveException`. Thread/time-limit governance and process
-  isolation follow in a later release.
+  aborts startup with `SandboxAgentNotActiveException`. `PluginSandboxPolicy.callTimeout` now bounds
+  how long a lifecycle hook or extension call may run, including on a recursively returned nested
+  value (e.g. a factory method's result): a call exceeding it throws `SandboxTimeoutException`
+  instead of blocking the host thread forever, and its now-abandoned worker thread is shut down and
+  replaced so a later call for the same plugin is not stuck behind it - `PluginManager.unload()`
+  itself always completes fully even if a lifecycle hook times out. Three consecutive timeouts for
+  the same plugin escalate to the same forced unload/`POTENTIAL_ATTACK` handling as a category-
+  attributed violation (persisted reason `SANDBOX_TIMEOUT_LIMIT`), so a persistently hanging plugin
+  cannot accumulate an unbounded number of abandoned threads. Process isolation follows in a later
+  release.
 
 ### Security
 

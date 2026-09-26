@@ -23,6 +23,10 @@ import org.pcsoft.framework.pluggiat.exception.ExceptionHandlingAction
 import org.pcsoft.framework.pluggiat.exception.ExceptionHandlingStrategy
 import org.pcsoft.framework.pluggiat.exception.PluginExecutionException
 import org.pcsoft.framework.pluggiat.exception.PluginFatalException
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandbox
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
+import org.pcsoft.framework.pluggiat.sandbox.SandboxTimeoutException
+import java.time.Duration
 
 interface Greeter {
     fun greet(name: String): String
@@ -33,6 +37,7 @@ interface Greeter {
     fun greeterArray(): Array<Greeter>
     fun asText(): String
     fun asFinal(): FinalPayload
+    fun hang(): String
 }
 
 class FinalPayload(val value: String)
@@ -46,6 +51,7 @@ class FailingGreeter(private val throwable: Throwable) : Greeter {
     override fun greeterArray(): Array<Greeter> = throw throwable
     override fun asText(): String = throw throwable
     override fun asFinal(): FinalPayload = throw throwable
+    override fun hang(): String = throw throwable
 }
 
 open class OpenGreeterImpl : Greeter {
@@ -57,6 +63,10 @@ open class OpenGreeterImpl : Greeter {
     override fun greeterArray(): Array<Greeter> = arrayOf(OpenGreeterImpl())
     override fun asText(): String = "plain"
     override fun asFinal(): FinalPayload = FinalPayload("payload")
+    override fun hang(): String {
+        Thread.sleep(5000)
+        return "too late"
+    }
 }
 
 class FinalGreeterImpl : Greeter {
@@ -68,6 +78,7 @@ class FinalGreeterImpl : Greeter {
     override fun greeterArray(): Array<Greeter> = emptyArray()
     override fun asText(): String = "plain"
     override fun asFinal(): FinalPayload = FinalPayload("payload")
+    override fun hang(): String = "n/a"
 }
 
 class ExtensionProxyFactoryTest {
@@ -268,5 +279,48 @@ class ExtensionProxyFactoryTest {
         } finally {
             PluginCrashHandler.action = originalAction
         }
+    }
+
+    /**
+     * Use case: a call governed by a [PluginSandbox] (IP-03) that exceeds its configured
+     * [PluginSandboxPolicy.callTimeout] resolves like any other escaping `Throwable` - by default,
+     * to [PluginFatalException] - instead of blocking the caller forever.
+     */
+    @Test
+    fun `a hanging governed call resolves via the exception handling strategy instead of blocking forever`() {
+        val proxy = ExtensionProxyFactory.create(
+            Greeter::class.java,
+            OpenGreeterImpl(),
+            strategy,
+            pluginId = "plugin-a",
+            sandbox = PluginSandbox(),
+            policy = PluginSandboxPolicy(callTimeout = Duration.ofMillis(50)),
+        ) {}
+
+        val thrown = assertThrows(PluginFatalException::class.java) { proxy.hang() }
+        assertTrue(thrown.cause is SandboxTimeoutException)
+    }
+
+    /**
+     * Use case: a recursively wrapped, nested return value (e.g. a factory method's result) is
+     * governed by the same [PluginSandbox]/`pluginId`/`policy` as the call that produced it - a
+     * hanging call on the nested proxy resolves via the exception handling strategy too, instead of
+     * blocking forever just because it is one level removed from the original proxy.
+     */
+    @Test
+    fun `a hanging call on a recursively wrapped nested proxy is governed too`() {
+        val proxy = ExtensionProxyFactory.create(
+            Greeter::class.java,
+            OpenGreeterImpl(),
+            strategy,
+            pluginId = "plugin-a",
+            sandbox = PluginSandbox(),
+            policy = PluginSandboxPolicy(callTimeout = Duration.ofMillis(50)),
+        ) {}
+
+        val nested = proxy.makeFactory()
+        val thrown = assertThrows(PluginFatalException::class.java) { nested.hang() }
+
+        assertTrue(thrown.cause is SandboxTimeoutException)
     }
 }

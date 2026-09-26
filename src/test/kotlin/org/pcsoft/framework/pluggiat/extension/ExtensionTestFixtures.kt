@@ -65,6 +65,22 @@ class LifecycleRecordingTestExporter : TestExporter, org.pcsoft.framework.pluggi
     }
 }
 
+/** Blocks in [onEnable] for longer than any sandbox timeout used in tests, to exercise IP-03 governance. */
+class SlowOnEnableTestExporter : TestExporter, org.pcsoft.framework.pluggiat.PluginLifecycle {
+    override fun name(): String = "slow"
+    override fun onEnable() {
+        Thread.sleep(5000)
+    }
+}
+
+/** Blocks in [onDisable] for longer than any sandbox timeout used in tests, to exercise IP-03 governance. */
+class SlowOnDisableTestExporter : TestExporter, org.pcsoft.framework.pluggiat.PluginLifecycle {
+    override fun name(): String = "slow"
+    override fun onDisable() {
+        Thread.sleep(5000)
+    }
+}
+
 interface TestSlot
 
 @ExtensionPoint(key = "singleton-slot", exclusive = true)

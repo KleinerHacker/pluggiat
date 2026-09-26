@@ -47,9 +47,11 @@ discovery, isolation or lifecycle handling.
 * `PluginSandbox`: a host-wide facade for a plugin's runtime sandbox, configurable per
   `PluginLocation` (`sandboxOverride`) or globally per location type (`defaultSandboxPolicy`);
   bytecode API mediation (filesystem/network/reflection/process-start/`System.exit`) via a Java
-  agent is implemented, with thread/time-limit governance and process isolation following in later
-  releases. **Requires a `-javaagent:<path-to-this-jar>` JVM start parameter** as soon as any policy
-  restricts an API category - see [Runtime sandbox](docs/docs/host-integration/sandbox.md)
+  agent and `PluginSandboxPolicy.callTimeout` thread/time-limit governance (a call exceeding it
+  throws `SandboxTimeoutException` instead of blocking the host thread forever) are implemented,
+  with process isolation following in a later release. **Requires a `-javaagent:<path-to-this-jar>`
+  JVM start parameter** as soon as any policy restricts an API category - see
+  [Runtime sandbox](docs/docs/host-integration/sandbox.md)
 
 ## AI transparency notice
 
@@ -153,7 +155,8 @@ be configured in `~/.m2/settings.xml`:
 | Persistence strategies                                                | implemented |
 | Persistence integrity protection (HMAC decorator)                     | implemented |
 | Orchestration runtime (`PluginManager`, ID collisions, `minVersion` check, force-load) | implemented |
-| Runtime sandbox facade and policy configuration; bytecode API mediation via Java agent (`PluginSandbox`) | in progress |
+| Runtime sandbox facade and policy configuration; bytecode API mediation via Java agent and thread/time-limit governance (`PluginSandbox`) | in progress |
 
 All planned features of the initial feature plan (FP-002) are implemented. The runtime sandbox
-feature plan (`PluginSandbox` and its concrete enforcers) is in progress; see the sandbox row above.
+feature plan (`PluginSandbox` and its concrete enforcers) is in progress, with process isolation
+remaining; see the sandbox row above.
