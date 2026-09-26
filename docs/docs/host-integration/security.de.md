@@ -259,6 +259,48 @@ Bevorzugen Sie `write<T>` gegenüber `persistException`, wann immer die Strategi
 `PersistableSecurityStrategy` ist - es zeichnet den tatsächlich akzeptierten Zustand der Strategie
 auf, statt bedingungslos jede zukünftige Prüfung für dieses Plugin zu überspringen.
 
+## Härtung der Prüfung selbst
+
+Über die Auswahl und Verkettung von Strategien hinaus besitzt die Sicherheitskette mehrere
+Härtungseigenschaften, die unabhängig davon gelten, welche Strategie oder Strategien ein
+Verzeichnis verwendet:
+
+* **Byte-Pinning schließt die Lücke zwischen Prüfung und Laden (TOCTOU).** Die Bytes eines
+  Kandidaten werden genau einmal von der Festplatte gelesen, während der Sicherheitsprüfung des
+  Scans, und zwar in einen `PinnedPluginContent`; dieselben gepinnten Bytes - nicht ein zweites,
+  erneutes Lesen der Datei - sind das, was anschließend tatsächlich geladen wird. Ein Kandidat, der
+  zwischen Prüfung und Laden auf der Festplatte ausgetauscht wird, kann daher nicht mehr an der
+  Kette vorbeikommen: genau der Inhalt, den die Prüfung verifiziert hat, wird ausgeführt. Sowohl die
+  Sicherheitsprüfung als auch der Loader lösen ZIP-/JAR-Einträge über dieselbe gemeinsame
+  Auflösungslogik auf, sodass eine JAR mit doppelten Eintragsnamen nicht als der eine Eintrag
+  verifiziert und als ein anderer geladen werden kann.
+* **Der Prüfsummenvergleich ist laufzeitkonstant.** `ChecksumSecurityStrategy` (und die
+  dateiweise Prüfsummenliste von `SignatureSecurityStrategy`) vergleicht Digests über
+  `MessageDigest.isEqual` statt über `String.equals` und vermeidet so einen Timing-Seitenkanal beim
+  Vergleich selbst.
+* **Ein abgelaufenes oder noch nicht gültiges Signierzertifikat lässt die Prüfung fehlschlagen.**
+  `SignatureSecurityStrategy` ruft zusätzlich `X509Certificate.checkValidity()` auf dem Zertifikat
+  des Signierenden auf; ein Schlüssel, der einmal gültig war, seitdem aber abgelaufen ist, wird
+  nicht mehr stillschweigend akzeptiert, nur weil der öffentliche Schlüssel noch passt. Ein Widerruf
+  von Zertifikaten (CRL/OCSP) wird bewusst **nicht** geprüft - siehe
+  [Einschränkungen](#einschrankungen) unten.
+* **Die Kollisionsauflösung lässt nur verifizierte Kandidaten antreten.** `IdCollisionResolver`
+  gruppiert kollidierende Plugin-IDs nur unter Kandidaten, die die Sicherheitskette bereits bestanden
+  haben (`PluginScanStatus.LOADED`); ein Kandidat, dessen Prüfung fehlgeschlagen ist, behält seinen
+  eigenen Status und kann eine kollidierende ID nicht mehr einem bereits verifizierten Kandidaten
+  abnehmen, indem er einfach eine höhere Manifest-`version` angibt.
+
+### Einschränkungen
+
+* **Keine Prüfung auf Zertifikatswiderruf.** Eine echte CRL-/OCSP-Prüfung würde den Betrieb einer
+  PKI-Infrastruktur erfordern, die für die selbstsignierten Zertifikate, die eine
+  `PublicKeyProviderStrategy` üblicherweise pinnt, typischerweise nicht existiert. Ein
+  kompromittierter, aber noch gültiger Schlüssel bleibt daher bis zum Ablauf seines Zertifikats
+  vertrauenswürdig - eine bewusste, akzeptierte Grenze.
+* **Gepinnte Bytes verbleiben für die gesamte Lebensdauer des geladenen Plugins im Speicher**, da
+  Klassen noch verzögert aus ihnen geladen werden können; das tauscht etwas zusätzlichen Speicher
+  gegen das Schließen der oben genannten TOCTOU-Lücke.
+
 ## Eine eigene Strategie hinzufügen
 
 Jede Klasse, die `PluginSecurityStrategy` implementiert, kann einer Kette hinzugefügt werden, ohne

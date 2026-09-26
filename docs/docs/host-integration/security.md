@@ -234,6 +234,42 @@ Prefer `write<T>` over `persistException` whenever the strategy is a `Persistabl
 it records the strategy's actual accepted state instead of unconditionally skipping every future
 check for that plugin.
 
+## Hardening of the check itself
+
+Beyond choosing and chaining strategies, the security chain has several hardening properties that
+apply regardless of which strategy or strategies a location uses:
+
+* **Byte-pinning closes the check-to-load gap (TOCTOU).** A candidate's bytes are read from disk
+  exactly once, during the scan's security check, into a `PinnedPluginContent`; the same pinned
+  bytes - not a second, fresh read of the file - are what actually gets loaded afterwards. A
+  candidate swapped on disk between the check and the load can therefore no longer slip past the
+  chain: whatever content the check verified is exactly what runs. Both the security check and the
+  loader resolve ZIP/JAR entries through the same shared resolution logic, so a JAR with duplicate
+  entry names cannot be verified as one entry and loaded as another.
+* **Checksum comparison is constant-time.** `ChecksumSecurityStrategy` (and `SignatureSecurityStrategy`'s
+  per-file checksum list) compares digests via `MessageDigest.isEqual` instead of `String.equals`,
+  avoiding a timing side channel on the comparison itself.
+* **An expired or not-yet-valid signing certificate fails the check.** `SignatureSecurityStrategy`
+  additionally calls `X509Certificate.checkValidity()` on the signer's certificate; a key that used
+  to be valid but has since expired is no longer silently accepted just because the public key still
+  matches. Certificate revocation (CRL/OCSP) is deliberately **not** checked - see
+  [Restrictions](#restrictions) below.
+* **Collision resolution only lets verified candidates compete.** `IdCollisionResolver` groups
+  colliding plugin ids only among candidates that already passed the security chain
+  (`PluginScanStatus.LOADED`); a candidate that failed its check keeps its own status and can no
+  longer win a colliding id away from an already-verified candidate by simply declaring a higher
+  manifest `version`.
+
+### Restrictions
+
+* **No certificate revocation checking.** A real CRL/OCSP check would require operating PKI
+  infrastructure that typically does not exist for the self-signed certificates a
+  `PublicKeyProviderStrategy` usually pins. A compromised-but-still-valid key therefore stays
+  trusted until its certificate's own expiry - a deliberate, accepted limit.
+* **Pinned bytes stay in memory for the loaded plugin's whole lifetime**, since classes may still be
+  loaded lazily from them; this trades a small amount of extra memory for closing the TOCTOU gap
+  above.
+
 ## Adding a custom strategy
 
 Any class implementing `PluginSecurityStrategy` can be added to a chain, without changing framework

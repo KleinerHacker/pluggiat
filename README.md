@@ -157,9 +157,7 @@ be configured in `~/.m2/settings.xml`:
 | Persistence strategies                                                | implemented |
 | Persistence integrity protection (HMAC decorator)                     | implemented |
 | Orchestration runtime (`PluginManager`, ID collisions, `minVersion` check, force-load) | implemented |
-| Runtime sandbox facade and policy configuration; bytecode API mediation via Java agent, thread/time-limit governance and process isolation (`PluginSandbox`) | in progress |
+| Runtime sandbox facade and policy configuration; bytecode API mediation via Java agent, thread/time-limit governance and process isolation (`PluginSandbox`) | implemented |
 
-All planned features of the initial feature plan (FP-002) are implemented. The runtime sandbox
-feature plan (`PluginSandbox` and its concrete enforcers) is in progress; bytecode API mediation,
-thread/time-limit governance and process isolation are implemented, with violation handling and
-observability remaining; see the sandbox row above.
+All planned features of both the initial feature plan (FP-001) and the runtime sandbox feature plan
+(FP-002) are implemented.

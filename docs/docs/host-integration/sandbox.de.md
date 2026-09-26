@@ -224,6 +224,78 @@ IP-03-Timeout (ohne zugeordnete `SandboxApiCategory` - siehe
 [Eskalation bei wiederholten Timeouts](#eskalation-bei-wiederholten-timeouts) oben, das gilt auch
 hier).
 
+### Funktionsweise
+
+```mermaid
+sequenceDiagram
+    participant Host as Host-JVM<br/>(Extension-Point-Proxy)
+    participant Mgr as PluginProcessManager
+    participant Sub as Subprozess-JVM<br/>(ProcessIpcServer)
+    participant Ext as Extension-Instanz<br/>(im Subprozess)
+
+    Host->>Host: erster Aufruf auf dem Proxy
+    alt Subprozess läuft noch nicht
+        Host->>Mgr: start(pluginId, jarPaths)
+        Mgr->>Sub: java -cp ... SubprocessBootstrapMain starten
+        Sub-->>Mgr: stdout "PLUGGIAT-PORT:<port>"
+    end
+    Host->>Sub: Loopback-Socket öffnen, BER-kodierten Aufruf schreiben
+    Sub->>Ext: Reflection: Method.invoke(...)
+    Ext-->>Sub: Rückgabewert / Ausnahme
+    Sub-->>Host: BER-kodierte Antwort, Socket geschlossen
+    Host->>Host: Antwort dekodieren, an Aufrufer zurückgeben
+```
+
+1. **Das Laden bleibt in der VM.** Ein prozessisoliertes Plugin durchläuft für Manifest-Parsing,
+   Abhängigkeitsauflösung und Extension-Point-/Konfigurationszuordnung weiterhin den regulären
+   `PluginLoader`-Pfad in der Host-JVM - nur seine Extension-*Implementierungsklassen* werden dort
+   nie instanziiert. Statt einer echten Instanz erhält der Host einen
+   `java.lang.reflect.Proxy` des Extension-Point-Interfaces.
+2. **Der Subprozess startet träge, beim ersten Aufruf.** Der allererste Aufruf auf diesem Proxy
+   (sobald seine Argument- und Rückgabetypen die
+   [Prüfung auf unterstützte Typen](#unterstutzte-extension-signaturen) unten bestehen) veranlasst
+   den `PluginProcessManager`, eine schlichte `java`-JVM (aufgelöst aus dem eigenen `java.home` des
+   Hosts) mit `SubprocessBootstrapMain` als Hauptklasse zu starten - mit den JAR-Pfaden des Plugins
+   als einzigem Programmargument und einem frischen, leeren temporären Arbeitsverzeichnis. Jeder
+   spätere Aufruf für dieselbe Plugin-Id verwendet denselben Subprozess wieder.
+3. **Der Subprozess baut seinen eigenen, ausschließlich plugin-bezogenen Classloader.**
+   `SubprocessBootstrapMain` öffnet einen schlichten `URLClassLoader` über die JAR(s) des Plugins,
+   direkt dem Platform-Classloader des JDK untergeordnet - bewusst *nicht* dem
+   Application-Classloader der startenden JVM - sodass der Subprozess immer nur die eigenen Klassen
+   des Plugins plus das JDK sehen kann, analog zu dem, was `PluginClassLoader` bereits in der VM
+   durchsetzt.
+4. **Ein einzeiliger Handshake liefert den Port zurück.** Der Subprozess öffnet einen
+   `ProcessIpcServer` auf einem vom Betriebssystem vergebenen Loopback-Port und gibt genau eine
+   Zeile `PLUGGIAT-PORT:<port>` auf stdout aus; der `PluginProcessManager` liest diese Zeile zurück
+   (begrenzt durch ein Start-Timeout), um den Verbindungsport zu erfahren, und leitet den restlichen
+   stdout-Ausgabestrom des Subprozesses in ein Debug-Log ab.
+5. **Jeder Aufruf öffnet einen frischen Loopback-Socket.** Der `ProcessIpcClient` hält bewusst keine
+   dauerhafte Verbindung offen - jeder einzelne Extension-Aufruf öffnet seinen eigenen
+   Loopback-`Socket`, kodiert den Aufruf (Name der Implementierungsklasse, Methodenname,
+   ASN.1-BER-kodierte Argumente) über `BerCodec`, schreibt ihn und liest genau eine BER-kodierte
+   Antwort auf demselben Socket zurück. Ein Socket pro Aufruf hält die Zuordnung von Anfrage und
+   Antwort trivial (kein Multiplexing, keine Aufruf-Ids), zum Preis eines TCP-Handshakes pro Aufruf
+   - vernachlässigbar neben einem JVM-Roundtrip.
+6. **Der Subprozess verteilt die Aufrufe per einfacher Reflection.** Der `ProcessIpcServer`
+   dekodiert den eingehenden Aufruf, ermittelt die Zielinstanz der Extension-Implementierung anhand
+   des Klassennamens (instanziiert sie träge und hält sie im Cache), findet die passende Methode
+   über Name und Parameteranzahl, dekodiert die Argumente, ruft sie über `Method.invoke` auf und
+   kodiert das Ergebnis (oder die Meldung der geworfenen Ausnahme) als `ProcessResponse` zurück.
+   Durch das Cachen der Instanz behält eine zustandsbehaftete Extension-Implementierung ihren
+   Zustand über Aufrufe hinweg für die Lebensdauer des Subprozesses - genau wie eine
+   In-VM-Singleton-Extension-Instanz.
+7. **`callTimeout` begrenzt, sofern konfiguriert, das Lesen auf dem Socket** auf Host-Seite
+   (`Socket.soTimeout`): Ein Subprozess, der nie antwortet, lässt den Aufruf mit
+   `SandboxTimeoutException` fehlschlagen, statt den Host-Thread dauerhaft zu blockieren - genau wie
+   bei einem in der VM gesteuerten Aufruf (siehe
+   [Thread- und Zeitlimit-Governance](#thread--und-zeitlimit-governance) oben).
+8. **Der Abbau erfolgt geordnet, dann erzwungen.** Das Entladen/Neuladen des Plugins ruft `destroy()`
+   auf dem Subprozess auf, mit Eskalation zu `destroyForcibly()`, falls er nicht innerhalb einer
+   kurzen Karenzzeit beendet ist; sein temporäres Arbeitsverzeichnis wird danach gelöscht. Ein
+   *unerwartetes* Beenden (der Subprozess stirbt von selbst) wird über `Process.onExit()` erkannt und
+   als Sandbox-Verstoß gemeldet, genau wie ein IP-03-Timeout (siehe
+   [Eskalation bei wiederholten Timeouts](#eskalation-bei-wiederholten-timeouts) oben).
+
 ### Unterstützte Extension-Signaturen
 
 Die IPC der Prozessisolation versteht nur eine **minimale, geschlossene Menge an ASN.1-Typen**:
