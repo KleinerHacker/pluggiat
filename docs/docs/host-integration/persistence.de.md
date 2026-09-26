@@ -95,6 +95,31 @@ Funktionsinterface-Implementierung.
 
 ## Integritätsschutz
 
+```mermaid
+flowchart LR
+    subgraph Callers["Framework-Aufrufer"]
+        Chk["ChecksumSecurityStrategy<br/>Schlüssel: checksum"]
+        Life["Lifecycle-Verwaltung<br/>Schlüssel: enabled, disabledReason"]
+        Exc["Sicherheitsausnahme<br/>Schlüssel: securityException"]
+    end
+
+    Wrap["IntegrityProtectedPersistenceStrategy<br/>write: Wert + HMAC<br/>read: HMAC-Abweichung liefert null (WARN)"]
+    Key[("HMAC-Schlüsseldatei<br/>SecureRandom, einmalig erzeugt")]
+
+    subgraph Backends["Zugrunde liegende Strategie (genau eine)"]
+        NoP["NoPersistenceStrategy"]
+        FileP["FilePersistenceStrategy"]
+        DbP["DatabasePersistenceStrategy"]
+        CustP["CustomPersistenceStrategy /<br/>ObjectPersistenceStrategy"]
+    end
+
+    Chk --> Wrap
+    Life --> Wrap
+    Exc --> Wrap
+    Wrap --> Key
+    Wrap --> Backends
+```
+
 `IntegrityProtectedPersistenceStrategy` umschließt eine beliebige `PluginPersistenceStrategy` und
 schützt jeden gespeicherten Wert mit einem HMAC, sodass ein Plugin (oder ein Dritter), das die
 zugrunde liegende Speicherung direkt bearbeitet - z. B. seinen eigenen `checksum`- oder

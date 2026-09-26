@@ -24,6 +24,26 @@ abgelehnt, unabhängig davon, ob jede Kante im Zyklus optional ist.
 
 ## Sichtbarkeit
 
+```mermaid
+flowchart TD
+    B["Plugin B<br/>(Parent-Last-PluginClassLoader)"]
+    Cond1{"Deklariert das Manifest von B<br/>eine Abhängigkeit zu A?"}
+    Cond2{"Erlaubt die PluginDependencyStrategy<br/>dem Verzeichnis von B, das von A zu sehen?"}
+    Visible["Klassen von A für B sichtbar"]
+    Hidden["Klassen von A nicht sichtbar<br/>required: Plugin B wird abgelehnt<br/>optional: B lädt ohne sie"]
+    C["Plugin C (nicht deklariert)<br/>nie sichtbar, kein transitiver Zugriff"]
+    Host["Host-Classloader"]
+    SDK["SDK-Whitelist-Filter<br/>(nur freigegebene Pakete)"]
+
+    B --> Cond1
+    Cond1 -->|nein| Hidden
+    Cond1 -->|ja| Cond2
+    Cond2 -->|nein| Hidden
+    Cond2 -->|ja| Visible
+    B -.-> C
+    Host --> SDK --> B
+```
+
 Ein Plugin sieht immer nur die Klassen einer explizit deklarierten Abhängigkeit - es gibt keine
 implizite oder transitive Sichtbarkeit auf ein anderes geladenes Plugin. Zwei unabhängige
 Bedingungen müssen beide erfüllt sein, damit Plugin B die Klassen von Plugin A sehen kann:

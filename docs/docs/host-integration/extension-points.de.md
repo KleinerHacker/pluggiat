@@ -3,6 +3,41 @@
 Als Host-Anwendung definieren Sie die Erweiterungspunkte, zu denen Ihre Plugins beitragen können.
 Ein Plugin-Entwickler sieht nur Ihr Plugin-API-Interface - niemals einen pluggiat-Typ.
 
+```mermaid
+flowchart LR
+    subgraph HostSide["Host"]
+        API["Exporter<br/>(Ihr Plugin-API-Interface)"]
+        Cfg["ExporterConfig<br/>@ExtensionPoint(key = &quot;exporters&quot;)"]
+        Reg["ExtensionPointRegistry"]
+        Agg["ExtensionAggregator"]
+        Proxy["Durchsetzungs-Proxy pro Instanz"]
+        App["manager.getExtensions&lt;Exporter&gt;(&quot;exporters&quot;)"]
+    end
+
+    subgraph PluginA["Plugin A"]
+        CsvM["Manifest: extensions.exporters[]"]
+        Csv["CsvExporter : Exporter"]
+    end
+
+    subgraph PluginB["Plugin B"]
+        XlsM["Manifest: extensions.exporters[]"]
+        Xls["XlsExporter : Exporter"]
+    end
+
+    Cfg -->|implementiert ExtensionConfiguration| API
+    Cfg --> Reg --> Agg
+    CsvM --> Agg
+    XlsM --> Agg
+    Agg -->|instanziiert| Csv
+    Agg -->|instanziiert| Xls
+    Csv --> Proxy
+    Xls --> Proxy
+    Proxy --> App
+```
+
+Mit `exclusive = true` darf höchstens ein Plugin den Schlüssel belegen - würden beide Plugins oben
+zu einem exklusiven Schlüssel beitragen, würden **beide** abgelehnt.
+
 ## Einen Erweiterungspunkt definieren
 
 1. Definieren Sie ein Plugin-API-Interface, gegen das Plugins implementieren, z. B. `Exporter`.

@@ -3,6 +3,18 @@
 Der kleinstmögliche pluggiat-Host: ein Plugin-Verzeichnis, keine Sicherheitsprüfung (nur für die
 lokale Entwicklung), ein Erweiterungspunkt, ein `scan()`.
 
+```mermaid
+flowchart LR
+    S1["1. Abhängigkeit hinzufügen<br/>GitHub-Packages-Repository"]
+    S2["2. Erweiterungspunkt deklarieren<br/>Greeter + GreeterConfig"]
+    S3["3. PluginManager bauen<br/>Verzeichnis, Sicherheitskette, Erweiterungspunkt"]
+    S4["4. scan() und Plugins nutzen<br/>getExtensions&lt;Greeter&gt;(&quot;greeters&quot;)"]
+    Jar["plugins/my-plugin.jar<br/>META-INF/plugin.yml"]
+
+    S1 --> S2 --> S3 --> S4
+    Jar -.->|gefunden von| S4
+```
+
 ## 1. Abhängigkeit hinzufügen
 
 ```kotlin

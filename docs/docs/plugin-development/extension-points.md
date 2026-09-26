@@ -44,6 +44,24 @@ implementation class. All other fields depend on the extension point you are con
 
 ## Exclusive extension points
 
+```mermaid
+flowchart LR
+    subgraph NonExclusive["exclusive = false"]
+        direction TB
+        K1["Key &quot;exporters&quot;"]
+        PA1["Your plugin<br/>CsvExporter"] -->|accepted| K1
+        PB1["Other plugin<br/>XlsExporter"] -->|accepted| K1
+    end
+
+    subgraph Exclusive["exclusive = true"]
+        direction TB
+        K2["Key &quot;renderer&quot;"]
+        PA2["Your plugin<br/>MyRenderer"] -->|rejected| K2
+        PB2["Other plugin<br/>TheirRenderer"] -->|rejected| K2
+        K2 --> Warn["Both plugins rejected entirely,<br/>warning names both ids and the key"]
+    end
+```
+
 Some extension points only allow a single active implementation across all installed plugins. If
 your plugin and another installed plugin both contribute to the same exclusive extension point
 key, **both plugins are rejected entirely** and a warning naming both plugin ids and the affected

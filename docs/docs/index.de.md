@@ -26,6 +26,44 @@ JVM-Anwendung einbetten lässt.
 
 ## Kernkonzepte
 
+```mermaid
+flowchart LR
+    subgraph Host["Host-Anwendung"]
+        App["Ihr Anwendungscode"]
+        EP["Erweiterungspunkt-Schnittstellen<br/>(@ExtensionPoint-Konfigurationen)"]
+        SDK["Ihre eigenen SDK-Pakete"]
+    end
+
+    subgraph Framework["pluggiat"]
+        Mgr["PluginManager<br/>(zentraler Einstiegspunkt)"]
+        Scan["PluginScanner<br/>+ Scan-Strategien"]
+        Sec["PluginSecurity<br/>(Strategie-Kette)"]
+        Load["PluginLoader<br/>(Parent-Last-Classloader)"]
+        Box["PluginSandbox<br/>(Laufzeit-Vermittlung)"]
+        Reg["ExtensionPointRegistry<br/>+ ExtensionAggregator"]
+        Pers["PluginPersistenceStrategy<br/>(Aktivierungsstatus, Prüfsummen)"]
+    end
+
+    subgraph Disk["Plugin-Verzeichnisse auf der Platte"]
+        P1["plugin-a.zip<br/>META-INF/plugin.yml"]
+        P2["plugin-b.jar<br/>META-INF/plugin.yml"]
+    end
+
+    App -->|konfiguriert| Mgr
+    EP -->|registriert in| Reg
+    SDK -.->|freigegeben für| Load
+    Mgr --> Scan
+    Mgr --> Sec
+    Mgr --> Load
+    Mgr --> Box
+    Mgr --> Reg
+    Mgr --> Pers
+    Scan --> Disk
+    Sec --> Disk
+    Load --> Box
+    Reg -->|typisierte Erweiterungen| App
+```
+
 * **Plugin-Manifest** - jedes Plugin liefert eine Datei `META-INF/plugin.yml` (oder `.yaml`) mit,
   die seine Identität, Version, seinen Autor und die von ihm bereitgestellten Erweiterungspunkte
   beschreibt.

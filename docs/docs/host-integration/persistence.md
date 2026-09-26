@@ -87,6 +87,31 @@ inline read/write pair rather than a dedicated function interface implementation
 
 ## Integrity protection
 
+```mermaid
+flowchart LR
+    subgraph Callers["Framework callers"]
+        Chk["ChecksumSecurityStrategy<br/>key: checksum"]
+        Life["Lifecycle management<br/>keys: enabled, disabledReason"]
+        Exc["Security exception<br/>key: securityException"]
+    end
+
+    Wrap["IntegrityProtectedPersistenceStrategy<br/>write: value + HMAC<br/>read: HMAC mismatch returns null (WARN)"]
+    Key[("HMAC key file<br/>SecureRandom, created once")]
+
+    subgraph Backends["Backing strategy (exactly one)"]
+        NoP["NoPersistenceStrategy"]
+        FileP["FilePersistenceStrategy"]
+        DbP["DatabasePersistenceStrategy"]
+        CustP["CustomPersistenceStrategy /<br/>ObjectPersistenceStrategy"]
+    end
+
+    Chk --> Wrap
+    Life --> Wrap
+    Exc --> Wrap
+    Wrap --> Key
+    Wrap --> Backends
+```
+
 `IntegrityProtectedPersistenceStrategy` wraps any `PluginPersistenceStrategy` and protects every
 stored value with an HMAC, so a plugin (or a third party) editing the underlying storage directly -
 e.g. its own `checksum` or `enabled` entry - can no longer make a forged value come back as if it

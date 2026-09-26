@@ -31,6 +31,31 @@ val location = PluginLocation(
 The load mode of a location is expressed directly by the `PluginScanStrategy` implementation
 passed as `scanStrategy` - there is no separate load-mode setting.
 
+```mermaid
+flowchart TD
+    subgraph Single["SingleJarScanStrategy"]
+        direction TB
+        SDir["plugins/"] --> SA["plugin-a.jar<br/><i>candidate</i><br/>META-INF/plugin.yml"]
+        SDir --> SB["plugin-b.jar<br/><i>candidate</i><br/>META-INF/plugin.yml"]
+    end
+
+    subgraph Multi["MultiJarWithOwnFolderScanStrategy"]
+        direction TB
+        MDir["plugins/"] --> MF["plugin-a/<br/><i>candidate</i>"]
+        MF --> MA["plugin-a.jar<br/>META-INF/plugin.yml"]
+        MF --> ML["plugin-a-lib.jar"]
+    end
+
+    subgraph Zip["ZipJarScanStrategy (default)"]
+        direction TB
+        ZDir["plugins/"] --> ZZ["plugin-a.zip<br/><i>candidate</i><br/>mounted as a FileSystem,<br/>never unpacked"]
+        ZZ --> ZA["plugin-a.jar<br/>META-INF/plugin.yml"]
+        ZZ --> ZL["plugin-a-lib.jar"]
+    end
+```
+
+The reported candidate is the node marked *candidate*: the JAR itself, the folder, or the ZIP file.
+
 ### `SingleJarScanStrategy`
 
 Every `*.jar` file directly inside the location's directory is its own plugin candidate, with the

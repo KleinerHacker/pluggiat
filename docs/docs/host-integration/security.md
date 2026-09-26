@@ -5,6 +5,19 @@ Every `PluginLocation` is protected by an ordered, freely extensible fallback ch
 checked against the chain: the first strategy that succeeds ends the check positively; a
 `SECURITY_PROBLEM` is only reported once **every** strategy in the chain has failed.
 
+```mermaid
+flowchart LR
+    Cand["Candidate<br/>(manifest valid)"] --> Except{"Persisted security<br/>exception set?"}
+    Except -->|yes| Pass["Check succeeds<br/>(logged as WARN every time)"]
+    Except -->|no| S1["Strategy 1<br/>e.g. SignatureSecurityStrategy"]
+    S1 -->|success| Pass
+    S1 -->|failure| S2["Strategy 2<br/>e.g. ChecksumSecurityStrategy"]
+    S2 -->|success| Pass
+    S2 -->|failure| Sn["... further strategies"]
+    Sn -->|success| Pass
+    Sn -->|all failed| Fail["SECURITY_PROBLEM"]
+```
+
 !!! tip "Security recommendations"
 
     * Never leave an `EXTERNAL` location on `InsecureSecurityStrategy` in production - it accepts
@@ -21,6 +34,19 @@ checked against the chain: the first strategy that succeeds ends the check posit
       it with the [runtime sandbox](sandbox.md) to also limit what the code does once loaded.
 
 ## Which strategy should I use?
+
+```mermaid
+flowchart TD
+    Start{"Do you fully control<br/>the location's content?"}
+    Start -->|"yes, BUILTIN"| Insecure["InsecureSecurityStrategy<br/>no check at all"]
+    Start -->|"no, EXTERNAL"| Sign{"Can you sign<br/>every release?"}
+    Sign -->|yes| Signature["SignatureSecurityStrategy<br/>proves authorship"]
+    Sign -->|no| Approve{"Can a user approve<br/>a file once?"}
+    Approve -->|yes| Checksum["ChecksumSecurityStrategy<br/>detects later changes"]
+    Approve -->|no| Rethink["Do not accept the location<br/>as a plugin source"]
+    Signature -.->|defense in depth| Chain["Chain both:<br/>signature, then checksum"]
+    Checksum -.->|defense in depth| Chain
+```
 
 * **No protection needed** (e.g. a `BUILTIN` location you fully control) - `InsecureSecurityStrategy`.
 * **You control the signing key and can re-sign on every release** - `SignatureSecurityStrategy`.
@@ -178,6 +204,28 @@ plugin file changed) are treated identically as a **failed** check - the framewo
 
 There is no `PENDING_APPROVAL` status in the framework. Whether and how to react to a
 `PluginScanStatus.SECURITY_PROBLEM` result is entirely up to the host application, typically:
+
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Host as Host application
+    participant Mgr as PluginManager
+    participant Pers as PluginPersistenceStrategy
+
+    Mgr-->>Host: scan() reports SECURITY_PROBLEM
+    Host->>User: own prompt: "Plugin X changed - allow it anyway?"
+    User-->>Host: approve
+    Host->>Mgr: forceLoad(pluginId)
+    Mgr-->>Host: plugin loaded (scanResults entry unchanged)
+    alt strategy is a PersistableSecurityStrategy
+        Host->>Mgr: write<ChecksumSecurityStrategy>(pluginId)
+        Mgr->>Pers: store actual checksum as new expected one
+    else no persistable state (e.g. signature)
+        Host->>Mgr: forceLoad(pluginId, persistException = true)
+        Mgr->>Pers: store generic, permanent security exception
+    end
+    Note over Mgr,Pers: next scan() / reload() succeeds<br/>without another approval
+```
 
 1. The scan reports a candidate as `SECURITY_PROBLEM` (all chain strategies failed).
 2. The host application shows its own prompt/dialog to the user, e.g. "Plugin X's checksum

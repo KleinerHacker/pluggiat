@@ -6,6 +6,19 @@ gültig ist) wird gegen die Kette geprüft: Die erste erfolgreiche Strategie bee
 positiv; ein `SECURITY_PROBLEM` wird erst gemeldet, wenn **jede** Strategie der Kette
 fehlgeschlagen ist.
 
+```mermaid
+flowchart LR
+    Cand["Kandidat<br/>(Manifest gültig)"] --> Except{"Persistierte Sicherheits-<br/>ausnahme gesetzt?"}
+    Except -->|ja| Pass["Prüfung erfolgreich<br/>(jedes Mal als WARN protokolliert)"]
+    Except -->|nein| S1["Strategie 1<br/>z. B. SignatureSecurityStrategy"]
+    S1 -->|Erfolg| Pass
+    S1 -->|Fehlschlag| S2["Strategie 2<br/>z. B. ChecksumSecurityStrategy"]
+    S2 -->|Erfolg| Pass
+    S2 -->|Fehlschlag| Sn["... weitere Strategien"]
+    Sn -->|Erfolg| Pass
+    Sn -->|alle fehlgeschlagen| Fail["SECURITY_PROBLEM"]
+```
+
 !!! tip "Sicherheitsempfehlungen"
 
     * Ein `EXTERNAL`-Verzeichnis in Produktion nie auf `InsecureSecurityStrategy` stehen lassen - sie
@@ -23,6 +36,19 @@ fehlgeschlagen ist.
       was der Code nach dem Laden tut.
 
 ## Welche Strategie sollte ich verwenden?
+
+```mermaid
+flowchart TD
+    Start{"Kontrollieren Sie den Inhalt<br/>des Verzeichnisses vollständig?"}
+    Start -->|"ja, BUILTIN"| Insecure["InsecureSecurityStrategy<br/>überhaupt keine Prüfung"]
+    Start -->|"nein, EXTERNAL"| Sign{"Können Sie jedes<br/>Release signieren?"}
+    Sign -->|ja| Signature["SignatureSecurityStrategy<br/>belegt die Urheberschaft"]
+    Sign -->|nein| Approve{"Kann ein Benutzer eine<br/>Datei einmalig genehmigen?"}
+    Approve -->|ja| Checksum["ChecksumSecurityStrategy<br/>erkennt spätere Änderungen"]
+    Approve -->|nein| Rethink["Das Verzeichnis nicht als<br/>Plugin-Quelle akzeptieren"]
+    Signature -.->|mehrstufiger Schutz| Chain["Beide verketten:<br/>Signatur, dann Prüfsumme"]
+    Checksum -.->|mehrstufiger Schutz| Chain
+```
 
 * **Kein Schutz erforderlich** (z. B. ein `BUILTIN`-Verzeichnis, das Sie vollständig
   kontrollieren) - `InsecureSecurityStrategy`.
@@ -195,6 +221,28 @@ Prüfung behandelt - das Framework kennt keinen separaten "ausstehend"-Zustand.
 Es gibt keinen Status `PENDING_APPROVAL` im Framework. Ob und wie auf ein
 `PluginScanStatus.SECURITY_PROBLEM`-Ergebnis reagiert wird, liegt vollständig bei der
 Host-Anwendung, typischerweise:
+
+```mermaid
+sequenceDiagram
+    participant User as Benutzer
+    participant Host as Host-Anwendung
+    participant Mgr as PluginManager
+    participant Pers as PluginPersistenceStrategy
+
+    Mgr-->>Host: scan() meldet SECURITY_PROBLEM
+    Host->>User: eigener Prompt: "Plugin X hat sich geändert - trotzdem zulassen?"
+    User-->>Host: genehmigen
+    Host->>Mgr: forceLoad(pluginId)
+    Mgr-->>Host: Plugin geladen (scanResults-Eintrag unverändert)
+    alt Strategie ist eine PersistableSecurityStrategy
+        Host->>Mgr: write<ChecksumSecurityStrategy>(pluginId)
+        Mgr->>Pers: tatsächliche Prüfsumme als neue erwartete speichern
+    else kein persistierbarer Zustand (z. B. Signatur)
+        Host->>Mgr: forceLoad(pluginId, persistException = true)
+        Mgr->>Pers: generische, dauerhafte Sicherheitsausnahme speichern
+    end
+    Note over Mgr,Pers: nächstes scan() / reload() ist erfolgreich<br/>ohne erneute Genehmigung
+```
 
 1. Der Scan meldet einen Kandidaten als `SECURITY_PROBLEM` (alle Strategien der Kette sind
    fehlgeschlagen).

@@ -43,6 +43,9 @@ extra:
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - javascripts/mermaid-zoom.js
+
 markdown_extensions:
   - admonition
   - pymdownx.details

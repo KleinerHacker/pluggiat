@@ -95,6 +95,25 @@ ran completely unmediated.
 
 ## Sandbox violations and `POTENTIAL_ATTACK`
 
+```mermaid
+flowchart TD
+    Call["Plugin code calls a guarded JDK API"] --> Guard{"Category in<br/>allowedApiCategories?"}
+    Guard -->|yes| Run["Call proceeds"]
+    Guard -->|no| Block["Call blocked at the guarded call site"]
+
+    Run --> Timeout{"callTimeout<br/>exceeded?"}
+    Timeout -->|no| Done["Result returned to the host"]
+    Timeout -->|yes| TEx["SandboxTimeoutException<br/>worker thread interrupted and abandoned"]
+    TEx --> Count{"3rd consecutive<br/>timeout for this plugin?"}
+    Count -->|no| Strategy["Resolved by ExceptionHandlingStrategy<br/>like any other exception"]
+    Count -->|yes| Attack
+
+    Block --> Attack["WARN logged, plugin forcibly unloaded<br/>without onDisable / onUnload"]
+    Attack --> Status["scanResults entry: POTENTIAL_ATTACK"]
+    Status --> Notify["SandboxViolationException reported to<br/>exceptionHandlingStrategy"]
+    Status --> NoOverride["No host override:<br/>forceLoad refused, cannot win an id collision"]
+```
+
 A blocked call does not just fail silently:
 
 1. It is logged as a `WARN` ("SECURITY WARNING - potential attack: ...").

@@ -3,6 +3,41 @@
 As a host application, you define the extension points your plugins can contribute to. A plugin
 developer only ever sees your plugin API interface - never any pluggiat type.
 
+```mermaid
+flowchart LR
+    subgraph HostSide["Host"]
+        API["Exporter<br/>(your plugin API interface)"]
+        Cfg["ExporterConfig<br/>@ExtensionPoint(key = &quot;exporters&quot;)"]
+        Reg["ExtensionPointRegistry"]
+        Agg["ExtensionAggregator"]
+        Proxy["Enforcement proxy per instance"]
+        App["manager.getExtensions&lt;Exporter&gt;(&quot;exporters&quot;)"]
+    end
+
+    subgraph PluginA["Plugin A"]
+        CsvM["manifest: extensions.exporters[]"]
+        Csv["CsvExporter : Exporter"]
+    end
+
+    subgraph PluginB["Plugin B"]
+        XlsM["manifest: extensions.exporters[]"]
+        Xls["XlsExporter : Exporter"]
+    end
+
+    Cfg -->|implements ExtensionConfiguration| API
+    Cfg --> Reg --> Agg
+    CsvM --> Agg
+    XlsM --> Agg
+    Agg -->|instantiates| Csv
+    Agg -->|instantiates| Xls
+    Csv --> Proxy
+    Xls --> Proxy
+    Proxy --> App
+```
+
+With `exclusive = true`, at most one plugin may populate the key - if both plugins above
+contributed to an exclusive key, **both** would be rejected.
+
 ## Defining an extension point
 
 1. Define a plugin API interface plugins implement against, e.g. `Exporter`.

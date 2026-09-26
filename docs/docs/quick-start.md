@@ -3,6 +3,18 @@
 The smallest possible pluggiat host: one plugin location, no security (local development only),
 one extension point, one `scan()`.
 
+```mermaid
+flowchart LR
+    S1["1. Add the dependency<br/>GitHub Packages repository"]
+    S2["2. Declare an extension point<br/>Greeter + GreeterConfig"]
+    S3["3. Build a PluginManager<br/>location, security chain, extension point"]
+    S4["4. scan() and use plugins<br/>getExtensions&lt;Greeter&gt;(&quot;greeters&quot;)"]
+    Jar["plugins/my-plugin.jar<br/>META-INF/plugin.yml"]
+
+    S1 --> S2 --> S3 --> S4
+    Jar -.->|discovered by| S4
+```
+
 ## 1. Add the dependency
 
 ```kotlin

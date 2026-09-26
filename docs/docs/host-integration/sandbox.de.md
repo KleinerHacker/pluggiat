@@ -101,6 +101,25 @@ später festzustellen, dass Plugins völlig ohne Mediation liefen.
 
 ## Sandbox-Verstöße und `POTENTIAL_ATTACK`
 
+```mermaid
+flowchart TD
+    Call["Plugin-Code ruft eine geschützte JDK-API auf"] --> Guard{"Kategorie in<br/>allowedApiCategories?"}
+    Guard -->|ja| Run["Aufruf wird ausgeführt"]
+    Guard -->|nein| Block["Aufruf an der geschützten Aufrufstelle blockiert"]
+
+    Run --> Timeout{"callTimeout<br/>überschritten?"}
+    Timeout -->|nein| Done["Ergebnis an den Host zurückgegeben"]
+    Timeout -->|ja| TEx["SandboxTimeoutException<br/>Worker-Thread unterbrochen und aufgegeben"]
+    TEx --> Count{"3. aufeinanderfolgender<br/>Timeout für dieses Plugin?"}
+    Count -->|nein| Strategy["Von ExceptionHandlingStrategy aufgelöst<br/>wie jede andere Ausnahme"]
+    Count -->|ja| Attack
+
+    Block --> Attack["WARN protokolliert, Plugin zwangsweise entladen<br/>ohne onDisable / onUnload"]
+    Attack --> Status["scanResults-Eintrag: POTENTIAL_ATTACK"]
+    Status --> Notify["SandboxViolationException gemeldet an<br/>exceptionHandlingStrategy"]
+    Status --> NoOverride["Keine Host-Überschreibung:<br/>forceLoad verweigert, kann keine Id-Kollision gewinnen"]
+```
+
 Ein blockierter Aufruf schlägt nicht einfach nur stillschweigend fehl:
 
 1. Er wird als `WARN` protokolliert ("SECURITY WARNING - potential attack: ...").

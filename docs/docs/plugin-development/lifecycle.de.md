@@ -18,6 +18,19 @@ tatsächlich benötigen.
 
 ## Aufrufreihenfolge
 
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Scanned: Kandidat gefunden
+    Scanned --> Loaded: onLoad()
+    Loaded --> Enabled: onEnable()
+    Enabled --> Disabling: Host deaktiviert /<br/>Laufzeitfehler führt zu UNLOAD
+    Disabling --> Unloaded: onDisable(), dann onUnload()
+    Unloaded --> Discarded: Classloader verworfen
+    Discarded --> Scanned: Reaktivierung / Reload<br/>(vollständiger Reload, Sicherheit erneut geprüft)
+    Discarded --> [*]
+```
+
 * `onLoad` läuft immer vor `onEnable`.
 * `onDisable` läuft immer vor `onUnload`.
 * Auf `onUnload` folgt unmittelbar, dass der Host den isolierten Classloader Ihres Plugins verwirft

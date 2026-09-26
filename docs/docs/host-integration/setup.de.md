@@ -32,6 +32,32 @@ val location = PluginLocation(
 Der Lademodus eines Verzeichnisses wird direkt durch die als `scanStrategy` übergebene
 `PluginScanStrategy`-Implementierung ausgedrückt - es gibt keine separate Lademodus-Einstellung.
 
+```mermaid
+flowchart TD
+    subgraph Single["SingleJarScanStrategy"]
+        direction TB
+        SDir["plugins/"] --> SA["plugin-a.jar<br/><i>Kandidat</i><br/>META-INF/plugin.yml"]
+        SDir --> SB["plugin-b.jar<br/><i>Kandidat</i><br/>META-INF/plugin.yml"]
+    end
+
+    subgraph Multi["MultiJarWithOwnFolderScanStrategy"]
+        direction TB
+        MDir["plugins/"] --> MF["plugin-a/<br/><i>Kandidat</i>"]
+        MF --> MA["plugin-a.jar<br/>META-INF/plugin.yml"]
+        MF --> ML["plugin-a-lib.jar"]
+    end
+
+    subgraph Zip["ZipJarScanStrategy (Standard)"]
+        direction TB
+        ZDir["plugins/"] --> ZZ["plugin-a.zip<br/><i>Kandidat</i><br/>als FileSystem eingebunden,<br/>nie entpackt"]
+        ZZ --> ZA["plugin-a.jar<br/>META-INF/plugin.yml"]
+        ZZ --> ZL["plugin-a-lib.jar"]
+    end
+```
+
+Der gemeldete Kandidat ist der als *Kandidat* markierte Knoten: das JAR selbst, der Ordner oder die
+ZIP-Datei.
+
 ### `SingleJarScanStrategy`
 
 Jede `*.jar`-Datei direkt im Verzeichnis ist ihr eigener Plugin-Kandidat, wobei das Manifest aus dem

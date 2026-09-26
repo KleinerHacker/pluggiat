@@ -84,6 +84,25 @@ aktualisierten.
 
 ## Orchestrierung: scan, reload, unload, force-load
 
+```mermaid
+flowchart TD
+    Scan["scan()"] --> Find["PluginScanner:<br/>Kandidaten in jedem Verzeichnis finden"]
+    Find --> Manifest{"Manifest gültig?"}
+    Manifest -->|nein| Invalid["MANIFEST_NOT_FOUND /<br/>MANIFEST_INVALID"]
+    Manifest -->|ja| Sec{"Sicherheitskette<br/>bestanden?"}
+    Sec -->|nein| Problem["SECURITY_PROBLEM"]
+    Sec -->|ja| Collide{"Id-Kollision /<br/>minVersion in Ordnung?"}
+    Collide -->|nein| Rejected["ID_COLLISION /<br/>MIN_VERSION_VIOLATION"]
+    Collide -->|ja| Loader["PluginLoader:<br/>Classloader in Abhängigkeitsreihenfolge"]
+    Loader --> Activate["Erweiterungen aufgelöst, onLoad / onEnable"]
+    Activate --> Loaded["LOADED -<br/>in loadedPlugins / extensionsByKey"]
+
+    Problem -.->|Host gibt frei| Force["forceLoad(pluginId)"]
+    Force --> Loader
+    Loaded -->|"unload(pluginId)"| Off["Deaktiviert, Classloader verworfen"]
+    Off -->|"reload(pluginId)"| Sec
+```
+
 ```kotlin
 // 1. Scan every configured location, resolve id collisions and minVersion, load and activate
 //    everything that passes.

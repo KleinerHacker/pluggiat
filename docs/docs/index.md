@@ -25,6 +25,44 @@ application.
 
 ## Core concepts
 
+```mermaid
+flowchart LR
+    subgraph Host["Host application"]
+        App["Your application code"]
+        EP["Extension point interfaces<br/>(@ExtensionPoint configs)"]
+        SDK["Your own SDK packages"]
+    end
+
+    subgraph Framework["pluggiat"]
+        Mgr["PluginManager<br/>(central entry point)"]
+        Scan["PluginScanner<br/>+ scan strategies"]
+        Sec["PluginSecurity<br/>(strategy chain)"]
+        Load["PluginLoader<br/>(parent-last class loaders)"]
+        Box["PluginSandbox<br/>(runtime mediation)"]
+        Reg["ExtensionPointRegistry<br/>+ ExtensionAggregator"]
+        Pers["PluginPersistenceStrategy<br/>(enabled state, checksums)"]
+    end
+
+    subgraph Disk["Plugin locations on disk"]
+        P1["plugin-a.zip<br/>META-INF/plugin.yml"]
+        P2["plugin-b.jar<br/>META-INF/plugin.yml"]
+    end
+
+    App -->|configures| Mgr
+    EP -->|registered in| Reg
+    SDK -.->|whitelisted for| Load
+    Mgr --> Scan
+    Mgr --> Sec
+    Mgr --> Load
+    Mgr --> Box
+    Mgr --> Reg
+    Mgr --> Pers
+    Scan --> Disk
+    Sec --> Disk
+    Load --> Box
+    Reg -->|typed extensions| App
+```
+
 * **Plugin manifest** - every plugin ships a `META-INF/plugin.yml` (or `.yaml`) file describing
   its identity, version, author and the extension points it contributes.
 * **Extension points** - plugins register implementations under a freely chosen key

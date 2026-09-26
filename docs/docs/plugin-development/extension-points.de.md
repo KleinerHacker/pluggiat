@@ -46,6 +46,24 @@ Implementierungsklasse. Alle anderen Felder hängen vom Erweiterungspunkt ab, zu
 
 ## Exklusive Erweiterungspunkte
 
+```mermaid
+flowchart LR
+    subgraph NonExclusive["exclusive = false"]
+        direction TB
+        K1["Schlüssel &quot;exporters&quot;"]
+        PA1["Ihr Plugin<br/>CsvExporter"] -->|akzeptiert| K1
+        PB1["Anderes Plugin<br/>XlsExporter"] -->|akzeptiert| K1
+    end
+
+    subgraph Exclusive["exclusive = true"]
+        direction TB
+        K2["Schlüssel &quot;renderer&quot;"]
+        PA2["Ihr Plugin<br/>MyRenderer"] -->|abgelehnt| K2
+        PB2["Anderes Plugin<br/>TheirRenderer"] -->|abgelehnt| K2
+        K2 --> Warn["Beide Plugins vollständig abgelehnt,<br/>Warnung nennt beide Ids und den Schlüssel"]
+    end
+```
+
 Manche Erweiterungspunkte erlauben nur eine einzige aktive Implementierung über alle installierten
 Plugins hinweg. Wenn Ihr Plugin und ein anderes installiertes Plugin beide zum selben exklusiven
 Erweiterungspunkt-Schlüssel beitragen, werden **beide Plugins vollständig abgelehnt**, und es wird
