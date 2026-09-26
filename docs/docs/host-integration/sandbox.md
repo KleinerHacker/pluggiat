@@ -191,3 +191,66 @@ under a host `ExceptionHandlingStrategy` that would otherwise never react to a `
   ignores interruption keeps consuming whatever resources it held for as long as it keeps running.
 * **Process isolation** is a separate, later part of the runtime sandbox, giving a plugin's code no
   way to outlive a hard OS-level boundary the way an abandoned in-VM thread can.
+
+## Process isolation (`SandboxIsolationLevel.PROCESS`)
+
+```kotlin
+policy = PluginSandboxPolicy(
+    isolationLevel = SandboxIsolationLevel.PROCESS,
+    callTimeout = Duration.ofSeconds(5),
+)
+```
+
+A plugin under a policy with `isolationLevel = SandboxIsolationLevel.PROCESS` runs its extension
+implementations in a **separate JVM subprocess** instead of the host's own JVM. The host still sees
+ordinary extension instances through `PluginManager.getExtensions`/`getFirstExtension` - every call
+is transparently proxied across the process boundary, encoded as ASN.1 BER
+(`org.bouncycastle:bcprov-jdk18on` - pure ASN.1, no TLS/crypto) and sent over a loopback TCP socket.
+A subprocess crash or hang can therefore never take down the host process, unlike an in-VM plugin's
+abandoned thread (`callTimeout`, see above) or an unmediated native call.
+
+The subprocess is started lazily, on the first call into a process-isolated plugin's extensions, as
+a plain `java` JVM (resolved from the host's own `java.home`) with its own, fresh, empty working
+directory - it never sees the host's current working directory. It is torn down on unload/reload
+(`destroy()`, escalating to `destroyForcibly()` after a short grace period) and its unexpected exit
+is reported as a sandbox violation exactly like an IP-03 timeout (no `SandboxApiCategory` attached -
+see [Escalation on repeated timeouts](#escalation-on-repeated-timeouts) above, which applies here
+too).
+
+### Supported extension signatures
+
+Process isolation's IPC only understands a **minimal, closed set of ASN.1 types**: `Int`, `Long`,
+`Boolean`, `ByteArray`, `String`, `Unit`/`void`, and a `List<T>` of any of those (not nested, not a
+`Map`, no other `Collection` type). An extension-point method whose parameter or return type does
+not fit this set throws `UnsupportedSandboxTypeException` **immediately at the call site**, before
+the subprocess is ever contacted - this is a **permanent, deliberate limitation** of process
+isolation, not a temporary gap to be closed later. A host that needs such a signature must either
+narrow its extension point API to the supported type set, or keep that plugin at
+`SandboxIsolationLevel.IN_VM`.
+
+### Known limitations
+
+* **No OS-level user/process separation.** The subprocess runs as the *same* OS user as the host,
+  with no additional privilege separation - it isolates a crash/hang/mediation-bypass from the host
+  process, it does not isolate a malicious plugin from the host's other OS-level resources (files,
+  network) the way a sandboxed OS user/container would. Combine this with a restrictive
+  `allowedApiCategories`/`-javaagent` policy and/or OS-level sandboxing of the whole host process if
+  that additional isolation is required.
+* A process-isolated plugin must be loaded from a plain JAR or folder location - not a `ZIP_JAR`
+  location, since the subprocess needs a real file system path for its own classpath.
+* The plugin's JAR(s) are re-read directly from disk for the subprocess's classpath, not from the
+  security chain's pinned in-memory copy - unlike in-VM loading, this reopens a narrow
+  check-to-load TOCTOU window for process-isolated plugins specifically.
+
+### Security recommendations
+
+!!! tip "Security recommendations"
+
+    * Reserve `SandboxIsolationLevel.PROCESS` for plugins you consider too high-risk for in-VM
+      execution even with a restrictive `allowedApiCategories` policy and a `callTimeout`.
+    * Always set a `callTimeout` for a process-isolated location - it bounds a hanging subprocess
+      call exactly like it bounds an in-VM call.
+    * Design extension point APIs for process-isolated plugins around the supported ASN.1 type set
+      from the start, rather than discovering `UnsupportedSandboxTypeException` late.
+    * Remember process isolation is not a substitute for OS-level user/process separation - see
+      Known limitations above.

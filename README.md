@@ -47,10 +47,12 @@ discovery, isolation or lifecycle handling.
 * `PluginSandbox`: a host-wide facade for a plugin's runtime sandbox, configurable per
   `PluginLocation` (`sandboxOverride`) or globally per location type (`defaultSandboxPolicy`);
   bytecode API mediation (filesystem/network/reflection/process-start/`System.exit`) via a Java
-  agent and `PluginSandboxPolicy.callTimeout` thread/time-limit governance (a call exceeding it
-  throws `SandboxTimeoutException` instead of blocking the host thread forever) are implemented,
-  with process isolation following in a later release. **Requires a `-javaagent:<path-to-this-jar>`
-  JVM start parameter** as soon as any policy restricts an API category - see
+  agent, `PluginSandboxPolicy.callTimeout` thread/time-limit governance (a call exceeding it
+  throws `SandboxTimeoutException` instead of blocking the host thread forever), and process
+  isolation (`SandboxIsolationLevel.PROCESS` runs a plugin's extensions in a separate JVM
+  subprocess, proxied transparently over an ASN.1 BER/loopback-socket IPC with a minimal supported
+  parameter/return type set) are all implemented. **Requires a `-javaagent:<path-to-this-jar>` JVM
+  start parameter** as soon as any policy restricts an API category - see
   [Runtime sandbox](docs/docs/host-integration/sandbox.md)
 
 ## AI transparency notice
@@ -155,8 +157,9 @@ be configured in `~/.m2/settings.xml`:
 | Persistence strategies                                                | implemented |
 | Persistence integrity protection (HMAC decorator)                     | implemented |
 | Orchestration runtime (`PluginManager`, ID collisions, `minVersion` check, force-load) | implemented |
-| Runtime sandbox facade and policy configuration; bytecode API mediation via Java agent and thread/time-limit governance (`PluginSandbox`) | in progress |
+| Runtime sandbox facade and policy configuration; bytecode API mediation via Java agent, thread/time-limit governance and process isolation (`PluginSandbox`) | in progress |
 
 All planned features of the initial feature plan (FP-002) are implemented. The runtime sandbox
-feature plan (`PluginSandbox` and its concrete enforcers) is in progress, with process isolation
-remaining; see the sandbox row above.
+feature plan (`PluginSandbox` and its concrete enforcers) is in progress; bytecode API mediation,
+thread/time-limit governance and process isolation are implemented, with violation handling and
+observability remaining; see the sandbox row above.

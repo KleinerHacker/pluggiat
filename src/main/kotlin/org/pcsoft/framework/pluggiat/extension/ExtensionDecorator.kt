@@ -37,10 +37,17 @@ internal class ExtensionDecorator(
     /**
      * Resolves and instantiates [entry], contributed by [pluginId] under [key].
      *
+     * @param instantiate whether to actually instantiate the resolved implementation class - `false`
+     * for a process-isolated plugin (IP-04), whose implementation is instantiated *inside its own
+     * subprocess* instead, never in-VM; [ResolvedExtension.instance] is then a harmless placeholder
+     * that [org.pcsoft.framework.pluggiat.extension.ExtensionAggregator] immediately replaces with a
+     * process-isolation IPC proxy (see [org.pcsoft.framework.pluggiat.sandbox.process.ProcessIsolationStrategy.createExtensionProxy])
+     * before it is ever exposed to the host
      * @throws ExtensionMappingException if [key] is not registered, the entry cannot be mapped onto
-     * the registered configuration class, or the implementation class cannot be resolved/instantiated
+     * the registered configuration class, or (when [instantiate] is `true`) the implementation class
+     * cannot be resolved/instantiated
      */
-    fun decorate(pluginId: String, key: String, entry: ExtensionEntry): ResolvedExtension {
+    fun decorate(pluginId: String, key: String, entry: ExtensionEntry, instantiate: Boolean = true): ResolvedExtension {
         val registration = registry.registrationFor(key)
             ?: throw ExtensionMappingException("No extension point registered for key '$key'")
 
@@ -59,6 +66,14 @@ internal class ExtensionDecorator(
                 "Extension entry for key '$key' could not be mapped to ${registration.configurationClass.qualifiedName}",
                 e,
             )
+        }
+
+        if (!instantiate) {
+            logger.debug(
+                "Skipping in-VM instantiation of extension implementation {} for key '{}' of plugin '{}' (process-isolated)",
+                implementationClass.name, key, pluginId,
+            )
+            return ResolvedExtension(key, pluginId, configuration, NotInstantiatedPlaceholder)
         }
 
         val instance = try {
@@ -91,3 +106,10 @@ internal class ExtensionDecorator(
         return constructor.callBy(arguments)
     }
 }
+
+/**
+ * [ResolvedExtension.instance] placeholder for `decorate(instantiate = false)` - never leaks out of
+ * [org.pcsoft.framework.pluggiat.extension.ExtensionAggregator], which unconditionally replaces it
+ * with a process-isolation IPC proxy right after decoration for a process-isolated plugin.
+ */
+internal object NotInstantiatedPlaceholder

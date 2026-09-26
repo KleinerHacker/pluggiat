@@ -55,6 +55,10 @@ dependencies {
     // bcpg-jdk18on references ASN.1 object identifiers (e.g. CryptlibObjectIdentifiers) that live
     // here, but does not declare it as a dependency itself.
     implementation("org.bouncycastle:bcutil-jdk18on:${bouncyCastleVersion}")
+    // Pure ASN.1/BER encoding (ASN1Integer, ASN1Boolean, DEROctetString, DERUTF8String, DERSequence,
+    // ASN1InputStream/ASN1OutputStream) for IP-04's process-isolation IPC wire format - no
+    // bcpkix/TLS functionality is used, see org.pcsoft.framework.pluggiat.sandbox.process.ber.BerCodec.
+    implementation("org.bouncycastle:bcprov-jdk18on:${bouncyCastleVersion}")
 
     testImplementation(kotlin("reflect"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")

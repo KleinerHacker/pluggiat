@@ -14,6 +14,7 @@ package org.pcsoft.framework.pluggiat.sandbox
 
 import org.pcsoft.framework.pluggiat.classloader.LoadedPlugin
 import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxGuardRegistry
+import org.pcsoft.framework.pluggiat.sandbox.process.ProcessIsolationStrategy
 import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.slf4j.LoggerFactory
@@ -39,16 +40,23 @@ import org.slf4j.LoggerFactory
  * @property strategy the concrete [PluginSandboxStrategy] backing [activate]; defaults to
  * [AgentInstrumentationStrategy]
  * @property watchdog the [ThreadWatchdog] backing [runGoverned]
+ * @property processIsolation IP-04's [ProcessIsolationStrategy], a dedicated collaborator exactly
+ * like [watchdog] (not reachable through the single-method [PluginSandboxStrategy] interface, since
+ * it also needs to build a per-extension IPC proxy - see [ProcessIsolationStrategy.createExtensionProxy] -
+ * which [org.pcsoft.framework.pluggiat.extension.ExtensionAggregator] calls directly for a plugin
+ * whose effective [PluginSandboxPolicy.isolationLevel] is [SandboxIsolationLevel.PROCESS])
  */
 class PluginSandbox(
     private val strategy: PluginSandboxStrategy = AgentInstrumentationStrategy(),
     private val watchdog: ThreadWatchdog = ThreadWatchdog(),
+    val processIsolation: ProcessIsolationStrategy = ProcessIsolationStrategy(),
 ) {
     private val logger = LoggerFactory.getLogger(PluginSandbox::class.java)
 
     init {
         (strategy as? AgentInstrumentationStrategy)?.onViolation = ::reportViolation
         watchdog.onViolation = ::reportViolation
+        processIsolation.onViolation = ::reportViolation
     }
 
     /**
@@ -69,6 +77,7 @@ class PluginSandbox(
      */
     fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult {
         watchdog.activate(loadedPlugin.pluginId)
+        processIsolation.activate(loadedPlugin, policy)
         return strategy.activate(loadedPlugin, policy)
     }
 
@@ -118,6 +127,7 @@ class PluginSandbox(
      */
     fun deactivate(pluginId: String, classLoader: ClassLoader? = null) {
         watchdog.deactivate(pluginId)
+        processIsolation.stop(pluginId)
         classLoader?.let(SandboxGuardRegistry::unregister)
     }
 

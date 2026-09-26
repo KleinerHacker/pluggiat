@@ -196,6 +196,75 @@ sonst nie reagieren würde.
     * Die Lücke bei sehr früher Klasseninitialisierung unten im Blick behalten - die Mediation ist
       stark, aber nicht absolut.
 
+## Prozessisolation (`SandboxIsolationLevel.PROCESS`)
+
+```kotlin
+policy = PluginSandboxPolicy(
+    isolationLevel = SandboxIsolationLevel.PROCESS,
+    callTimeout = Duration.ofSeconds(5),
+)
+```
+
+Ein Plugin unter einer Policy mit `isolationLevel = SandboxIsolationLevel.PROCESS` führt seine
+Extension-Implementierungen in einem **separaten JVM-Subprozess** aus statt in der eigenen JVM des
+Hosts. Der Host sieht weiterhin gewöhnliche Extension-Instanzen über
+`PluginManager.getExtensions`/`getFirstExtension` - jeder Aufruf wird transparent über die
+Prozessgrenze hinweg weitergereicht, kodiert als ASN.1 BER (`org.bouncycastle:bcprov-jdk18on` - reines
+ASN.1, kein TLS/Crypto-Funktionsumfang) und über einen Loopback-TCP-Socket übertragen. Ein
+Subprozessabsturz oder -hänger kann den Host-Prozess dadurch nie mit sich reißen - anders als ein im
+selben Prozess laufendes, aufgegebenes Thread eines In-VM-Plugins (`callTimeout`, siehe oben) oder ein
+nicht mediierter nativer Aufruf.
+
+Der Subprozess wird träge gestartet, beim ersten Aufruf in die Extensions eines prozessisolierten
+Plugins, als schlichte `java`-JVM (aufgelöst aus dem eigenen `java.home` des Hosts) mit einem eigenen,
+frischen, leeren Arbeitsverzeichnis - er sieht das aktuelle Arbeitsverzeichnis des Hosts nie. Er wird
+bei Unload/Reload geordnet beendet (`destroy()`, mit Eskalation zu `destroyForcibly()` nach einer
+kurzen Karenzzeit), und sein unerwartetes Beenden wird als Sandbox-Verstoß gemeldet, genau wie ein
+IP-03-Timeout (ohne zugeordnete `SandboxApiCategory` - siehe
+[Eskalation bei wiederholten Timeouts](#eskalation-bei-wiederholten-timeouts) oben, das gilt auch
+hier).
+
+### Unterstützte Extension-Signaturen
+
+Die IPC der Prozessisolation versteht nur eine **minimale, geschlossene Menge an ASN.1-Typen**:
+`Int`, `Long`, `Boolean`, `ByteArray`, `String`, `Unit`/`void`, sowie eine `List<T>` aus einem dieser
+Typen (nicht verschachtelt, keine `Map`, kein anderer `Collection`-Typ). Eine
+Extension-Point-Methode, deren Parameter- oder Rückgabetyp nicht in diese Menge passt, wirft
+`UnsupportedSandboxTypeException` **sofort am Aufrufort**, bevor der Subprozess überhaupt kontaktiert
+wird - dies ist eine **dauerhafte, bewusste Einschränkung** der Prozessisolation, keine vorübergehende
+Lücke, die später geschlossen wird. Ein Host, der eine solche Signatur benötigt, muss entweder seine
+Extension-Point-API auf den unterstützten Typumfang eingrenzen oder dieses Plugin bei
+`SandboxIsolationLevel.IN_VM` belassen.
+
+### Bekannte Einschränkungen
+
+* **Keine OS-seitige Benutzer-/Prozesstrennung.** Der Subprozess läuft unter demselben OS-Benutzer wie
+  der Host, ohne zusätzliche Rechtetrennung - er isoliert einen Absturz/Hänger/Mediation-Bypass vom
+  Host-Prozess, er isoliert kein bösartiges Plugin von den übrigen OS-seitigen Ressourcen des Hosts
+  (Dateien, Netzwerk) so, wie es ein sandboxter OS-Benutzer oder Container täte. Falls diese
+  zusätzliche Isolation benötigt wird, mit einer restriktiven `allowedApiCategories`-/`-javaagent`-Policy
+  und/oder OS-seitigem Sandboxing des gesamten Host-Prozesses kombinieren.
+* Ein prozessisoliertes Plugin muss aus einem einfachen JAR oder Ordner-Verzeichnis geladen werden -
+  nicht aus einem `ZIP_JAR`-Verzeichnis, da der Subprozess einen echten Dateisystempfad für den
+  eigenen Klassenpfad benötigt.
+* Die JAR(s) des Plugins werden für den Klassenpfad des Subprozesses direkt erneut von der Platte
+  gelesen, nicht aus der gepinnten Im-Speicher-Kopie der Sicherheitskette - anders als beim
+  In-VM-Laden öffnet dies für prozessisolierte Plugins gezielt wieder ein schmales
+  Check-to-Load-TOCTOU-Fenster.
+
+### Sicherheitsempfehlungen
+
+!!! tip "Sicherheitsempfehlungen"
+
+    * `SandboxIsolationLevel.PROCESS` Plugins vorbehalten, die selbst mit restriktiver
+      `allowedApiCategories`-Policy und `callTimeout` als zu risikoreich für In-VM-Ausführung gelten.
+    * Für ein prozessisoliertes Verzeichnis immer ein `callTimeout` setzen - es begrenzt einen
+      hängenden Subprozessaufruf genau wie einen In-VM-Aufruf.
+    * Extension-Point-APIs für prozessisolierte Plugins von Anfang an auf den unterstützten
+      ASN.1-Typumfang hin entwerfen, statt `UnsupportedSandboxTypeException` erst spät zu entdecken.
+    * Daran denken, dass Prozessisolation kein Ersatz für OS-seitige Benutzer-/Prozesstrennung ist -
+      siehe Bekannte Einschränkungen oben.
+
 ## Einschränkungen
 
 * **Nur der eigene Code des Plugins wird instrumentiert.** Der Agent transformiert Klassen, die über

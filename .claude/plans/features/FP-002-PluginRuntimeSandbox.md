@@ -345,7 +345,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 | IP-02 (COMPLETED) | Agent-basierte Bytecode-API-Mediation        | Zugriffskontrolle auf riskante JDK-APIs via Java-Agent/Instrumentierung, angebunden über `PluginSandbox`; bei Verstoß Sofort-Entladung und `POTENTIAL_ATTACK`-Status | IP-01        |
 | IP-03 (COMPLETED) | Thread- und Zeitlimit-Governance             | Dedizierte Executors, Watchdog für Lifecycle-/Extension-Aufrufe, angebunden über `PluginSandbox`            | IP-01        |
 | IP-03b (COMPLETED) | Sicherheitsbefunde aus dem IP-03-Review beheben | Races/Thread-Leaks/Reentranz-Selbstblockade in `ThreadWatchdog` schließen, Zeitlimit-Umgehung über verschachtelte Rückgabewerte schließen, Eskalation bei wiederholtem Timeout | IP-03        |
-| IP-04 | Prozessisolation für hochriskante Plugins    | Subprozess-basierte Isolation mit Bouncy-Castle-ASN.1-BER-IPC-Proxy, verwaltet über `PluginSandbox`         | IP-01        |
+| IP-04 (COMPLETED) | Prozessisolation für hochriskante Plugins    | Subprozess-basierte Isolation mit Bouncy-Castle-ASN.1-BER-IPC-Proxy, verwaltet über `PluginSandbox`         | IP-01        |
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit        | Zeitlimit-Verstöße (IP-03) an die bereits von IP-02 real implementierte `PluginSandbox.reportViolation`-Logik anschließen | IP-02, IP-03 |
 | IP-06 (COMPLETED) | Persistenz-Integritätsschutz                 | HMAC-Schutz gegen selbstbegünstigende Manipulation des persistenten Zustands | -          |
 | IP-07 (COMPLETED) | Checksum-/Signatur-Härtung (Byte-Pinning)    | TOCTOU-Lücke schließen, konsistente Zip-Interpretation, zeitkonstanter Digest-Vergleich, Zertifikats-Gültigkeitsprüfung | - |
@@ -654,7 +654,7 @@ ein hängendes Plugin reißt alle anderen mit, Zeitlimit über verschachtelte R�
 fehlender `SandboxGuardRegistry.unregister`-Aufruf). Details siehe Notiz im (entfernten)
 Implementierungsplan IP-03b, festgehalten im zugehörigen Commit und in der Feature-Status-Datei.
 
-### IP-04: Prozessisolation für hochriskante Plugins
+### IP-04: Prozessisolation für hochriskante Plugins (COMPLETED)
 
 **Objective**
 
@@ -710,6 +710,37 @@ OS-Benutzer wie der Host, ohne zusätzliche Rechtetrennung (Nutzerentscheidung, 
 OS-seitige Ressourcenlimits (Speicher, CPU) für den Subprozess sind plattformabhängig und ggf. nur
 eingeschränkt umsetzbar - dies ist als offene Frage in Abschnitt 9 zu klären, bevor der Detailplan
 geschrieben wird.
+
+**Tatsächliche Umsetzung**
+
+Wie geplant umgesetzt (Bouncy-Castle-`bcprov-jdk18on`, ASN.1-BER-TLV über Loopback-Socket,
+`ProcessIsolationStrategy` als `PluginSandboxStrategy` in `PluginSandbox` eingehängt), mit zwei
+Präzisierungen gegenüber dem Detailplan:
+
+* **Kein neuer `PluginLoader`/`LoadedPlugin`-Ladepfad**: Statt einer zweiten `PluginLoader.load`-
+  Überladung und eines `LoadedPlugin`-Äquivalents ohne `PluginClassLoader` läuft ein
+  prozessisoliertes Plugin weiterhin über den regulären, bestehenden In-VM-Ladepfad (Manifest,
+  Abhängigkeiten, Extension-Point-/Konfigurations-Mapping); lediglich die Instanziierung seiner
+  Extension-Implementierungsklassen entfällt (`ExtensionDecorator.decorate(instantiate = false)`),
+  der zugehörige Subprozess wird verzögert beim ersten tatsächlichen Extension-Aufruf gestartet
+  (`PluginProcessClasspath`/`ProcessIsolationStrategy`). Das war die kleinstmögliche Änderung, die
+  jeden bestehenden `LoadedPlugin`/`ExtensionAggregator`-Aufrufer unverändert lässt. Akzeptierter
+  Kompromiss: Das Plugin-JAR wird dadurch redundant (aber nie instanziierend) ein zweites Mal
+  in-VM klassifiziert, und die Subprozess-Klassenpfad-Auflösung liest erneut von der Platte statt
+  aus der sicherheitsgepinnten Kopie aus IP-07 - ein kleines, dokumentiertes TOCTOU-Fenster
+  ausschließlich für prozessisolierte Plugins (siehe "Bekannte Einschränkungen" in `sandbox.md`/
+  `.de.md`).
+* **Nicht abbildbare Extension-Signaturen**: Statt den Umfang im Detailplan weiter einzugrenzen,
+  prüft der Extension-Proxy jede Methodensignatur gegen den festgelegten ASN.1-Typumfang
+  (`ASN1Integer`, `ASN1Boolean` - bcprov 1.84 nennt dies so statt `DERBoolean` -, `DEROctetString`,
+  `DERUTF8String`, `DERSequence`, `DERNull`) und wirft bei Nichtübereinstimmung eine dedizierte
+  `UnsupportedSandboxTypeException` bereits beim Proxy-Aufruf, ohne den Subprozess zu kontaktieren
+  - eine bewusste, dauerhafte Grenze statt eines wachsenden Typumfangs, dokumentiert in KDoc und
+  `sandbox.md`/`.de.md`.
+
+Die im Abschnitt "Technical Considerations" offene Frage nach OS-seitigen Ressourcenlimits
+(Speicher/CPU) für den Subprozess wurde nicht weiterverfolgt - Nutzerentscheidung gegen zusätzliche
+Plattform-Abhängigkeiten, siehe Abschnitt 9.
 
 ### IP-05: Verstoßbehandlung und Beobachtbarkeit
 
@@ -968,7 +999,7 @@ IP-01 (COMPLETED)
 │   └── IP-05
 ├── IP-03
 │   └── IP-05
-└── IP-04
+└── IP-04 (COMPLETED)
 
 IP-06 (COMPLETED) (eigenständig, keine Code-Abhängigkeit zu IP-01 - reiner Persistenz-Decorator)
 IP-07 (COMPLETED) (eigenständig, keine Abhängigkeit zu IP-01..IP-06)

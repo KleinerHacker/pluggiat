@@ -21,6 +21,7 @@ import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
 import org.pcsoft.framework.pluggiat.proxy.ExtensionProxyFactory
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandbox
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
+import org.pcsoft.framework.pluggiat.sandbox.SandboxIsolationLevel
 import org.pcsoft.framework.pluggiat.sandbox.SandboxTimeoutException
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
@@ -201,11 +202,22 @@ class ExtensionAggregator(
         realInstances: MutableMap<String, MutableList<Any>>,
         timedOutPluginIds: MutableSet<String>,
     ): ResolvedExtension? {
-        val decorator = ExtensionDecorator(registry, classResolverFor(candidate.pluginId))
-        val resolved = decorator.decorate(candidate.pluginId, key, entry)
-        val realInstance = resolved.instance
-        realInstances.getOrPut(candidate.pluginId) { mutableListOf() }.add(realInstance)
         val policy = policyResolver(candidate.pluginId)
+        val isProcessIsolated = policy.isolationLevel == SandboxIsolationLevel.PROCESS
+        val decorator = ExtensionDecorator(registry, classResolverFor(candidate.pluginId))
+        val resolved = decorator.decorate(candidate.pluginId, key, entry, instantiate = !isProcessIsolated)
+        val apiType = registry.registrationFor(key)?.apiType
+
+        val realInstance = if (isProcessIsolated) {
+            requireNotNull(apiType) {
+                "Extension point '$key' has no resolvable host plugin API type; process isolation " +
+                    "(IP-04) requires one to build the cross-process proxy for plugin '${candidate.pluginId}'"
+            }
+            sandbox.processIsolation.createExtensionProxy(candidate.pluginId, candidate.path, apiType, entry.implementation, policy)
+        } else {
+            resolved.instance
+        }
+        realInstances.getOrPut(candidate.pluginId) { mutableListOf() }.add(realInstance)
         if (realInstance is PluginLifecycle) {
             try {
                 logger.debug("Invoking onLoad on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
@@ -225,7 +237,6 @@ class ExtensionAggregator(
             }
         }
 
-        val apiType = registry.registrationFor(key)?.apiType
         val proxied = if (apiType != null) {
             @Suppress("UNCHECKED_CAST")
             ExtensionProxyFactory.create(apiType as Class<Any>, realInstance, exceptionHandlingStrategy, candidate.pluginId, sandbox, policy) {
