@@ -13,12 +13,12 @@ interface PluginPersistenceStrategy {
 ```
 
 Für das gesamte Framework wird genau eine Instanz konfiguriert, über
-`PluginManagerConfiguration.persistenceStrategy` (siehe [PluginManager](plugin-manager.md)).
+`PluginManagerConfiguration.persistenceStrategy` (siehe [PluginManager](plugin-manager.de.md)).
 
 !!! tip "Sicherheitsempfehlungen"
 
     * `NoPersistenceStrategy` in Produktion für ein `EXTERNAL`-Verzeichnis nie verwenden - jede
-      genehmigte Prüfsumme und jede Sicherheitsüberschreibung geht bei jedem Neustart verloren, was
+      genehmigte Prüfsumme und jede Sicherheits-Überschreibung geht bei jedem Neustart verloren, was
       faktisch zuvor abgelehnte Plugins wieder öffnet, ohne dass dies jemand bewusst entschieden hat.
     * Die gewählte Strategie mit [`IntegrityProtectedPersistenceStrategy`](#integritatsschutz)
       umschließen, sobald Plugins mit irgendeinem Dateisystemzugriff laufen können (eine

@@ -35,7 +35,7 @@ Jeder Plugin-Kandidat endet mit genau einem dieser Status in
 | `LOADED`                | Manifest gültig, Sicherheit bestanden, ID-Kollision/`minVersion` bestanden, Classloader erfolgreich erstellt. | vorhanden  |
 | `MANIFEST_NOT_FOUND`     | Keine Manifestdatei für diesen Kandidaten gefunden.                                                      | `null`     |
 | `MANIFEST_INVALID`      | Ein Manifest wurde gefunden, hat aber die Schemavalidierung nicht bestanden oder konnte nicht gemappt werden. | `null`     |
-| `SECURITY_PROBLEM`      | Jede Strategie der Sicherheitskette des Verzeichnisses ist fehlgeschlagen. Siehe [Sicherheit](security.md). | vorhanden  |
+| `SECURITY_PROBLEM`      | Jede Strategie der Sicherheitskette des Verzeichnisses ist fehlgeschlagen. Siehe [Sicherheit](security.de.md). | vorhanden  |
 | `ID_COLLISION`          | Gegen einen anderen Kandidaten derselben Plugin-ID aus einem anderen Verzeichnis verloren (oder gleichauf). | vorhanden  |
 | `MIN_VERSION_VIOLATION` | Das `minVersion` des Manifests ist neuer als die konfigurierte `hostVersion`.                             | vorhanden  |
 | `LOAD_FAILED`           | Alle vorherigen Prüfungen bestanden, aber `PluginLoader.load` ist dennoch fehlgeschlagen (z. B. eine fehlende erforderliche Abhängigkeit). | vorhanden  |

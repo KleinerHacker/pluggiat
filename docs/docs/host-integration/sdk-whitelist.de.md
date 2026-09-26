@@ -2,7 +2,7 @@
 
 Jedes Plugin wird in seinen eigenen isolierten `PluginClassLoader` geladen, einen
 Parent-Last-Classloader, der standardmäßig keine host-internen Klassen sehen kann. `PluginLoader`
-(siehe [Classloader-Isolation](../plugin-development/dependencies.md)) öffnet gezielt genau die
+(siehe [Classloader-Isolation](../plugin-development/dependencies.de.md)) öffnet gezielt genau die
 Teile des eigenen SDK des Hosts, die Plugins nutzen sollen, über eine Liste von
 `SdkWhitelistEntry`:
 
@@ -73,4 +73,4 @@ Zu entscheiden, *ob* dies gerechtfertigt ist, und diese Entscheidung zu protokol
 Plugin-ID und ursprünglicher Fehlschlaggrund), liegt vollständig in der Verantwortung der
 Host-Anwendung selbst - `PluginLoader` trifft diese Entscheidung weder noch gibt er selbst einen
 Protokolleintrag darüber aus (siehe
-[Host-Freigabeablauf nach einem `SECURITY_PROBLEM`](security.md#host-freigabeablauf-nach-einem-security_problem)).
+[Host-Freigabeablauf nach einem `SECURITY_PROBLEM`](security.de.md#host-freigabeablauf-nach-einem-security_problem)).

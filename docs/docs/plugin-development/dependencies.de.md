@@ -1,7 +1,7 @@
 # Abhängigkeiten
 
 Ein Plugin deklariert Abhängigkeiten zu anderen Plugins anhand ihrer Manifest-`id` unter
-`dependencies` (siehe [Manifest](manifest.md)):
+`dependencies` (siehe [Manifest](manifest.de.md)):
 
 ```yaml
 dependencies:
@@ -36,7 +36,7 @@ Bedingungen müssen beide erfüllt sein, damit Plugin B die Klassen von Plugin A
 ### `PluginDependencyStrategy`
 
 Global konfiguriert, optional pro `PluginLocation` über `dependencyStrategyOverride`
-überschreibbar, analog zur Konfiguration von [Sicherheitsstrategien](../host-integration/security.md):
+überschreibbar, analog zur Konfiguration von [Sicherheitsstrategien](../host-integration/security.de.md):
 
 ```kotlin
 interface PluginDependencyStrategy {
@@ -68,26 +68,26 @@ Die Lösung besteht darin, jede direkte Verwendung der Typen einer optionalen Ab
 eigene Helferklasse auszulagern, die nur innerhalb des abgesicherten Zweigs geladen wird:
 
 ```kotlin
-// SCHLECHT: referenziert den Typ der optionalen Abhängigkeit direkt in der eigenen Signatur dieser Klasse
+// BAD: references the optional dependency's type directly in this class's own signature
 class MyExtension {
     fun onLoad() {
         if (isOtherPluginPresent()) {
-            val other: OtherPluginApi = OtherPluginApiImpl() // Typ OtherPluginApi wird beim Laden von MyExtension selbst aufgelöst
+            val other: OtherPluginApi = OtherPluginApiImpl() // OtherPluginApi type is resolved when MyExtension itself loads
             other.doSomething()
         }
     }
 }
 
-// GUT: der Typ der optionalen Abhängigkeit taucht nie in der eigenen Signatur von MyExtension auf
+// GOOD: the optional dependency's type never appears in MyExtension's own signature
 class MyExtension {
     fun onLoad() {
         if (isOtherPluginPresent()) {
-            OptionalIntegrationHelper.doSomething() // OtherPluginApi wird erst aufgelöst, wenn diese Zeile ausgeführt wird
+            OptionalIntegrationHelper.doSomething() // OtherPluginApi is only resolved once this line runs
         }
     }
 }
 
-// nur diese kleine Klasse referenziert OtherPluginApi - sie wird nur bei tatsächlichem Aufruf geladen
+// only this small class references OtherPluginApi - it is only loaded when actually called
 internal object OptionalIntegrationHelper {
     fun doSomething() {
         val other: OtherPluginApi = OtherPluginApiImpl()

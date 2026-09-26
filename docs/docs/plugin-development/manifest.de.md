@@ -56,7 +56,7 @@ extensions:
 | `legal.copyright`     | string | Freitext-Copyright-Hinweis                                     |
 | `legal.license`       | string | Lizenzkennung; idealerweise eine [SPDX-Kennung](https://spdx.org/licenses/), die nach bestem Bemühen abgeglichen wird, ohne unbekannte Werte abzulehnen |
 | `dependencies[]`      | array  | Abhängigkeiten zu anderen Plugins, siehe unten                 |
-| `extensions.<key>[]`  | array  | Beiträge zu Erweiterungspunkten, siehe [Erweiterungspunkte](extension-points.md) |
+| `extensions.<key>[]`  | array  | Beiträge zu Erweiterungspunkten, siehe [Erweiterungspunkte](extension-points.de.md) |
 
 ### Abhängigkeiten
 

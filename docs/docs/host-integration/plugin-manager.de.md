@@ -36,12 +36,12 @@ das Framework benötigt, an einer Stelle, jeweils über einen verschachtelten Bu
   die eigene Sicherheits-Override-Kette eines Verzeichnisses wird über einen verschachtelten
   `securityOverride { addStrategy(...) }`-Block gesetzt.
 * `defaultSecurityChains` - Standard-Sicherheitskette pro `PluginLocationType`, über
-  `defaultSecurityChain { type = ...; addStrategy(...) }`, siehe [Sicherheit](security.md).
+  `defaultSecurityChain { type = ...; addStrategy(...) }`, siehe [Sicherheit](security.de.md).
 * `dependencyStrategy` - die globale `PluginDependencyStrategy`.
 * `persistenceStrategy` - die einzelne `PluginPersistenceStrategy`-Instanz, siehe
-  [Persistenz](persistence.md).
+  [Persistenz](persistence.de.md).
 * `exceptionHandlingStrategy` - die einzelne, host-weite `ExceptionHandlingStrategy`, siehe
-  [Plugin-Lifecycle-Verwaltung](plugin-lifecycle-management.md).
+  [Plugin-Lifecycle-Verwaltung](plugin-lifecycle-management.de.md).
 * `sdkWhitelist` - Pakete Ihres eigenen SDK, die Plugins zugänglich gemacht werden, über
   `sdkWhitelistEntry { packageName = ...; recursive = ... }`.
 * `hostVersion` - die Version Ihrer eigenen Anwendung, abgeglichen gegen das `minVersion` eines
@@ -52,10 +52,10 @@ das Framework benötigt, an einer Stelle, jeweils über einen verschachtelten Bu
 ## Was er bereitstellt
 
 ```kotlin
-manager.scanner  // PluginScanner, vorverdrahtet mit defaultSecurityChains
-manager.security // PluginSecurity, ebenfalls zur Vorverdrahtung des scanners verwendet
-manager.loader   // PluginLoader, vorverdrahtet mit sdkWhitelist
-manager.registry // ExtensionPointRegistry, einmalig aus extensionPointClasses erstellt
+manager.scanner  // PluginScanner, pre-wired with defaultSecurityChains
+manager.security // PluginSecurity, also used to pre-wire scanner
+manager.loader   // PluginLoader, pre-wired with sdkWhitelist
+manager.registry // ExtensionPointRegistry, built once from extensionPointClasses
 ```
 
 Diese vorverdrahteten Instanzen sind nur eine Annehmlichkeit - die zugrunde liegenden
@@ -85,25 +85,25 @@ aktualisierten.
 ## Orchestrierung: scan, reload, unload, force-load
 
 ```kotlin
-// 1. Jedes konfigurierte Verzeichnis scannen, ID-Kollisionen und minVersion auflösen, alles laden
-//    und aktivieren, was besteht.
+// 1. Scan every configured location, resolve id collisions and minVersion, load and activate
+//    everything that passes.
 manager.scan()
 
-// 2. scanResults auf alles prüfen, was nicht geladen wurde.
+// 2. Inspect scanResults for anything that was not loaded.
 val failed = manager.scanResults.filter { it.status != PluginScanStatus.LOADED }
 
-// 3. Regulärer Reload, nachdem ein vorübergehendes Problem behoben wurde (prüft die Sicherheit zuerst erneut).
+// 3. Regular reload after a transient issue is resolved (re-checks security first).
 manager.reload(pluginId)
 
-// Bewusste Deaktivierung (das Gegenstück zu reload).
+// Deliberate deactivation (the counterpart to reload).
 manager.unload(pluginId)
 
-// Einen Kandidaten trotz fehlgeschlagener Sicherheitsprüfung per Force-Load laden.
+// Force-load a candidate despite a failed security check.
 manager.forceLoad(pluginId)
 
-// 4. Typisierter Zugriff auf geladene Implementierungen.
+// 4. Typed access to loaded implementations.
 val exporters: List<ExporterExtension> = manager.getExtensions("exporters")
-val renderer: RendererExtension? = manager.getFirstExtension("renderer") // exklusiver Erweiterungspunkt
+val renderer: RendererExtension? = manager.getFirstExtension("renderer") // exclusive extension point
 ```
 
 `scan()` löst Plugin-ID-Kollisionen (siehe unten) und `minVersion`-Verstöße auf, bevor überhaupt ein
@@ -131,11 +131,11 @@ Lädt den Kandidaten bedingungslos, unter vollständiger Umgehung seines aktuell
 Benutzer des Hosts), liegt vollständig beim Aufrufer. Der `scanResults`-Eintrag selbst bleibt
 unverändert; nur `loadedPlugins`/`extensionsByKey` zeigen das Plugin danach als geladen an.
 
-Für sich genommen ist `forceLoad` eine einmalige Übersteuerung: Ein späteres `reload`/`scan` prüft
+Für sich genommen ist `forceLoad` eine einmalige Überschreibung: Ein späteres `reload`/`scan` prüft
 die Sicherheitskette von Grund auf erneut und schlägt aus demselben Grund erneut fehl. Es gibt zwei
-Wege, eine Übersteuerung dauerhaft zu machen:
+Wege, eine Überschreibung dauerhaft zu machen:
 
-* Für eine [`PersistableSecurityStrategy`](security.md) wie die Checksum-Strategie rufen Sie
+* Für eine [`PersistableSecurityStrategy`](security.de.md) wie die Checksum-Strategie rufen Sie
   danach `manager.write<ChecksumSecurityStrategy>(pluginId)` auf - die Strategie persistiert ihren
   eigenen akzeptierten Zustand (z. B. die tatsächliche Prüfsumme des Kandidaten als neue erwartete
   Prüfsumme), sodass die nächste reguläre Prüfung erfolgreich verläuft.
@@ -156,7 +156,7 @@ Kandidaten unter `path` erneut, über `manager.security`, und lädt ihn nur bei 
 `manager.loader` neu - persistiert ihn dabei über
 `PluginManagerConfiguration.persistenceStrategy` wieder als aktiviert. Schlägt die erneute Prüfung
 fehl, bleibt das Plugin deaktiviert (sein Deaktivierungsgrund wird aktualisiert), und es findet kein
-automatisches Force-Load statt. Siehe [Plugin-Lifecycle-Verwaltung](plugin-lifecycle-management.md)
+automatisches Force-Load statt. Siehe [Plugin-Lifecycle-Verwaltung](plugin-lifecycle-management.de.md)
 für das Gesamtbild.
 
 ## ID-Kollisionen und minVersion
@@ -175,5 +175,5 @@ Ein Kandidat, dessen Manifest ein `minVersion` deklariert, das neuer als die kon
 `hostVersion` ist, wird als `MIN_VERSION_VIOLATION` markiert und nie geladen. `hostVersion = null`
 (der Standard) überspringt diese Prüfung vollständig.
 
-Siehe [Fehlersuche](troubleshooting.md) für die vollständige Liste der `PluginScanStatus`-Werte und
+Siehe [Fehlersuche](troubleshooting.de.md) für die vollständige Liste der `PluginScanStatus`-Werte und
 ihre Bedeutung.

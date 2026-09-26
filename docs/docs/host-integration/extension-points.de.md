@@ -26,9 +26,9 @@ data class ExporterConfig(
 weitere Konstruktoreigenschaft der Konfigurationsklasse (außer `implementation`) wird aus dem
 passenden Feld des Erweiterungseintrags im Plugin-Manifest abgebildet.
 
-Setzen Sie `exclusive = true`, wenn jemals höchstens ein Plugin diesen Erweiterungspunkt befüllen
+Setzen Sie `exclusive = true`, wenn höchstens ein Plugin diesen Erweiterungspunkt jemals befüllen
 darf; tun dies zwei Plugins, werden beide vollständig abgelehnt (siehe
-[Erweiterungspunkte](../plugin-development/extension-points.md) für die Sicht des
+[Erweiterungspunkte](../plugin-development/extension-points.de.md) für die Sicht des
 Plugin-Entwicklers).
 
 ## Erweiterungspunkte registrieren
@@ -45,15 +45,15 @@ val registry = ExtensionPointRegistry(
 Die Registry validiert, dass jede registrierte Klasse eine `@ExtensionPoint`-Annotation trägt, dass
 kein Schlüssel doppelt registriert wird und dass der aufgelöste Plugin-API-Typ `T` jedes
 Erweiterungspunkts proxy-fähig ist (ein Interface oder eine nicht finale Klasse - siehe
-[Fehlerbehandlung](../plugin-development/error-handling.md)), da Erweiterungsinstanzen dem Host
+[Fehlerbehandlung](../plugin-development/error-handling.de.md)), da Erweiterungsinstanzen dem Host
 ausschließlich als Runtime-Enforcement-Proxy übergeben werden. Jeder dieser Verstöße wirft eine
 `ExtensionRegistrationException` direkt aus dem Konstruktor der `ExtensionPointRegistry` - dies ist
 ein host-seitiger Konfigurationsfehler in Ihren eigenen `ExtensionConfiguration`-Deklarationen, der
-beim Start abgefangen wird, statt pro Erweiterungspunkt geschmeidig zu degradieren.
+beim Start abgefangen wird, statt pro Erweiterungspunkt kontrolliert eingeschränkt weiterzulaufen.
 
 ## Erweiterungen über alle Plugins hinweg auflösen
 
-Übergeben Sie die Registry zusammen mit den gescannten Plugin-Kandidaten (ID, Pfad auf der
+Übergeben Sie die Registry zusammen mit den gescannten Plugin-Kandidaten (ID, `Path` auf der
 Festplatte und geparstes Manifest) an einen `ExtensionAggregator`, um deren Erweiterungen
 aufzulösen, zu instanziieren und zu aggregieren:
 

@@ -22,7 +22,7 @@ dependencies {
 ```
 
 Das Maven-Äquivalent und die benötigten GitHub-Packages-Zugangsdaten siehe
-[Nutzung der Artefakte](index.md#nutzung-der-artefakte).
+[Nutzung der Artefakte](index.de.md#nutzung-der-artefakte).
 
 ## 2. Einen Erweiterungspunkt deklarieren
 
@@ -35,7 +35,7 @@ interface Greeter {
 ```
 
 Zusammen mit einer host-seitigen Konfigurationsklasse (siehe
-[Erweiterungspunkte definieren](host-integration/extension-points.md)):
+[Erweiterungspunkte definieren](host-integration/extension-points.de.md)):
 
 ```kotlin
 import org.pcsoft.framework.pluggiat.extension.ExtensionConfiguration
@@ -63,7 +63,7 @@ val manager = pluginManager {
     }
     defaultSecurityChain {
         type = PluginLocationType.EXTERNAL
-        addStrategy(InsecureSecurityStrategy()) // nur für lokale Entwicklung, siehe Sicherheit
+        addStrategy(InsecureSecurityStrategy()) // local development only, see Security
     }
     extensionPoint(GreeterConfig::class)
 }
@@ -71,7 +71,7 @@ val manager = pluginManager {
 
 `InsecureSecurityStrategy` führt überhaupt keine Prüfung durch - für einen ersten Lauf gegen
 selbst geschriebene Plugins in Ordnung, aber vor der Annahme fremder Plugins zu ersetzen; siehe
-[Sicherheit](host-integration/security.md).
+[Sicherheit](host-integration/security.de.md).
 
 ## 4. Plugins scannen, laden und nutzen
 
@@ -79,24 +79,24 @@ selbst geschriebene Plugins in Ordnung, aber vor der Annahme fremder Plugins zu 
 manager.scan()
 
 val problems = manager.scanResults.filterNot { it.status.name == "LOADED" }
-problems.forEach { println("Nicht geladen: ${it.path} (${it.status}: ${it.errorMessage})") }
+problems.forEach { println("Not loaded: ${it.path} (${it.status}: ${it.errorMessage})") }
 
 val greeters: List<Greeter> = manager.getExtensions("greeters")
 greeters.forEach { println(it.greet()) }
 ```
 
 Ein JAR mit `META-INF/plugin.yml` und einer `Greeter`-Implementierung ins Verzeichnis `plugins/`
-legen (Manifestformat siehe [Plugin-Entwicklung: Manifest](plugin-development/manifest.md)) - nach
+legen (Manifestformat siehe [Plugin-Entwicklung: Manifest](plugin-development/manifest.de.md)) - nach
 dem nächsten `scan()` erscheint es hier.
 
 ## Wie geht es weiter
 
-* [Vollständiges Beispiel](host-integration/example.md) - ein realistischer Host mit mehreren
+* [Vollständiges Beispiel](host-integration/example.de.md) - ein realistischer Host mit mehreren
   Verzeichnissen, signaturbasierter Sicherheit, Persistenz und einem Freigabe-Ablauf für abgelehnte
   Plugins
-* [PluginManager](host-integration/plugin-manager.md) - die vollständige Konfigurationsoberfläche
+* [PluginManager](host-integration/plugin-manager.de.md) - die vollständige Konfigurationsoberfläche
   (`reload`/`unload`/`forceLoad`, Id-Kollisionen, `minVersion`)
-* [Laufzeit-Sandbox](host-integration/sandbox.md) - wer einschränken will, was ein geladenes Plugin
+* [Laufzeit-Sandbox](host-integration/sandbox.de.md) - wer einschränken will, was ein geladenes Plugin
   zur Laufzeit tun darf, sollte dies zuerst lesen: es erfordert den JVM-Start-Parameter `-javaagent`
-* [Plugin-Entwicklung: Vollständiges Beispiel](plugin-development/example.md) - ein Plugin für einen
+* [Plugin-Entwicklung: Vollständiges Beispiel](plugin-development/example.de.md) - ein Plugin für einen
   Host wie den obigen schreiben

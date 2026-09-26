@@ -17,7 +17,7 @@ fehlgeschlagen ist.
       Standard); `MD5` vermeiden.
     * Jedes `forceLoad(pluginId, persistException = true)` als dauerhafte, protokollierte Ausnahme
       behandeln (wer hat wann warum genehmigt) - es überspringt die gesamte Kette, einschließlich
-      jeder eigenen Strategie, für diese Plugin-Id dauerhaft, bis der Host sie selbst löscht.
+      jeder eigenen Strategie, für diese Plugin-ID dauerhaft, bis der Host sie selbst löscht.
     * Das Bestehen der Sicherheitskette bürgt nur für Herkunft/Integrität eines Plugins vor dem
       Laden - kombinieren Sie dies mit der [Laufzeit-Sandbox](sandbox.de.md), um auch einzuschränken,
       was der Code nach dem Laden tut.
@@ -101,7 +101,7 @@ Entscheidung sein.
 
 Verlangt, dass der Kandidat mit einem über eine injizierte
 `org.pcsoft.framework.pluggiat.security.publickey.PublicKeyProviderStrategy` aufgelösten Schlüssel
-signiert ist (siehe [Public-Key-Provider](public-key-providers.md) für die mitgelieferten
+signiert ist (siehe [Public-Key-Provider](public-key-providers.de.md) für die mitgelieferten
 Implementierungen), nachgeschlagen anhand der Manifest-`id` des Plugins. Die Verifikation nutzt den
 Standard-JAR-Signaturmechanismus der JDK (`jarsigner`/`JarFile(verify = true)`):
 
@@ -113,7 +113,7 @@ Standard-JAR-Signaturmechanismus der JDK (`jarsigner`/`JarFile(verify = true)`):
   Kandidatenordners muss signiert sein und zusätzlich einen `META-INF/plugin-checksums.txt`-Eintrag
   enthalten, der für jede andere JAR im Ordner eine Prüfsumme auflistet (über den konfigurierten
   [`ChecksumAlgorithm`](#prufsummenalgorithmen) der Strategie, standardmäßig SHA-512; je eine Zeile
-  `<hex-digest>  <dateiname>` mit zwei Leerzeichen, passend z. B. zum Ausgabeformat von
+  `<hex-digest>  <file-name>` mit zwei Leerzeichen, passend z. B. zum Ausgabeformat von
   `sha512sum`); jede aufgeführte Prüfsumme muss mit der tatsächlichen Nachbardatei übereinstimmen.
 
 #### Eine gültige Signatur pro Scan-Strategie erzeugen
@@ -122,12 +122,12 @@ Das Signieren erfolgt vollständig mit den eigenen Kommandozeilenwerkzeugen `key
 der JDK (in jeder JDK enthalten) - es ist kein plugin-spezifisches Tooling erforderlich. Der an
 `keytool -genkeypair` übergebene öffentliche Schlüssel ist derjenige, den eine
 `PublicKeyProviderStrategy`-Implementierung später für die ID des Plugins auflösen muss (siehe
-[Public-Key-Provider](public-key-providers.md)).
+[Public-Key-Provider](public-key-providers.de.md)).
 
 **`SingleJarScanStrategy`** - die einzelne JAR des Plugins direkt signieren:
 
 ```shell
-jarsigner -keystore my-signing.jks -storepass <passwort> plugin-a.jar my-signing-alias
+jarsigner -keystore my-signing.jks -storepass <password> plugin-a.jar my-signing-alias
 ```
 
 **`ZipJarScanStrategy`** - die `.zip` genau wie einen `MultiJarWithOwnFolderScanStrategy`-Ordner
@@ -136,7 +136,7 @@ aufbauen (Manifest-JAR + beliebige weitere JARs direkt darin, siehe unten), dann
 gerichtet:
 
 ```shell
-jarsigner -keystore my-signing.jks -storepass <passwort> plugin-a.zip my-signing-alias
+jarsigner -keystore my-signing.jks -storepass <password> plugin-a.zip my-signing-alias
 ```
 
 Das funktioniert, weil sich `jarsigner` nur um das ZIP-Containerformat kümmert, nicht um die
@@ -154,7 +154,7 @@ auflistet (standardmäßig SHA-512, hier mit `sha512sum` gezeigt):
 sha512sum plugin-a-lib.jar > plugin-checksums.txt
 mkdir -p META-INF && mv plugin-checksums.txt META-INF/
 jar uf plugin-a-manifest.jar META-INF/plugin-checksums.txt
-jarsigner -keystore my-signing.jks -storepass <passwort> plugin-a-manifest.jar my-signing-alias
+jarsigner -keystore my-signing.jks -storepass <password> plugin-a-manifest.jar my-signing-alias
 ```
 
 Konfiguriert der Host `SignatureSecurityStrategy` mit einem anderen `ChecksumAlgorithm`, verwenden
@@ -171,7 +171,7 @@ die Signatur der Manifest-JAR selbst technisch noch gültig ist.
 
 Vergleicht die tatsächliche Prüfsumme eines Kandidaten (standardmäßig SHA-512, siehe
 [Prüfsummenalgorithmen](#prufsummenalgorithmen)) mit dem unter der Manifest-`id` des Plugins und dem
-Schlüssel `"checksum"` im konfigurierten [`PluginPersistenceStrategy`](persistence.md)
+Schlüssel `"checksum"` im konfigurierten [`PluginPersistenceStrategy`](persistence.de.md)
 gespeicherten Wert:
 
 ```kotlin
@@ -187,7 +187,7 @@ Prüfung behandelt - das Framework kennt keinen separaten "ausstehend"-Zustand.
     Vor IP-06 nahm `ChecksumSecurityStrategy` einen separaten `ExpectedChecksumCallback` entgegen,
     und eine genehmigte Prüfsumme wurde über einen eigenen `ChecksumPersistenceCallback`
     aufgezeichnet. Beide wurden zugunsten der einzigen, generischen
-    [`PluginPersistenceStrategy`](persistence.md) (Schlüssel `"checksum"`) entfernt, die nun auch
+    [`PluginPersistenceStrategy`](persistence.de.md) (Schlüssel `"checksum"`) entfernt, die nun auch
     den aktiviert/deaktiviert-Status der Plugins trägt.
 
 ## Host-Freigabeablauf nach einem `SECURITY_PROBLEM`
@@ -201,7 +201,7 @@ Host-Anwendung, typischerweise:
 2. Die Host-Anwendung zeigt einen eigenen Prompt/Dialog für den Benutzer, z. B. "Die Prüfsumme von
    Plugin X hat sich geändert - trotzdem zulassen?".
 3. Stimmt der Benutzer zu, lädt die Host-Anwendung das Plugin explizit per
-   `PluginManager.forceLoad(pluginId)` (siehe [PluginManager](plugin-manager.md)), unabhängig vom
+   `PluginManager.forceLoad(pluginId)` (siehe [PluginManager](plugin-manager.de.md)), unabhängig vom
    fehlgeschlagenen Sicherheitsergebnis.
 4. Optional macht der Host diese Entscheidung dauerhaft, sodass nachfolgende Scans von selbst
    erfolgreich sind, ohne eine erneute Genehmigung zu erfordern - siehe die nächsten beiden
@@ -230,7 +230,7 @@ und delegiert an sie:
 
 ```kotlin
 manager.forceLoad(pluginId)
-manager.write<ChecksumSecurityStrategy>(pluginId) // persistiert die tatsächliche Prüfsumme als neue erwartete
+manager.write<ChecksumSecurityStrategy>(pluginId) // persists the actual checksum as the new expected one
 ```
 
 Ein späteres `reload`/`scan` ist dann über die reguläre Kette erfolgreich, ohne einen erneuten

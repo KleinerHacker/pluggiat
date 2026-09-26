@@ -16,7 +16,7 @@ interface PluginLifecycle {
 Alle vier Methoden haben eine leere Standardimplementierung - implementieren Sie nur die, die Sie
 tatsächlich benötigen.
 
-## Aufreihenfolge
+## Aufrufreihenfolge
 
 * `onLoad` läuft immer vor `onEnable`.
 * `onDisable` läuft immer vor `onUnload`.
@@ -28,7 +28,7 @@ Die Zweiphasenaufteilung (`onLoad`/`onEnable` vs. `onDisable`/`onUnload`) existi
 korrekte Ladereihenfolge über Plugin-Abhängigkeiten hinweg zu ermöglichen: `onLoad` jeder
 Abhängigkeit läuft vor `onEnable` jedes davon abhängigen Plugins, und symmetrisch beim Abbau. Sie
 ist keine Möglichkeit, "aktiviert" von "deaktiviert" selbst zu unterscheiden - verwenden Sie dafür
-den [aktiviert/deaktiviert-Status](../host-integration/plugin-lifecycle-management.md).
+den [aktiviert/deaktiviert-Status](../host-integration/plugin-lifecycle-management.de.md).
 
 ## Mehrere Implementierungen pro Plugin
 
@@ -41,6 +41,6 @@ Plugins läuft.
 
 `onUnload` läuft immer, wenn Ihr Plugin deaktiviert wird - egal ob ein Host es explizit deaktiviert
 oder ein Laufzeitfehler in einem Ihrer Erweiterungsaufrufe gemäß der konfigurierten
-[Fehlerbehandlungsstrategie](error-handling.md) des Hosts zu `UNLOAD` führt. Ihre
+[Fehlerbehandlungsstrategie](error-handling.de.md) des Hosts zu `UNLOAD` führt. Ihre
 `onDisable`/`onUnload`-Implementierungen sollten daher auch in einer "etwas ist schiefgelaufen"-
 Situation sicher ausführbar sein, nicht nur bei einem sauberen, beabsichtigten Herunterfahren.

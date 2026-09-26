@@ -1,6 +1,6 @@
 # Public-Key-Provider
 
-`SignatureSecurityStrategy` (siehe [Sicherheit](security.md)) löst den öffentlichen Schlüssel, gegen
+`SignatureSecurityStrategy` (siehe [Sicherheit](security.de.md)) löst den öffentlichen Schlüssel, gegen
 den sie die Signatur eines Kandidaten prüft, nicht selbst auf - sie delegiert dies an eine
 injizierte `org.pcsoft.framework.pluggiat.security.publickey.PublicKeyProviderStrategy`:
 
@@ -20,8 +20,9 @@ Ausnahme. Drei Implementierungen werden mit dem Framework ausgeliefert.
     * `TrustStorePublicKeyProviderStrategy` gegenüber einem im Code hartkodierten Schlüssel
       (`DirectPublicKeyProviderStrategy`) bevorzugen, sobald mehr als ein Signierschlüssel verwaltet
       wird oder eine Rotation zu erwarten ist.
-    * `OpenPgpKeyserverPublicKeyProviderStrategy` vertraut dem, was der Keyserver für eine Key-Id
-      zurückgibt - `keyIdResolver` auf selbst aufgelöste und dokumentierte Fingerprints festlegen,
+    * `OpenPgpKeyserverPublicKeyProviderStrategy` vertraut dem, was der Keyserver für eine
+      Schlüssel-ID zurückgibt - `keyIdResolver` auf selbst aufgelöste und festgehaltene
+      Fingerabdrücke festlegen,
       nicht auf eine namensbasierte Suche, und `cacheDuration` kurz genug halten, um einen
       widerrufenen Schlüssel zeitnah zu bemerken.
     * Ein `null`-Ergebnis ist ein stiller, protokollierter Fehlschlag, keine Ausnahme - sicherstellen,
@@ -39,10 +40,10 @@ val keyStore = KeyStore.getInstance("JKS").apply {
     Files.newInputStream(Path.of("my-truststore.jks")).use { load(it, "changeit".toCharArray()) }
 }
 
-// Standard: Alias == Plugin-ID
+// default: alias == plugin id
 val provider = TrustStorePublicKeyProviderStrategy(keyStore)
 
-// eigene Zuordnung, z. B. teilen sich alle Plugins eines Anbieters einen Alias
+// custom mapping, e.g. every plugin from one vendor shares an alias
 val vendorProvider = TrustStorePublicKeyProviderStrategy(keyStore, aliasResolver = { "vendor-acme" })
 ```
 
@@ -66,10 +67,10 @@ abgeleiteten OpenPGP-Schlüssel-ID/-Fingerabdruck:
 
 ```kotlin
 val provider = OpenPgpKeyserverPublicKeyProviderStrategy(
-    keyIdResolver = { pluginId -> myKeyIdRegistry[pluginId] }, // z. B. aus Ihrer eigenen Plugin-Registry
-    keyserverBaseUrl = "https://keys.openpgp.org", // Standard
-    timeout = Duration.ofSeconds(10), // Standard
-    cacheDuration = Duration.ofHours(1), // Standard
+    keyIdResolver = { pluginId -> myKeyIdRegistry[pluginId] }, // e.g. from your own plugin registry
+    keyserverBaseUrl = "https://keys.openpgp.org", // default
+    timeout = Duration.ofSeconds(10), // default
+    cacheDuration = Duration.ofHours(1), // default
 )
 ```
 

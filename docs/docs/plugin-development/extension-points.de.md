@@ -2,7 +2,7 @@
 
 Ein Plugin trägt Funktionalität zur Host-Anwendung über Erweiterungspunkte bei. Jeder
 Erweiterungspunkt wird durch einen Schlüssel identifiziert (deklariert unter `extensions.<key>[]`
-im Manifest, siehe [Plugin-Manifest](manifest.md)) und vom Host - nicht vom Plugin - definiert.
+im Manifest, siehe [Plugin-Manifest](manifest.de.md)) und vom Host - nicht vom Plugin - definiert.
 
 Als Plugin-Entwickler müssen Sie nur das Plugin-API-Interface des Hosts für den Erweiterungspunkt
 kennen, zu dem Sie beitragen möchten; Sie implementieren oder referenzieren niemals selbst einen

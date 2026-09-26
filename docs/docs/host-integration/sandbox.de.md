@@ -6,9 +6,9 @@ geladenes Plugin zur Laufzeit tun darf.
 
 !!! warning "Benötigt den JVM-Start-Parameter `-javaagent`"
 
-    Sobald eine konfigurierte `PluginSandboxPolicy` mindestens eine API-Kategorie einschränkt, MUSS
-    die Host-JVM mit dem eigenen JAR dieses Moduls als Java-Agent gestartet werden - andernfalls
-    bricht der Host in dem Moment, in dem eine solche Policy aktiviert wird, mit einer
+    Sobald eine konfigurierte `PluginSandboxPolicy` mindestens eine API-Kategorie einschränkt,
+    **muss** die Host-JVM mit dem eigenen JAR dieses Moduls als Java-Agent gestartet werden -
+    andernfalls bricht der Host in dem Moment, in dem eine solche Policy aktiviert wird, mit einer
     `SandboxAgentNotActiveException` ab:
 
     ```text
@@ -30,14 +30,15 @@ val manager = pluginManager {
     location {
         path = Paths.get("/opt/myapp/plugins")
         type = PluginLocationType.EXTERNAL
-        sandboxOverride = PluginSandboxPolicy.UNRESTRICTED // schaltet diese eine Location wieder frei
+        sandboxOverride = PluginSandboxPolicy.UNRESTRICTED // opts this one location back out
     }
 }
 ```
 
 * `sandboxPolicies` (über `defaultSandboxPolicy { type = ...; policy = ... }`) - die Standard-Policy
   je `PluginLocationType`.
-* Der eigene `sandboxOverride` einer Location gewinnt immer gegenüber dem Standard für ihren `type`.
+* Der eigene `sandboxOverride` eines Verzeichnisses gewinnt immer gegenüber dem Standard für seinen
+  `type`.
 * Ganz ohne Konfiguration (Standard) gilt `PluginSandboxPolicy.UNRESTRICTED` - vollständig
   freigegeben, kein Java-Agent nötig.
 
@@ -50,7 +51,7 @@ wird an der abgesicherten Aufrufstelle blockiert.
 | Kategorie | Abgesicherte APIs |
 |-----------|-------------------|
 | `FILESYSTEM` | `java.io`-Dateitypen (`File` bei *jedem* Member, `FileInputStream`/`FileOutputStream`/`FileReader`/`FileWriter`/`RandomAccessFile`, `FileDescriptor`); das vollständige `java.nio.file`-Gegenstück (`Files`, `Paths`, `FileSystem`/`FileSystems`, `DirectoryStream`, `WatchService`) samt der darunterliegenden SPI `java.nio.file.spi.FileSystemProvider`; `FileChannel`/`AsynchronousFileChannel`; die dateisystemberührenden `Path`-Member (`toRealPath`, `register`, `toFile`); dateiöffnende Konstruktoren von `PrintStream`/`PrintWriter`/`Scanner`/`Formatter`; `ZipFile`, `JarFile`, `ImageIO`, `FileHandler` |
-| `NETWORK` | `Socket`, `ServerSocket`, `DatagramSocket`, `MulticastSocket` (je bei *jedem* Member), `URLConnection`/`HttpURLConnection`/`JarURLConnection`, `URL.openConnection`/`openStream`/`getContent`, `java.net.http.HttpClient`, die `java.nio.channels`-Netzwerkkanäle samt der darunterliegenden `java.nio.channels.spi`, die Socket-Factories aus `javax.net`/`javax.net.ssl`, DNS-Auflösung über `InetAddress`, `NetworkInterface`, `java.rmi` und `javax.naming` (JNDI) |
+| `NETWORK` | `Socket`, `ServerSocket`, `DatagramSocket`, `MulticastSocket` (je bei *jedem* Member), `URLConnection`/`HttpURLConnection`/`JarURLConnection`, `URL.openConnection`/`openStream`/`getContent`, `java.net.http.HttpClient`, die `java.nio.channels`-Netzwerkkanäle samt des darunterliegenden Selector-Providers aus `java.nio.channels.spi`, die Socket-Factories aus `javax.net`/`javax.net.ssl`, DNS-Auflösung über `InetAddress`, `NetworkInterface`, `java.rmi` und `javax.naming` (JNDI) |
 | `REFLECTION` | die vollständigen Pakete `java.lang.reflect` und `java.lang.invoke` (`Field.get`/`set`/`setAccessible`, `Constructor.newInstance`, `Proxy`, `MethodHandle.invoke`, `VarHandle`, `MethodHandles.privateLookupIn`), die reflektiven `java.lang.Class`-Member (`forName`, `getDeclared*`, `getClassLoader`, …), `ClassLoader.defineClass`/`loadClass`, `ObjectInputStream` (Deserialisierung), `sun.misc.Unsafe`/`jdk.internal.misc.Unsafe` |
 | `PROCESS_START` | `ProcessBuilder`, `Process`, `ProcessHandle`, `Runtime.exec`/`halt`/`addShutdownHook`, `System.exit` sowie das Laden nativen Codes (`System.load`/`loadLibrary`) |
 | `THREAD_CREATION` | Erzeugen/Starten von `Thread` (auch virtuelle Threads), `ThreadGroup`, `Executors`, Konstruktion von `ThreadPoolExecutor`/`ScheduledThreadPoolExecutor`/`ForkJoinPool`/`Timer`, `ForkJoinPool.commonPool`, die asynchronen `CompletableFuture`-Stufen |
@@ -81,11 +82,11 @@ mechanismus mehr, auf dem aufgebaut werden könnte. Der Agent instrumentiert jed
 Guard-Check ein.
 
 Das eigene Build-Artefakt dieses Moduls **ist** der Agent - sein Manifest deklariert bereits
-`Premain-Class`/`Agent-Class`. `-javaagent` muss auf das JAR zeigen, zu dem euer Build es auflöst
-(z. B. das Fat/Shadow-JAR der Host-Anwendung oder direkt das aufgelöste Abhängigkeits-JAR):
+`Premain-Class`/`Agent-Class`. `-javaagent` muss auf das JAR zeigen, zu dem Ihr Build es auflöst
+(z. B. das Fat/Shadow-JAR Ihrer Host-Anwendung oder direkt das aufgelöste Abhängigkeits-JAR):
 
 ```text
-java -javaagent:/pfad/zu/pluggiat-<version>.jar -jar my-host-app.jar
+java -javaagent:/path/to/pluggiat-<version>.jar -jar my-host-app.jar
 ```
 
 Dynamisches Nachladen nach dem JVM-Start (Attach-API) wird bewusst **nicht** unterstützt - JDK 21+
@@ -96,7 +97,7 @@ anderen mit weniger Garantien tauscht (siehe [Einschränkungen](#einschrankungen
 Wird eine `PluginSandboxPolicy`, die Mediation verlangt, ohne installierten Agenten aktiviert, wirft
 der Plugin-Manager sofort eine `SandboxAgentNotActiveException` und bricht den Start ab - das ist
 gewollt: Ein Host, der eine restriktive Policy konfiguriert hat, muss das sofort erfahren, statt
-später festzustellen, dass Plugins völlig ungeschützt liefen.
+später festzustellen, dass Plugins völlig ohne Mediation liefen.
 
 ## Sandbox-Verstöße und `POTENTIAL_ATTACK`
 
@@ -108,16 +109,16 @@ Ein blockierter Aufruf schlägt nicht einfach nur stillschweigend fehl:
    nicht mehr zugetraut, weiteren eigenen Code auszuführen).
 3. Sein Eintrag in `PluginManager.scanResults` wird als `PluginScanStatus.POTENTIAL_ATTACK` markiert -
    bewusst getrennt von `SECURITY_PROBLEM`: Letzteres ist ein Befund vor dem Laden zu einem
-   Kandidaten, der nie lief, dies hier ist ein Laufzeitbefund zu einem Plugin, das bereits
-   ausgeführt wurde.
+   Kandidaten, der nie lief, dies hier ist ein Laufzeitbefund nach dem Laden zu einem Plugin, das
+   bereits ausgeführt wurde.
 4. Der Verstoß wird als `SandboxViolationException` an
    `PluginManagerConfiguration.exceptionHandlingStrategy` weitergereicht, damit der Host informiert
    ist.
 
-Ein `POTENTIAL_ATTACK`-Kandidat kann **nie** erneut erzwungen geladen werden (`PluginManager.forceLoad`
-wirft `IllegalStateException`) und kann nie einen `LOADED`-Kandidaten derselben Plugin-Id über den
-`IdCollisionResolver` verdrängen - anders als jeder andere Nicht-`LOADED`-Status gibt es dafür keine
-Host-Überschreibung.
+Ein `POTENTIAL_ATTACK`-Kandidat kann **nie** erneut per Force-Load geladen werden
+(`PluginManager.forceLoad` wirft `IllegalStateException`) und kann nie einen `LOADED`-Kandidaten
+derselben Plugin-ID über den `IdCollisionResolver` verdrängen - anders als jeder andere
+Nicht-`LOADED`-Status gibt es dafür keine Host-Überschreibung.
 
 ## Sicherheitsempfehlungen
 
@@ -141,14 +142,14 @@ Host-Überschreibung.
   den `PluginClassLoader` eines Plugins geladen werden. Code, den das Plugin lediglich *aufruft* - die
   eigenen SDK-Klassen des Hosts, alles über die [SDK-Whitelist](sdk-whitelist.de.md) Freigegebene -,
   wird nicht instrumentiert; eine Host-Methode, die eine riskante Operation im Auftrag des Plugins
-  ausführt, ist also nicht abgesichert. Die freigegebene Oberfläche sollte daher keine Methoden
-  enthalten, die einen beliebigen Pfad, eine URL oder einen Klassennamen vom Aufrufer übernehmen.
+  ausführt, ist also nicht abgesichert. Halten Sie die freigegebene Oberfläche frei von Methoden,
+  die einen beliebigen Pfad, eine URL oder einen Klassennamen vom Aufrufer übernehmen.
 * **Sehr frühe Klasseninitialisierung**: Bytecode, der eine riskante JDK-Klasse referenziert, bevor
   der Agent registriert ist (z. B. in einem `<clinit>`, das während des Klassenladens selbst läuft),
-  kann nicht rückwirkend erfasst werden.
+  kann nicht rückwirkend instrumentiert werden.
 * **Nativer Code liegt vollständig außerhalb der Reichweite** einer Bytecode-Instrumentierung. Sein
   Laden ist deshalb als `PROCESS_START` abgesichert - ein Plugin, dem das Laden nativen Codes erlaubt
-  ist, ist faktisch nicht mehr sandboxed.
+  ist, ist faktisch nicht mehr durch die Sandbox eingeschränkt.
 * **Thread-/Zeitlimit-Governance und Prozessisolation** sind eigene, spätere Teile der
   Laufzeit-Sandbox und nicht durch API-Mediation allein abgedeckt - `THREAD_CREATION` blockiert das
   *Erzeugen* von Threads, begrenzt aber nicht die Laufzeit eines bereits laufenden.

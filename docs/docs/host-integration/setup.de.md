@@ -9,11 +9,11 @@ Als Host-Anwendung konfigurieren Sie ein oder mehrere `PluginLocation`s und übe
 val location = PluginLocation(
     path = Paths.get("/opt/myapp/plugins"),
     type = PluginLocationType.EXTERNAL,
-    scanStrategy = ZipJarScanStrategy(), // Standard, falls nicht angegeben
+    scanStrategy = ZipJarScanStrategy(), // default if omitted
 )
 ```
 
-* `path` - zu scannendes Verzeichnis nach Plugin-Kandidaten.
+* `path` - Verzeichnis, das nach Plugin-Kandidaten durchsucht wird.
 * `type` - `BUILTIN` für mit der Host-Anwendung ausgelieferte Verzeichnisse, `EXTERNAL` für von
   Dritten beigetragene Verzeichnisse (z. B. den Plugin-Ordner eines Benutzers).
 * `scanStrategy` - welcher der drei unten stehenden Lademodi für dieses Verzeichnis gilt; Standard
@@ -23,8 +23,9 @@ val location = PluginLocation(
 
     `type = PluginLocationType.BUILTIN` ist nur ein Vertrauenssignal - der Scanner prüft selbst
     nicht, ob ein Verzeichnis tatsächlich frei von Drittinhalten ist. Nur für ein Verzeichnis
-    verwenden, das das eigene Build/Installer vollständig kontrolliert; alles Benutzerschreibbare
-    muss `EXTERNAL` sein, auch wenn dort in der Praxis nur geprüfte Plugins erwartet werden.
+    verwenden, das der eigene Build bzw. Installer vollständig kontrolliert; alles vom Benutzer
+    Beschreibbare muss `EXTERNAL` sein, auch wenn dort in der Praxis nur geprüfte Plugins erwartet
+    werden.
 
 ## Lademodi
 
@@ -78,15 +79,15 @@ eingehängten Dateisystems.
 val scanner = PluginScanner(
     defaultSecurityChains = mapOf(
         PluginLocationType.BUILTIN to listOf(InsecureSecurityStrategy()),
-        // siehe host-integration/security.md für eine realistische EXTERNAL-Kette
+        // see host-integration/security.md for a realistic EXTERNAL chain
     ),
 )
-val results = scanner.scan(listOf(location /* , ... Ihre weiteren Verzeichnisse */))
+val results = scanner.scan(listOf(location /* , ... your other locations */))
 
 for (result in results) {
     when (result.status) {
-        PluginScanStatus.LOADED -> println("Plugin ${result.manifest?.id} gefunden unter ${result.path}")
-        else -> println("Ungültiger Kandidat unter ${result.path}: ${result.errorMessage}")
+        PluginScanStatus.LOADED -> println("Found plugin ${result.manifest?.id} at ${result.path}")
+        else -> println("Invalid candidate at ${result.path}: ${result.errorMessage}")
     }
 }
 ```
@@ -98,7 +99,7 @@ ungültige (`errorMessage` beschreibt den Grund; `manifest` ist nur bei `MANIFES
 Manifest, damit ein Host ihn weiterhin per Force-Load laden kann, siehe unten). Jedes Verzeichnis
 muss auf eine nicht leere Sicherheitskette auflösen - entweder seinen eigenen `securityOverride`
 oder einen `defaultSecurityChains`-Eintrag für seinen `type` - andernfalls wirft das Scannen einen
-Konfigurationsfehler; siehe [Sicherheit](security.md) für Details.
+Konfigurationsfehler; siehe [Sicherheit](security.de.md) für Details.
 
 ## Orchestrierung über `PluginManager`
 
@@ -107,5 +108,5 @@ hinweg auf, erzwingt kein `minVersion`, erstellt keine Classloader und aktiviert
 Erweiterungen. Für den vollständigen, host-seitigen Orchestrierungsablauf
 (`scan()`/`reload()`/`unload()`/`forceLoad()`, typisierten Erweiterungszugriff über
 `getExtensions<T>`/`getFirstExtension<T>` und die oben gezeigten verschachtelten Builder-Blöcke)
-konfigurieren Sie stattdessen einen [`PluginManager`](plugin-manager.md), statt `PluginScanner`
+konfigurieren Sie stattdessen einen [`PluginManager`](plugin-manager.de.md), statt `PluginScanner`
 direkt zu verwenden - er verdrahtet intern einen `PluginScanner` und baut darauf auf.

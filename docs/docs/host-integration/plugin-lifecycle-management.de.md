@@ -2,8 +2,8 @@
 
 Diese Seite behandelt die host-seitige Sicht auf den Lifecycle eines Plugins: das Aktivieren/
 Deaktivieren sowie das Verhalten, wenn sich ein Plugin zur Laufzeit fehlerhaft verhält. Für die
-Sicht des Plugin-Entwicklers siehe [Lifecycle-Hooks](../plugin-development/lifecycle.md) und
-[Fehlerbehandlung](../plugin-development/error-handling.md).
+Sicht des Plugin-Entwicklers siehe [Lifecycle-Hooks](../plugin-development/lifecycle.de.md) und
+[Fehlerbehandlung](../plugin-development/error-handling.de.md).
 
 ## Aktiviert/deaktiviert-Status
 
@@ -39,7 +39,7 @@ vollständigen Reload über `PluginLoader`, niemals nur das Zurücksetzen des Ak
 ## Reaktivierung: zuerst die Sicherheits-Neuprüfung
 
 Die Reaktivierung eines deaktivierten Plugins prüft immer zuerst die Sicherheitskette erneut -
-siehe [`PluginManager.reactivate`](plugin-manager.md#reaktivierung-reactivate). Eine
+siehe [`PluginManager.reactivate`](plugin-manager.de.md#reaktivierung-reactivate). Eine
 fehlgeschlagene Neuprüfung hält das Plugin deaktiviert und fällt nicht auf ein automatisches
 Force-Load zurück.
 
@@ -48,7 +48,7 @@ Force-Load zurück.
 Jeder Aufruf in die Erweiterungsimplementierung eines Plugins wird über einen Runtime-Proxy
 durchgesetzt, der entweichende Ausnahmen über die konfigurierte `ExceptionHandlingStrategy` in eine
 von drei Aktionen auflöst - `IGNORE`, `UNLOAD`, `CRASH`. Siehe
-[Fehlerbehandlung](../plugin-development/error-handling.md) für die plugin-seitige Sicht dieses
+[Fehlerbehandlung](../plugin-development/error-handling.de.md) für die plugin-seitige Sicht dieses
 Mechanismus (empfohlene Ausnahmetypen, die Standard-Auflösungsmatrix und was Sie beim Debuggen
 sehen).
 
@@ -59,7 +59,7 @@ val strategy = DefaultExceptionHandlingStrategy(
     matrix = mapOf(
         MyDomainException::class to ExceptionHandlingAction.IGNORE,
     ),
-    parent = null, // optional an eine weitere ExceptionHandlingStrategy verketten
+    parent = null, // optionally chain to another ExceptionHandlingStrategy
 )
 ```
 
