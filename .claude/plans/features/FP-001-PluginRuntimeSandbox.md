@@ -143,9 +143,18 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   Zusätzlich prüft `SignatureSecurityStrategy` den Gültigkeitszeitraum (`notBefore`/`notAfter`) des
   verwendeten Zertifikats; ein abgelaufenes Zertifikat führt zu einem fehlgeschlagenen Check. Eine
   Widerrufsprüfung (CRL/OCSP) ist bewusst **nicht** Teil dieser Härtung (siehe Abschnitt 9).
-* Sandbox-Verstöße werden wie ein Sicherheitsproblem im bestehenden Modell behandelt: sie führen zu
-  einem definierten, protokollierten Zustand (z. B. automatisches `unload` des Plugins) statt zu
-  unbehandelten Exceptions oder stillem Fortbestehen.
+* Sandbox-Verstöße führen zu einem definierten, protokollierten Zustand statt zu unbehandelten
+  Exceptions oder stillem Fortbestehen: das betroffene Plugin wird sofort entladen, der Verstoß per
+  WARN-Log und über `ExceptionHandlingStrategy` an den Host gemeldet.
+* Ein kategorisierter API-Verstoß (Dateisystem/Netzwerk/Reflection/Prozessstart, von IP-02 über den
+  Java-Agent erkannt) markiert den zugehörigen `PluginScanResult` zusätzlich mit dem eigenständigen
+  Status `PluginScanStatus.POTENTIAL_ATTACK` - bewusst getrennt von `SECURITY_PROBLEM`, da Letzteres
+  eine Vorab-Prüfung vor dem Laden betrifft, Ersteres ein bereits geladenes Plugin. Ein
+  `POTENTIAL_ATTACK`-Plugin kann nicht per `PluginManager.forceLoad` erzwungen (wieder) geladen
+  werden und kann einen `LOADED`-Kandidaten derselben Id nicht per Versions-Spoofing verdrängen
+  (`IdCollisionResolver` behandelt es wie jeden anderen Nicht-`LOADED`-Status). Ein Zeitlimit-Verstoß
+  (IP-03) durchläuft denselben Melde-/Entlade-Mechanismus, setzt aber bewusst keinen
+  `POTENTIAL_ATTACK`-Status, da ein Timeout allein kein Hinweis auf einen Angriff ist.
 * Die bestehende Vorab-Sicherheitskette (`PluginSecurity`) bleibt unverändert; die Sandbox ist eine
   orthogonale, zusätzliche Schutzschicht, die erst nach erfolgreichem `PluginLoader.load()`
   greift.
@@ -171,9 +180,12 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 * Sämtliche Sandbox-Funktionalität ist über eine einzige Klasse `PluginSandbox` erreichbar; ein
   Host (und der Rest des Frameworks) muss nicht wissen, welche konkrete Strategie im Hintergrund
   zuständig ist.
-* Sandbox-Verstöße werden über die bestehende `ExceptionHandlingStrategy` bzw. einen neuen,
-  analogen Mechanismus gemeldet und führen zu einem definierten Zustand des betroffenen Plugins
-  (nicht des gesamten Hosts).
+* Sandbox-Verstöße werden über die bestehende `ExceptionHandlingStrategy` gemeldet und führen zur
+  sofortigen Entladung des betroffenen Plugins (nicht des gesamten Hosts).
+* Ein kategorisierter API-Verstoß (Dateisystem/Netzwerk/Reflection/Prozessstart) markiert den
+  betroffenen Kandidaten als `PluginScanStatus.POTENTIAL_ATTACK`; ein so markierter Kandidat kann
+  nicht per `PluginManager.forceLoad` erzwungen (wieder) geladen werden und kann keinen bereits
+  geladenen Kandidaten derselben Id verdrängen.
 * Bestehende Extension-Points und der Lifecycle (`PluginLifecycle`) funktionieren unverändert für
   Plugins ohne aktivierte Sandbox bzw. mit In-VM-Sandbox; für prozessisolierte Plugins wird die
   Extension-Aufruf-Semantik über die Bouncy-Castle-basierte ASN.1-BER/TLV-IPC-Schicht transparent
@@ -330,10 +342,10 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 | ID    | Implementation Plan                         | Objective                                                                 | Dependencies |
 | ----- | -------------------------------------------- | -------------------------------------------------------------------------- | ------------ |
 | IP-01 (COMPLETED) | Sandbox-Grundmodell, `PluginSandbox`-Fassade und Konfiguration | Policy-/Strategie-Abstraktionen, `PluginSandbox` als Anlaufstelle, Einbindung in `PluginManagerConfiguration` | -            |
-| IP-02 | Agent-basierte Bytecode-API-Mediation        | Zugriffskontrolle auf riskante JDK-APIs via Java-Agent/Instrumentierung, angebunden über `PluginSandbox`     | IP-01        |
+| IP-02 (COMPLETED) | Agent-basierte Bytecode-API-Mediation        | Zugriffskontrolle auf riskante JDK-APIs via Java-Agent/Instrumentierung, angebunden über `PluginSandbox`; bei Verstoß Sofort-Entladung und `POTENTIAL_ATTACK`-Status | IP-01        |
 | IP-03 | Thread- und Zeitlimit-Governance             | Dedizierte Executors, Watchdog für Lifecycle-/Extension-Aufrufe, angebunden über `PluginSandbox`            | IP-01        |
 | IP-04 | Prozessisolation für hochriskante Plugins    | Subprozess-basierte Isolation mit Bouncy-Castle-ASN.1-BER-IPC-Proxy, verwaltet über `PluginSandbox`         | IP-01        |
-| IP-05 | Verstoßbehandlung und Beobachtbarkeit        | Meldung, Protokollierung und automatische Reaktion auf Sandbox-Verstöße über `PluginSandbox.reportViolation` | IP-02, IP-03 |
+| IP-05 | Verstoßbehandlung und Beobachtbarkeit        | Zeitlimit-Verstöße (IP-03) an die bereits von IP-02 real implementierte `PluginSandbox.reportViolation`-Logik anschließen | IP-02, IP-03 |
 | IP-06 (COMPLETED) | Persistenz-Integritätsschutz                 | HMAC-Schutz gegen selbstbegünstigende Manipulation des persistenten Zustands | -          |
 | IP-07 (COMPLETED) | Checksum-/Signatur-Härtung (Byte-Pinning)    | TOCTOU-Lücke schließen, konsistente Zip-Interpretation, zeitkonstanter Digest-Vergleich, Zertifikats-Gültigkeitsprüfung | - |
 | IP-08 (COMPLETED) | Kollisionsauflösung nach Sicherheitsstatus filtern | Verhindern, dass ein sicherheitsgeprüft fehlgeschlagener Kandidat einen erfolgreich geladenen per Versions-Spoofing verdrängt | - |
@@ -394,7 +406,7 @@ weitere Lade-Einstiegspunkte neben `scan`. `sandbox.runGoverned` umschließt akt
 `PluginManager` selbst Lifecycle-Hooks aufruft; die Anbindung der `onLoad`/`onEnable`-Aufrufe in
 `ExtensionAggregator` bleibt Aufgabe von IP-03.
 
-### IP-02: Agent-basierte Bytecode-API-Mediation
+### IP-02: Agent-basierte Bytecode-API-Mediation (COMPLETED)
 
 **Objective**
 
@@ -406,19 +418,27 @@ Facade-Klassen umleiten, angebunden über `PluginSandbox.activate`.
 **Scope**
 
 Enthalten: Java-Agent-Modul mit `premain`/`agentmain`-Einstiegspunkt, ein
-`ClassFileTransformer`, der Plugin-Bytecode beim Laden umschreibt und vor riskanten Aufrufen
-Guard-Checks gegen die aktive `PluginSandboxPolicy` einfügt, zusätzliche Instrumentierung von
+`ClassFileTransformer` (umgesetzt über die bereits im Projekt vorhandene Byte-Buddy-Abhängigkeit),
+der Plugin-Bytecode beim Laden umschreibt und vor riskanten Aufrufen Guard-Checks gegen die aktive
+`PluginSandboxPolicy` einfügt, zusätzliche Instrumentierung von
 `Method.invoke`/`Class.forName`/`MethodHandles.Lookup`, um Reflection-basierte Umgehungen zur
 Laufzeit abzufangen; `AgentInstrumentationStrategy` als interne, von `PluginSandbox.activate`
 aufgerufene Implementierung von `PluginSandboxStrategy`; Konfigurationsmodell für erlaubte
-API-Kategorien in `PluginSandboxPolicy`; Dokumentation der Host-seitigen Voraussetzung
-(`-javaagent`-Start oder freigeschaltetes dynamisches Attachment). Nicht enthalten:
-Thread-/Zeitlimits (IP-03), Prozessisolation (IP-04).
+API-Kategorien in `PluginSandboxPolicy`; verpflichtende Prüfung beim Start, ob der Java-Agent aktiv
+ist, mit Abbruch der Anwendung per Exception falls nicht; **echte Implementierung von
+`PluginSandbox.reportViolation`** für kategorisierte API-Verstöße (statt No-Op): Sofort-Entladung
+des betroffenen Plugins, neuer Status `PluginScanStatus.POTENTIAL_ATTACK`, WARN-Log mit explizitem
+Sicherheitsrisiko-Hinweis, Weiterleitung an `ExceptionHandlingStrategy`, Sperrung von
+`PluginManager.forceLoad` für `POTENTIAL_ATTACK`-Kandidaten; Dokumentation der Host-seitigen
+Voraussetzung (`-javaagent`-Start). Nicht enthalten: Thread-/Zeitlimits (IP-03), Prozessisolation
+(IP-04); dynamisches Attachment als Alternative zu `-javaagent` wurde bewusst verworfen.
 
 **Affected Areas**
 
 Neues Agent-Modul/Package `org.pcsoft.framework.pluggiat.sandbox.agent`, `PluginSandbox`
-(Einhängen des `AgentInstrumentationStrategy`), `PluginLoader`.
+(Einhängen des `AgentInstrumentationStrategy`, echte `reportViolation`-Implementierung),
+`PluginScanResult`/`PluginScanStatus` (neuer Status `POTENTIAL_ATTACK`), `PluginManager`
+(Start-Verifikation, `forceLoad`-Sperre), `PluginLoader`.
 
 **Dependencies**
 
@@ -427,28 +447,90 @@ IP-01.
 **Expected Result**
 
 Ein Plugin, dessen Sandbox-Policy z. B. Netzwerkzugriff verbietet, kann `java.net.Socket` & Co.
-weder direkt noch über Reflection mehr nutzen, ohne dass der Zugriff abgefangen und an
-`PluginSandbox.reportViolation` übergeben oder auf eine erlaubte Facade umgeleitet wird. Da
-`reportViolation` bis zur Umsetzung von IP-05 ein No-Op ist (siehe IP-01), ist das für sich allein
-beobachtbare Ergebnis dieses Plans: der Zugriff wird zuverlässig verhindert/umgeleitet; eine
-protokollierte oder auf das Plugin reagierende Meldung ist erst nach IP-05 sichtbar.
+weder direkt noch über Reflection mehr nutzen: der Zugriff wird abgefangen, das Plugin sofort
+entladen, als `POTENTIAL_ATTACK` markiert und der Verstoß protokolliert sowie an den Host gemeldet.
+Ein so markiertes Plugin lässt sich nicht per `forceLoad` erneut laden und kann einen bereits
+geladenen Kandidaten derselben Id nicht verdrängen. Ein Host ohne gesetzten `-javaagent`-Parameter
+erhält beim Start eine Exception statt eines unbemerkt wirkungslosen Schutzes.
 
 **Technical Considerations**
 
 Kein `SecurityManager` verfügbar (JDK 25) - die Durchsetzung erfolgt stattdessen über
 Bytecode-Instrumentierung zur Ladezeit, was auch dynamisch aufgelöste Reflection-Aufrufe abdecken
 kann (im Gegensatz zu einem rein statischen Vorab-Scan). Ein Java-Agent ist auf JDK 25 kein rein
-bibliotheksseitiger Mechanismus mehr: er benötigt entweder einen vom Host gesetzten
-`-javaagent`-Parameter beim JVM-Start oder ein explizit freigeschaltetes dynamisches Attachment
-(JEP 451, `-XX:+EnableDynamicAgentLoading`) - diese Host-Voraussetzung muss dokumentiert und vom
-Nutzer akzeptiert werden, bevor die Umsetzung beginnt. Die Umschreibe-Bibliothek für den
-`ClassFileTransformer` (z. B. ASM) ist eine neue Fremdabhängigkeit und vorab abzustimmen. Auch mit
-Agent bleibt eine Restlücke: Bytecode, der eine riskante JDK-Klasse referenziert, bevor der Agent
-registriert ist (z. B. bei sehr früher Klasseninitialisierung), kann nicht rückwirkend erfasst
-werden - diese Grenze ist in Abschnitt 9 zu dokumentieren. Diese Instrumentierung ist außerdem die
+bibliotheksseitiger Mechanismus mehr: er benötigt einen vom Host gesetzten `-javaagent`-Parameter
+beim JVM-Start - diese Host-Voraussetzung wird beim Start aktiv verifiziert und bei Fehlen mit einer
+Exception durchgesetzt, statt sie nur zu dokumentieren. Die Umschreibe-Bibliothek für den
+`ClassFileTransformer` ist Byte Buddy (`net.bytebuddy:byte-buddy`), bereits bestehende Abhängigkeit
+des Projekts - keine neue Fremdabhängigkeit nötig. Auch mit Agent bleibt eine Restlücke: Bytecode,
+der eine riskante JDK-Klasse referenziert, bevor der Agent registriert ist (z. B. bei sehr früher
+Klasseninitialisierung), kann nicht rückwirkend erfasst werden - diese Grenze ist in Abschnitt 9 zu
+dokumentieren. `PluginScanStatus.POTENTIAL_ATTACK` ist bewusst von `SECURITY_PROBLEM` getrennt: Ein
+generischer, nicht-`LOADED`-Statusfilter in `IdCollisionResolver` schließt ihn automatisch von
+Versions-Spoofing aus, ohne eigene Codeänderung dort. Diese Instrumentierung ist außerdem die
 Grundlage dafür, dass der in IP-06 neu eingeführte HMAC-Schlüssel für ein sandboxed Plugin
 tatsächlich unerreichbar wird (Zugriff auf die Schlüsseldatei fällt unter dieselbe
 Dateisystem-Policy).
+
+**Tatsächliche Umsetzung**
+
+Wie geplant umgesetzt (Byte Buddy statt ASM, ausschließlich `-javaagent`, mit sofortiger
+Verstoßbehandlung und `POTENTIAL_ATTACK` bereits in diesem Plan statt erst in IP-05, siehe dessen
+eigene Abweichungsnotiz), mit einer Präzisierung: Für die Tests zu Dateisystem-/Netzwerk-/
+Reflection-Blockierung gibt es keinen echten Ende-zu-Ende-Test mit tatsächlich per `-javaagent`
+gestarteter Test-JVM (der Gradle-`test`-Task startet ohne diesen Parameter) - stattdessen
+Unit-Tests auf den beiden Ebenen, aus denen sich die Blockierung zusammensetzt: die
+Aufrufstellen-zu-Kategorie-Zuordnung (`guardedCategoryFor`) und die eigentliche Registry-Blockierung
+samt Verstoßmeldung (`SandboxGuardRegistry.check`). Zusätzlich zur geplanten Dokumentation wurde auf
+Nutzerwunsch ein MkDocs-Schnellstart sowie ein "Security recommendations"-Abschnitt auf jeder
+Host-Integration-Seite mit einem sicherheitsrelevanten Stellhebel ergänzt. Über den ursprünglichen
+Plan hinaus deckt `guardedCategoryFor` zusätzlich `java.nio`-basierte Zugriffspfade ab, die
+`java.io.File`/`java.net.Socket` sonst vollständig umgehen könnten (Nutzer-Hinweise nach Abschluss von
+IP-02 - zwei Nachbesserungsrunden, ausgelöst durch die Fragen nach `java.nio` und `nio.Path`):
+
+* **Abdeckung `java.nio` und weitere Umgehungspfade**: `FILESYSTEM` deckt jetzt zusätzlich
+  `java.nio.file.Files`/`Paths`/`FileSystem`/`FileSystems`/`DirectoryStream`/`WatchService`, die SPI
+  `java.nio.file.spi.FileSystemProvider` (erreichbar über `path.getFileSystem().provider()`),
+  `FileChannel`/`AsynchronousFileChannel`, die dateisystemberührenden `Path`-Member
+  (`toRealPath`/`register`/`toFile`), `FileReader`/`FileWriter`/`FileDescriptor`, dateiöffnende
+  Konstruktoren von `PrintStream`/`PrintWriter`/`Scanner`/`Formatter` (deskriptorabhängig) sowie
+  `ZipFile`/`JarFile`/`ImageIO`/`FileHandler` ab. `NETWORK` zusätzlich die
+  `java.nio.channels`-Netzwerkkanäle und `java.nio.channels.spi`, `javax.net`(`.ssl`)-Socket-Factories,
+  `URLConnection`-Hierarchie, `InetAddress` (DNS), `NetworkInterface`, `MulticastSocket`,
+  `java.net.http.HttpClient`, `java.rmi`, `javax.naming` (JNDI). `PROCESS_START` zusätzlich
+  `Runtime.exec`/`halt`/`addShutdownHook`, `Process`/`ProcessHandle` und das Laden nativen Codes.
+  `REFLECTION` jetzt paketweit `java.lang.reflect`/`java.lang.invoke` (statt nur `Method.invoke` und
+  einzelner `Lookup`-Methoden - `Field.setAccessible`, `Constructor.newInstance`, `MethodHandle.invoke`,
+  `VarHandle`, `privateLookupIn` waren offen), dazu `Unsafe`, `ObjectInputStream` und
+  `ClassLoader.defineClass`/`loadClass`.
+* **`THREAD_CREATION` wird überhaupt erst jetzt durchgesetzt** - die Kategorie war in IP-01 deklariert,
+  aber von keinem Guard ausgewertet (`Thread`-Erzeugung/-Start, `ThreadGroup`, `Executors`, Pool-/
+  `Timer`-Konstruktion, asynchrone `CompletableFuture`-Stufen).
+* **Zwei strukturelle Umgehungen geschlossen**: (1) `java.io.File`/`Socket`/`ServerSocket`/
+  `DatagramSocket` werden bei **jedem** Methodenaufruf bewacht statt nur am Konstruktor, da das JDK
+  selbst Instanzen liefert (`Path.toFile()`, `SocketChannel.socket()`); (2) neue
+  `guardedCategoryForSubtype`-Auflösung über die Typhierarchie (Byte-Buddy-`TypePool`), da der Owner im
+  Bytecode der *statische* Typ der Aufrufstelle ist - `class MyFile : File` bzw. eine
+  Fremdbibliotheks-`Socket`-Subklasse wären sonst vollständig unbewacht geblieben. Die Auflösung wendet
+  die Member-Kuratierung des Basistyps an und wird bewusst **nicht** prozessweit gecacht (ein
+  `owner`-String ist nur pro Classloader eindeutig; ein globaler Cache wäre ein False-Negative-Risiko).
+* **Methodenreferenzen** (`Files::readAllBytes`) erzeugen keine `INVOKE*`-Instruktion im Plugin-Bytecode
+  und werden daher zusätzlich in `visitInvokeDynamicInsn` bewacht - dort ausschließlich über die
+  Bootstrap-*Argumente*, nie über das Bootstrap-Handle selbst (das ist bei jedem Lambda und jeder
+  String-Konkatenation `LambdaMetafactory`/`StringConcatFactory` und würde normalen Code als
+  Reflection-Angriff melden).
+* **Bewusst gegen paketweites Matching für `java/io`, `java/nio` und `java/net`** entschieden: dort
+  liegen überwiegend harmlose In-Memory-Typen (`ByteArrayOutputStream`, `ByteBuffer`, `URI`,
+  `PrintStream.println` → `System.out.println`), deren Blockade legitime Plugins zerstören würde - und
+  da ein Fehlalarm über `POTENTIAL_ATTACK` irreversibel ist (kein `forceLoad`), ist ein False Positive
+  hier schädlicher als in einer gewöhnlichen Zugriffskontrolle. Paketweit abgesichert wird nur, wo es
+  keinen harmlosen Member gibt (`java/lang/reflect/`, `java/lang/invoke/`, `sun/misc/`,
+  `jdk/internal/misc/`, `java/nio/file/spi/`, `java/nio/channels/spi/`, `javax/net/`, `java/rmi/`,
+  `javax/naming/`).
+* **Verbleibende, dokumentierte Grenze**: nur der über `PluginClassLoader` geladene Code ist
+  instrumentiert - eine über die SDK-Whitelist freigegebene Host-Methode, die eine riskante Operation
+  im Auftrag des Plugins ausführt, bleibt unmediiert (in `sandbox.md`/`.de.md` als Einschränkung
+  dokumentiert, inkl. Empfehlung zur Whitelist-Gestaltung).
 
 ### IP-03: Thread- und Zeitlimit-Governance
 
@@ -554,23 +636,28 @@ geschrieben wird.
 
 **Objective**
 
-Sandbox-Verstöße aus IP-02 und IP-03 (API-Mediation, Thread-/Zeitlimit-Governance) einheitlich
-über `PluginSandbox.reportViolation` melden, protokollieren und in einen definierten
-Plugin-Zustand überführen.
+Zeitlimit-Verstöße aus IP-03 an die bereits von IP-02 real implementierte
+`PluginSandbox.reportViolation`-Logik anschließen, sodass beide Verstoßarten (kategorisierter
+API-Verstoß und Zeitlimit-Verstoß) einheitlich gemeldet, protokolliert und in einen definierten
+Plugin-Zustand überführt werden.
 
 **Scope**
 
-Enthalten: Implementierung von `PluginSandbox.reportViolation`, Anbindung an bzw. Erweiterung der
-bestehenden `ExceptionHandlingStrategy`, automatische Reaktion (z. B. `unload` des verstoßenden
-Plugins analog zu `SECURITY_RECHECK_FAILED_REASON`), Persistenz des Verstoßgrunds über die
-bestehende `PluginPersistenceStrategy`. Nicht enthalten: Verstöße aus der Prozessisolation (IP-04),
-die aufgrund der abweichenden Fehlermodi (Prozessabsturz statt In-VM-Exception) gesondert zu
-behandeln sind und hier bewusst ausgeklammert bleiben.
+Enthalten: Anbindung von Zeitlimit-Verstößen (ohne zugeordnete `SandboxApiCategory`, siehe IP-03)
+an das von IP-02 bereits real implementierte `reportViolation` (Sofort-Entladung, WARN-Log,
+`ExceptionHandlingStrategy`-Weiterleitung greifen dadurch unverändert); neue Konstante
+`SANDBOX_TIMEOUT_REASON` für die Persistenz des Deaktivierungsgrunds analog zum
+`DISABLED_REASON_PERSISTENCE_KEY`-Muster aus `ExtensionAggregator`; explizite Abgrenzung, dass ein
+reiner Zeitlimit-Verstoß **nicht** den Status `PluginScanStatus.POTENTIAL_ATTACK` setzt (dieser
+bleibt kategorisierten API-Verstößen aus IP-02 vorbehalten, siehe Abschnitt 3). Nicht enthalten:
+erneute Implementierung von `reportViolation` selbst (bereits Teil von IP-02); Verstöße aus der
+Prozessisolation (IP-04), die aufgrund der abweichenden Fehlermodi (Prozessabsturz statt
+In-VM-Exception) gesondert zu behandeln sind und hier bewusst ausgeklammert bleiben.
 
 **Affected Areas**
 
-`PluginSandbox` (Implementierung von `reportViolation`), `PluginManager`,
-`ExceptionHandlingStrategy`, `ExtensionAggregator`.
+`PluginSandbox` (Fallunterscheidung nach `SandboxViolation.category` in der von IP-02
+implementierten `reportViolation`), `ExtensionAggregator` (neue Konstante).
 
 **Dependencies**
 
@@ -578,15 +665,18 @@ IP-02, IP-03.
 
 **Expected Result**
 
-Ein Sandbox-Verstoß eines In-VM-Plugins führt zu einem nachvollziehbaren, protokollierten Zustand
-des betroffenen Plugins (analog zum bestehenden `SECURITY_RECHECK_FAILED_REASON`-Muster) statt zu
-einer unbehandelten Exception oder stillem Fortbestehen des Fehlverhaltens.
+Ein Zeitlimit-Verstoß eines In-VM-Plugins führt zu demselben nachvollziehbaren, protokollierten
+Zustand wie ein kategorisierter API-Verstoß (Sofort-Entladung, Persistenz, Host-Meldung), aber ohne
+`POTENTIAL_ATTACK`-Markierung und ohne Sperrung von `forceLoad` - ein Timeout allein gilt nicht als
+Angriffshinweis.
 
 **Technical Considerations**
 
 Konsistenz mit dem bestehenden `DISABLED_REASON_PERSISTENCE_KEY`/`ENABLED_PERSISTENCE_KEY`-Muster
 aus `ExtensionAggregator` wahren, damit ein Host Sicherheits- und Sandbox-bedingte Deaktivierungen
-über denselben Mechanismus auswerten kann.
+über denselben Mechanismus auswerten kann. Die Unterscheidung API-Verstoß vs. Zeitlimit-Verstoß
+erfolgt einzig über `SandboxViolation.category` (`null` bei Zeitlimit) - keine zweite
+`reportViolation`-Implementierung, keine Code-Duplikation zwischen IP-02 und IP-05.
 
 ### IP-06: Persistenz-Integritätsschutz (COMPLETED)
 
@@ -795,7 +885,7 @@ aus Kandidaten mit `status == LOADED`; Kandidaten mit anderem Status werden übe
 
 ```text
 IP-01 (COMPLETED)
-├── IP-02
+├── IP-02 (COMPLETED)
 │   └── IP-05
 ├── IP-03
 │   └── IP-05

@@ -36,6 +36,8 @@ import org.pcsoft.framework.pluggiat.persistence.NoPersistenceStrategy
 import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandbox
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
+import org.pcsoft.framework.pluggiat.sandbox.SandboxViolation
+import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxViolationException
 import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
@@ -250,6 +252,10 @@ class PluginManager(val config: PluginManagerConfiguration) {
      * As of IP-01 it is backed by a no-op enforcer; see [PluginSandbox] for details.
      */
     val sandbox: PluginSandbox = PluginSandbox()
+
+    init {
+        sandbox.violationListener = ::handleSandboxViolation
+    }
 
     /**
      * A [PluginScanner] pre-wired with [PluginManagerConfiguration.defaultSecurityChains].
@@ -498,10 +504,15 @@ class PluginManager(val config: PluginManagerConfiguration) {
      * (e.g. a signature strategy); prefer [write] for a [PersistableSecurityStrategy] like the
      * checksum strategy instead
      * @throws NoSuchElementException if no [scanResults] entry with [pluginId] is known
+     * @throws IllegalStateException if [pluginId]'s [PluginScanResult.status] is [PluginScanStatus.POTENTIAL_ATTACK] -
+     * unlike every other status, this one can never be force-loaded (see [handleSandboxViolation])
      */
     fun forceLoad(pluginId: String, persistException: Boolean = false): PluginLoadResult {
         lock.withLock {
             val scanResult = scanResults.first { it.manifest?.id == pluginId }
+            check(scanResult.status != PluginScanStatus.POTENTIAL_ATTACK) {
+                "Plugin '$pluginId' is marked POTENTIAL_ATTACK (runtime sandbox violation) and cannot be force-loaded"
+            }
             val manifest = requireNotNull(scanResult.manifest) { "No manifest known for plugin '$pluginId'" }
             val dependencies = visibleDependencies(
                 scanResult.path, scanResult.location, manifest,
@@ -587,9 +598,52 @@ class PluginManager(val config: PluginManagerConfiguration) {
         }
     }
 
+    /**
+     * Wired to [sandbox]'s [PluginSandbox.violationListener] in this class's initializer: the real handling behind
+     * [PluginSandbox.reportViolation] for a category-attributed (i.e. potential-attack) [violation] -
+     * a category-less violation (e.g. a future IP-03 time-limit violation) is left untouched here,
+     * for IP-05 to extend.
+     *
+     * Forcibly unloads [pluginId] (its [PluginLifecycle] hooks are deliberately *not* invoked, unlike
+     * [unload] - a plugin that just attacked the sandbox is not trusted to run any more of its own
+     * code), marks its [scanResults] entry as [PluginScanStatus.POTENTIAL_ATTACK], persists the
+     * disabled reason as [SANDBOX_ATTACK_REASON] and forwards [violation] to
+     * [PluginManagerConfiguration.exceptionHandlingStrategy] as a [SandboxViolationException] so the
+     * host is notified - regardless of the strategy's resolved action, since the unload itself is
+     * mandatory and not up to the host to decide.
+     */
+    private fun handleSandboxViolation(pluginId: String, violation: SandboxViolation) {
+        if (violation.category == null) return
+
+        lock.withLock {
+            val plugin = loadedPlugins[pluginId] ?: return@withLock
+            scanResults = scanResults.map {
+                if (it.manifest?.id == pluginId) it.copy(status = PluginScanStatus.POTENTIAL_ATTACK, errorMessage = violation.reason) else it
+            }
+            config.persistenceStrategy.write(pluginId, ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY, SANDBOX_ATTACK_REASON)
+            config.persistenceStrategy.write(pluginId, ExtensionAggregator.ENABLED_PERSISTENCE_KEY, "false")
+            plugin.close()
+            sandbox.deactivate(pluginId)
+            loadedPlugins = loadedPlugins - pluginId
+            logger.error(
+                "Plugin '{}' forcibly unloaded and marked POTENTIAL_ATTACK due to a sandbox violation: {}",
+                pluginId, violation.reason,
+            )
+            reaggregateExtensions()
+        }
+        config.exceptionHandlingStrategy.resolve(SandboxViolationException(violation))
+    }
+
     companion object {
         /** [ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY] value recorded by a failed [reactivate] re-check. */
         const val SECURITY_RECHECK_FAILED_REASON: String = "SECURITY_RECHECK_FAILED"
+
+        /**
+         * [ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY] value recorded when [handleSandboxViolation]
+         * forcibly unloads a plugin after a category-attributed sandbox violation (see
+         * [PluginScanStatus.POTENTIAL_ATTACK]).
+         */
+        const val SANDBOX_ATTACK_REASON: String = "SANDBOX_ATTACK"
     }
 }
 

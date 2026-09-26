@@ -19,6 +19,13 @@ val location = PluginLocation(
 * `scanStrategy` - welcher der drei unten stehenden Lademodi für dieses Verzeichnis gilt; Standard
   ist `ZipJarScanStrategy`.
 
+!!! tip "Sicherheitsempfehlung"
+
+    `type = PluginLocationType.BUILTIN` ist nur ein Vertrauenssignal - der Scanner prüft selbst
+    nicht, ob ein Verzeichnis tatsächlich frei von Drittinhalten ist. Nur für ein Verzeichnis
+    verwenden, das das eigene Build/Installer vollständig kontrolliert; alles Benutzerschreibbare
+    muss `EXTERNAL` sein, auch wenn dort in der Praxis nur geprüfte Plugins erwartet werden.
+
 ## Lademodi
 
 Der Lademodus eines Verzeichnisses wird direkt durch die als `scanStrategy` übergebene

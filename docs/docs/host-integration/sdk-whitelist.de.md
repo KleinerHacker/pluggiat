@@ -20,6 +20,18 @@ val loader = PluginLoader(
 )
 ```
 
+!!! tip "Sicherheitsempfehlungen"
+
+    * Nur das auf die Whitelist setzen, was Plugins tatsächlich aufrufen müssen - die kleinste
+      brauchbare Oberfläche, nicht einen ganzen Package-Baum "für alle Fälle".
+    * Kein Package auf die Whitelist setzen, das selbst reflection-fähige Hintertüren offenlegt (z. B.
+      eines, das den Classloader des Hosts selbst oder eine interne Collection per Referenz
+      zurückgibt).
+    * `recursive = false` bevorzugen für ein Package, das plugin-seitige API mit internen Helfern
+      mischt, damit eine später hinzugefügte interne Klasse nicht versehentlich erreichbar wird.
+    * Die Whitelist überprüfen, sobald das eigene SDK-Package des Hosts neue Klassen erhält - nichts
+      im Framework stellt sicher, dass dort nur beabsichtigte Typen landen.
+
 ## Was auf die Whitelist gehört
 
 Nur die eigene, plugin-zugewandte API des Hosts - typischerweise das/die Interface(s), das/die

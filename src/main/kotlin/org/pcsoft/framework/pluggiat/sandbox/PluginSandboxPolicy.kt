@@ -71,6 +71,15 @@ data class PluginSandboxPolicy(
     val callTimeout: Duration? = null,
     val isolationLevel: SandboxIsolationLevel = SandboxIsolationLevel.IN_VM,
 ) {
+    /**
+     * Whether this policy restricts at least one [SandboxApiCategory] and therefore requires the
+     * `pluggiat` Java agent ([org.pcsoft.framework.pluggiat.sandbox.agent.PluginSandboxAgent]) to be
+     * active in order to be enforceable - `false` for the fully permissive default, where an inactive
+     * agent is harmless (there is nothing to mediate).
+     */
+    val requiresApiMediation: Boolean
+        get() = allowedApiCategories != SandboxApiCategory.entries.toSet()
+
     companion object {
         /** The fully permissive default policy applied when no override/default is configured. */
         val UNRESTRICTED: PluginSandboxPolicy = PluginSandboxPolicy()

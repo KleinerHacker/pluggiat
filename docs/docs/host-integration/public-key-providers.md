@@ -14,6 +14,17 @@ fun interface PublicKeyProviderStrategy {
 failure - the signature check simply fails for that candidate, the same as an actual signature
 mismatch - never a thrown exception. Three implementations ship with the framework.
 
+!!! tip "Security recommendations"
+
+    * Prefer `TrustStorePublicKeyProviderStrategy` over hardcoding a key in code
+      (`DirectPublicKeyProviderStrategy`) once you manage more than one signing key or expect to
+      rotate one.
+    * `OpenPgpKeyserverPublicKeyProviderStrategy` trusts whatever the keyserver returns for a key id -
+      pin `keyIdResolver` to fingerprints you resolved and recorded yourself, not to a name-based
+      search, and keep `cacheDuration` short enough to notice a revoked key in reasonable time.
+    * A `null` resolution is a silent, logged failure, not an exception - make sure your own
+      monitoring surfaces the resulting `SECURITY_PROBLEM`, since nothing else will page you about it.
+
 ## `TrustStorePublicKeyProviderStrategy`
 
 Resolves the public key from a certificate stored in a Java `KeyStore` (a truststore), looked up

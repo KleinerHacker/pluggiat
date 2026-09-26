@@ -7,7 +7,7 @@ Status: IN_PROGRESS
 | ID | Implementation Plan | Status |
 |----|---------------------|--------|
 | IP-01 | Sandbox-Grundmodell und Konfiguration | COMPLETED |
-| IP-02 | Agent-basierte Bytecode-API-Mediation | NOT_STARTED |
+| IP-02 | Agent-basierte Bytecode-API-Mediation | COMPLETED |
 | IP-03 | Thread- und Zeitlimit-Governance | NOT_STARTED |
 | IP-04 | Prozessisolation für hochriskante Plugins | NOT_STARTED |
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit | NOT_STARTED |
@@ -17,7 +17,7 @@ Status: IN_PROGRESS
 
 ## Overall Progress
 
-50% (4/8 Implementierungsplänen abgeschlossen)
+62.5% (5/8 Implementierungsplänen abgeschlossen)
 
 ## Notes
 
@@ -41,10 +41,31 @@ Decorator, `SecureRandom`-basierter Schlüssel in separater Schlüsseldatei, HMA
 den Suffix `_hmac` statt `.hmac`, da ein Punkt darin die `.`-basierte Flach-Properties-Kodierung von
 `FilePersistenceStrategy` (`PROPERTIES`/`XML`) beim Neuladen von der Platte falsch aufteilen würde.
 
-Offene Fragen aus Abschnitt 9 des Feature Plans (fehlender SecurityManager auf JDK 25, Host-seitige
-Java-Agent-Voraussetzung für IP-02, Umfang des Bouncy-Castle-Einsatzes für IP-04, Performance-
-Overhead, Speicher-/Funktionsumfang-Tradeoffs des Byte-Pinnings bei IP-07) sollten vor Beginn von
-IP-02/IP-04/IP-07 mit dem Nutzer geklärt werden.
+Offene Fragen aus Abschnitt 9 des Feature Plans (fehlender SecurityManager auf JDK 25, Umfang des
+Bouncy-Castle-Einsatzes für IP-04, Performance-Overhead, Speicher-/Funktionsumfang-Tradeoffs des
+Byte-Pinnings bei IP-07) sollten vor Beginn von IP-04/IP-07 mit dem Nutzer geklärt werden - für IP-02
+wurde die Host-seitige Java-Agent-Voraussetzung inzwischen geklärt (siehe unten) und ist umgesetzt.
+
+IP-02 (Agent-basierte Bytecode-API-Mediation) umgesetzt: Java-Agent-Modul
+`org.pcsoft.framework.pluggiat.sandbox.agent` (`PluginSandboxAgent` mit `premain`/`agentmain`,
+Byte-Buddy-`AgentBuilder` gegen jede über `PluginClassLoader` geladene Klasse), `GuardAsmVisitorWrapper`
+fügt vor `java.io.File`-/`java.net.Socket`-Konstruktoren, `ProcessBuilder.start()`, `System.exit()`
+und Reflection-Aufrufstellen (`Method.invoke`, `Class.forName`, ausgewählte
+`MethodHandles.Lookup`-Methoden) einen Guard-Call gegen `SandboxGuardRegistry.check` ein.
+`AgentInstrumentationStrategy` ersetzt `NoOpSandboxStrategy` als Default-Strategie von
+`PluginSandbox`, verifiziert bei `activate` die Agent-Voraussetzung
+(`PluginSandboxPolicy.requiresApiMediation`) und wirft sonst `SandboxAgentNotActiveException`.
+`PluginSandbox.reportViolation` ist jetzt real implementiert (nicht mehr No-Op) und über einen neuen
+`violationListener` mit `PluginManager` verdrahtet: ein kategorisierter Verstoß entlädt das Plugin
+sofort, markiert seinen `PluginScanResult` als neuen Status `PluginScanStatus.POTENTIAL_ATTACK`,
+persistiert den Deaktivierungsgrund und meldet ihn an `ExceptionHandlingStrategy`;
+`PluginManager.forceLoad` verweigert einen `POTENTIAL_ATTACK`-Kandidaten. Byte Buddy war bereits
+Projektabhängigkeit (kein ASM, keine neue Fremdabhängigkeit); als Host-Start-Voraussetzung wurde
+ausschließlich `-javaagent` gewählt (kein dynamisches Attachment). Abweichung vom ursprünglichen
+Plan: die vollständige Verstoßbehandlung (Sofort-Entladung, `POTENTIAL_ATTACK`,
+`ExceptionHandlingStrategy`-Weiterleitung) wurde bereits in IP-02 statt erst in IP-05 umgesetzt, auf
+expliziten Nutzerwunsch; IP-05 baut jetzt nur noch die Anbindung der IP-03-Zeitlimit-Verstöße an
+dieselbe, bereits reale `reportViolation`-Logik.
 
 Bewusste Design-Entscheidungen des Nutzers: Bouncy Castle für ASN.1-BER-TLV in IP-04 vorgegeben;
 keine OS-Prozess-/Benutzertrennung für IP-04/IP-06 (Erschwerung/Erkennung statt harter Garantie,

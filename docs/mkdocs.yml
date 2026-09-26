@@ -68,6 +68,7 @@ plugins:
           build: true
           nav_translations:
             Home: Startseite
+            Quick start: Schnellstart
             Plugin development: Plugin-Entwicklung
             Manifest: Manifest
             Extension points: Erweiterungspunkte
@@ -82,6 +83,7 @@ plugins:
             Security: Sicherheit
             Public key providers: Public-Key-Provider
             SDK whitelist: SDK-Whitelist
+            Runtime sandbox: Laufzeit-Sandbox
             Persistence: Persistenz
             Plugin lifecycle management: Plugin-Lifecycle-Verwaltung
             Troubleshooting: Fehlersuche
@@ -90,6 +92,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - Quick start: quick-start.md
   - Plugin development:
       - Manifest: plugin-development/manifest.md
       - Extension points: plugin-development/extension-points.md
@@ -104,6 +107,7 @@ nav:
       - Security: host-integration/security.md
       - Public key providers: host-integration/public-key-providers.md
       - SDK whitelist: host-integration/sdk-whitelist.md
+      - Runtime sandbox: host-integration/sandbox.md
       - Persistence: host-integration/persistence.md
       - Plugin lifecycle management: host-integration/plugin-lifecycle-management.md
       - Troubleshooting: host-integration/troubleshooting.md

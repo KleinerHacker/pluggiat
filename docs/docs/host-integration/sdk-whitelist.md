@@ -19,6 +19,17 @@ val loader = PluginLoader(
 )
 ```
 
+!!! tip "Security recommendations"
+
+    * Whitelist only what plugins actually need to call - the smallest useful surface, not a whole
+      package tree "just in case".
+    * Never whitelist a package that itself exposes reflection-capable escape hatches (e.g. one that
+      hands back the host's own class loader or an internal collection by reference).
+    * Prefer `recursive = false` for a package that mixes plugin-facing API with internal helpers, so
+      a new internal class added later does not accidentally become reachable.
+    * Review the whitelist whenever the host's own SDK package gains new classes - nothing in the
+      framework enforces that only intended types end up on it.
+
 ## What belongs on the whitelist
 
 Only the host's own plugin-facing API - typically the interface(s) plugin implementations must

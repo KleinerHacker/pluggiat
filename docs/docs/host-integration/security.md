@@ -5,6 +5,21 @@ Every `PluginLocation` is protected by an ordered, freely extensible fallback ch
 checked against the chain: the first strategy that succeeds ends the check positively; a
 `SECURITY_PROBLEM` is only reported once **every** strategy in the chain has failed.
 
+!!! tip "Security recommendations"
+
+    * Never leave an `EXTERNAL` location on `InsecureSecurityStrategy` in production - it accepts
+      every candidate unconditionally.
+    * Prefer `SignatureSecurityStrategy` over `ChecksumSecurityStrategy` wherever you control the
+      signing key: it proves authorship, a checksum alone only detects a later change to a file
+      that was already trusted once.
+    * Use a checksum algorithm with at least 256-bit output (`SHA-256`/`SHA-512`, the default);
+      avoid `MD5`.
+    * Treat every `forceLoad(pluginId, persistException = true)` as a permanent, audited exception
+      (log who approved it and why) - it skips the entire chain, including any custom strategy, for
+      that plugin id forever until the host clears it itself.
+    * Passing the security chain only vouches for a plugin's origin/integrity before it runs - combine
+      it with the [runtime sandbox](sandbox.md) to also limit what the code does once loaded.
+
 ## Which strategy should I use?
 
 * **No protection needed** (e.g. a `BUILTIN` location you fully control) - `InsecureSecurityStrategy`.

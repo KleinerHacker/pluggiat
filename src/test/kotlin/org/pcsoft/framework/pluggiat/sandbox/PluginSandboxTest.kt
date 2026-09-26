@@ -24,9 +24,12 @@ import org.pcsoft.framework.pluggiat.scanner.ZipJarScanStrategy
 import java.nio.file.Path
 
 /**
- * Verifies [PluginSandbox]'s IP-01 no-op behavior (backed by [NoOpSandboxStrategy]) and its
- * [PluginSandbox.effectivePolicy] resolution rule, analogous to
- * [org.pcsoft.framework.pluggiat.security.PluginSecurity]'s `effectiveChain` for the security chain.
+ * Verifies [PluginSandbox]'s [PluginSandbox.effectivePolicy] resolution rule (analogous to
+ * [org.pcsoft.framework.pluggiat.security.PluginSecurity]'s `effectiveChain` for the security chain)
+ * and, with an explicit [NoOpSandboxStrategy], its [PluginSandbox.runGoverned]/[PluginSandbox.deactivate]
+ * pass-through behavior and [PluginSandbox.reportViolation]'s [PluginSandbox.violationListener]
+ * forwarding. [AgentInstrumentationStrategy] (the real default since IP-02) has its own dedicated
+ * `AgentInstrumentationStrategyTest`.
  */
 class PluginSandboxTest {
 
@@ -47,12 +50,12 @@ class PluginSandboxTest {
     )
 
     /**
-     * Use case: [PluginSandbox.activate], backed by the default [NoOpSandboxStrategy], always
+     * Use case: [PluginSandbox.activate], backed by an explicit [NoOpSandboxStrategy], always
      * reports [SandboxCheckResult.Success] for a freshly loaded plugin, without any real enforcement.
      */
     @Test
     fun `activate is a no-op and always succeeds`() {
-        val sandbox = PluginSandbox()
+        val sandbox = PluginSandbox(NoOpSandboxStrategy())
 
         val result = sandbox.activate(loadedPlugin(), PluginSandboxPolicy.UNRESTRICTED)
 
@@ -61,11 +64,11 @@ class PluginSandboxTest {
 
     /**
      * Use case: [PluginSandbox.runGoverned] executes the given block directly and returns its result
-     * unchanged - no thread/time-limit governance is applied yet in IP-01.
+     * unchanged - no thread/time-limit governance is applied yet (IP-03).
      */
     @Test
     fun `runGoverned executes the block directly and returns its result`() {
-        val sandbox = PluginSandbox()
+        val sandbox = PluginSandbox(NoOpSandboxStrategy())
 
         val result = sandbox.runGoverned("example", PluginSandboxPolicy.UNRESTRICTED) { 42 }
 
@@ -74,14 +77,34 @@ class PluginSandboxTest {
 
     /**
      * Use case: [PluginSandbox.reportViolation] and [PluginSandbox.deactivate] can be called without
-     * throwing - IP-01 only logs a violation and performs no state cleanup yet.
+     * throwing when no [PluginSandbox.violationListener] is set - the default (matching IP-01's
+     * behavior) is to only log.
      */
     @Test
-    fun `reportViolation and deactivate do not throw`() {
-        val sandbox = PluginSandbox()
+    fun `reportViolation and deactivate do not throw without a violationListener`() {
+        val sandbox = PluginSandbox(NoOpSandboxStrategy())
 
         sandbox.reportViolation("example", SandboxViolation("example", SandboxApiCategory.NETWORK, "blocked"))
         sandbox.deactivate("example")
+    }
+
+    /**
+     * Use case: [PluginSandbox.reportViolation] forwards the plugin id and violation unchanged to
+     * [PluginSandbox.violationListener], if one is set - the seam
+     * [org.pcsoft.framework.pluggiat.PluginManager] uses to actually react to a violation.
+     */
+    @Test
+    fun `reportViolation forwards to violationListener when set`() {
+        val sandbox = PluginSandbox(NoOpSandboxStrategy())
+        var receivedPluginId: String? = null
+        var receivedViolation: SandboxViolation? = null
+        sandbox.violationListener = { pluginId, violation -> receivedPluginId = pluginId; receivedViolation = violation }
+        val violation = SandboxViolation("example", SandboxApiCategory.REFLECTION, "blocked reflection")
+
+        sandbox.reportViolation("example", violation)
+
+        assertEquals("example", receivedPluginId)
+        assertEquals(violation, receivedViolation)
     }
 
     /**

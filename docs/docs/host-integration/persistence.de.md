@@ -15,6 +15,19 @@ interface PluginPersistenceStrategy {
 Für das gesamte Framework wird genau eine Instanz konfiguriert, über
 `PluginManagerConfiguration.persistenceStrategy` (siehe [PluginManager](plugin-manager.md)).
 
+!!! tip "Sicherheitsempfehlungen"
+
+    * `NoPersistenceStrategy` in Produktion für ein `EXTERNAL`-Verzeichnis nie verwenden - jede
+      genehmigte Prüfsumme und jede Sicherheitsüberschreibung geht bei jedem Neustart verloren, was
+      faktisch zuvor abgelehnte Plugins wieder öffnet, ohne dass dies jemand bewusst entschieden hat.
+    * Die gewählte Strategie mit [`IntegrityProtectedPersistenceStrategy`](#integritatsschutz)
+      umschließen, sobald Plugins mit irgendeinem Dateisystemzugriff laufen können (eine
+      `UNRESTRICTED`-Sandbox-Policy oder eine, die `FILESYSTEM` erlaubt) - sonst ist der persistierte
+      Checksum-/Enabled-Status trivial durch genau den Code fälschbar, den er kontrollieren soll.
+    * Die HMAC-Schlüsseldatei (`keyPath`) außerhalb jedes Verzeichnisses halten, in das ein Plugin
+      schreiben kann; in Kombination mit der [Laufzeit-Sandbox](sandbox.de.md) den
+      `FILESYSTEM`-Zugriff auf ihr Verzeichnis vollständig sperren.
+
 ## Mitgelieferte Implementierungen
 
 ### `NoPersistenceStrategy` (Standard)

@@ -15,6 +15,19 @@ definierter, nicht schwerwiegender Fehlschlag - die Signaturprüfung schlägt f�
 einfach fehl, genau wie bei einer tatsächlichen Signaturabweichung - niemals eine geworfene
 Ausnahme. Drei Implementierungen werden mit dem Framework ausgeliefert.
 
+!!! tip "Sicherheitsempfehlungen"
+
+    * `TrustStorePublicKeyProviderStrategy` gegenüber einem im Code hartkodierten Schlüssel
+      (`DirectPublicKeyProviderStrategy`) bevorzugen, sobald mehr als ein Signierschlüssel verwaltet
+      wird oder eine Rotation zu erwarten ist.
+    * `OpenPgpKeyserverPublicKeyProviderStrategy` vertraut dem, was der Keyserver für eine Key-Id
+      zurückgibt - `keyIdResolver` auf selbst aufgelöste und dokumentierte Fingerprints festlegen,
+      nicht auf eine namensbasierte Suche, und `cacheDuration` kurz genug halten, um einen
+      widerrufenen Schlüssel zeitnah zu bemerken.
+    * Ein `null`-Ergebnis ist ein stiller, protokollierter Fehlschlag, keine Ausnahme - sicherstellen,
+      dass das eigene Monitoring den resultierenden `SECURITY_PROBLEM` aufgreift, da sonst niemand
+      benachrichtigt wird.
+
 ## `TrustStorePublicKeyProviderStrategy`
 
 Löst den öffentlichen Schlüssel aus einem in einem Java-`KeyStore` (einem Truststore) gespeicherten

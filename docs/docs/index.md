@@ -16,6 +16,13 @@ application.
     This notice is published in the spirit of the transparency requirements of the European Union's
     Artificial Intelligence Act (Regulation (EU) 2024/1689).
 
+!!! warning "Runtime sandbox requires a `-javaagent` JVM start parameter"
+
+    As soon as a host configures a `PluginSandboxPolicy` that restricts at least one API category,
+    the host JVM must be started with this module's own JAR as a Java agent
+    (`java -javaagent:pluggiat-<version>.jar ...`), or the host aborts at startup. See
+    [Runtime sandbox](host-integration/sandbox.md) for details.
+
 ## Core concepts
 
 * **Plugin manifest** - every plugin ships a `META-INF/plugin.yml` (or `.yaml`) file describing
@@ -109,8 +116,11 @@ This documentation is split by audience:
 
 ## Where to go next
 
+* [Quick start](quick-start.md) - the smallest possible host, end to end
 * [Host integration: PluginManager](host-integration/plugin-manager.md) - the central entry point
   for embedding pluggiat into your application
+* [Runtime sandbox](host-integration/sandbox.md) - mediating a loaded plugin's API access, and the
+  required `-javaagent` JVM start parameter
 * [Troubleshooting](host-integration/troubleshooting.md) - log levels, error and conflict cases
 * [API Docs](dokka/html/index.html) - the generated Dokka API documentation
 * [Licences](licences/index.html) - the dependency licence report

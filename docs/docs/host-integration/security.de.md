@@ -6,6 +6,22 @@ gültig ist) wird gegen die Kette geprüft: Die erste erfolgreiche Strategie bee
 positiv; ein `SECURITY_PROBLEM` wird erst gemeldet, wenn **jede** Strategie der Kette
 fehlgeschlagen ist.
 
+!!! tip "Sicherheitsempfehlungen"
+
+    * Ein `EXTERNAL`-Verzeichnis in Produktion nie auf `InsecureSecurityStrategy` stehen lassen - sie
+      akzeptiert jeden Kandidaten bedingungslos.
+    * `SignatureSecurityStrategy` gegenüber `ChecksumSecurityStrategy` bevorzugen, wo der
+      Signierschlüssel selbst kontrolliert wird: sie belegt die Urheberschaft, eine Prüfsumme allein
+      erkennt nur eine spätere Änderung an einer bereits einmal vertrauten Datei.
+    * Einen Checksum-Algorithmus mit mindestens 256 Bit Ausgabe verwenden (`SHA-256`/`SHA-512`, der
+      Standard); `MD5` vermeiden.
+    * Jedes `forceLoad(pluginId, persistException = true)` als dauerhafte, protokollierte Ausnahme
+      behandeln (wer hat wann warum genehmigt) - es überspringt die gesamte Kette, einschließlich
+      jeder eigenen Strategie, für diese Plugin-Id dauerhaft, bis der Host sie selbst löscht.
+    * Das Bestehen der Sicherheitskette bürgt nur für Herkunft/Integrität eines Plugins vor dem
+      Laden - kombinieren Sie dies mit der [Laufzeit-Sandbox](sandbox.de.md), um auch einzuschränken,
+      was der Code nach dem Laden tut.
+
 ## Welche Strategie sollte ich verwenden?
 
 * **Kein Schutz erforderlich** (z. B. ein `BUILTIN`-Verzeichnis, das Sie vollständig

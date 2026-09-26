@@ -39,7 +39,7 @@ val slf4jVersion = "2.0.19"
 val h2Version = "2.5.250"
 val byteBuddyVersion = "1.17.8"
 val objenesisVersion = "3.6"
-val bouncyCastleVersion = "1.80"
+val bouncyCastleVersion = "1.84"
 
 dependencies {
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jacksonVersion}")
@@ -79,6 +79,19 @@ tasks.test {
     useJUnitPlatform()
     // Needed by ZipJarScanStrategyTest to verify deleteOnExit registration via java.io.DeleteOnExitHook.
     jvmArgs("--add-opens", "java.base/java.io=ALL-UNNAMED")
+}
+
+// This module's own JAR doubles as the pluggiat sandbox Java agent (IP-02): a host that configures a
+// restrictive PluginSandboxPolicy starts its JVM with '-javaagent:<path-to-this-jar>' (dynamic
+// attachment is deliberately not supported, see PluginSandboxAgent's KDoc).
+tasks.jar {
+    manifest {
+        attributes(
+            "Premain-Class" to "org.pcsoft.framework.pluggiat.sandbox.agent.PluginSandboxAgent",
+            "Agent-Class" to "org.pcsoft.framework.pluggiat.sandbox.agent.PluginSandboxAgent",
+            "Can-Retransform-Classes" to "true",
+        )
+    }
 }
 
 licenseReport {

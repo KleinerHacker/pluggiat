@@ -17,6 +17,13 @@ JVM-Anwendung einbetten lässt.
     Dieser Hinweis wird im Sinne der Transparenzanforderungen des KI-Gesetzes der Europäischen
     Union (Verordnung (EU) 2024/1689) veröffentlicht.
 
+!!! warning "Laufzeit-Sandbox benötigt den JVM-Start-Parameter `-javaagent`"
+
+    Sobald ein Host eine `PluginSandboxPolicy` konfiguriert, die mindestens eine API-Kategorie
+    einschränkt, muss die Host-JVM mit dem eigenen JAR dieses Moduls als Java-Agent gestartet werden
+    (`java -javaagent:pluggiat-<version>.jar ...`), sonst bricht der Host beim Start ab. Details siehe
+    [Laufzeit-Sandbox](host-integration/sandbox.md).
+
 ## Kernkonzepte
 
 * **Plugin-Manifest** - jedes Plugin liefert eine Datei `META-INF/plugin.yml` (oder `.yaml`) mit,
@@ -114,8 +121,11 @@ Diese Dokumentation ist nach Zielgruppe aufgeteilt:
 
 ## Wie geht es weiter
 
+* [Schnellstart](quick-start.md) - der kleinstmögliche Host, Ende zu Ende
 * [Host-Integration: PluginManager](host-integration/plugin-manager.md) - der zentrale
   Einstiegspunkt zum Einbetten von pluggiat in Ihre Anwendung
+* [Laufzeit-Sandbox](host-integration/sandbox.md) - API-Zugriffskontrolle für ein geladenes Plugin
+  und der benötigte JVM-Start-Parameter `-javaagent`
 * [Fehlersuche](host-integration/troubleshooting.md) - Log-Level, Fehler- und Konfliktfälle
 * [API-Dokumentation](dokka/html/index.html) - die generierte Dokka-API-Dokumentation
 * [Lizenzen](licences/index.html) - der Lizenzbericht der Abhängigkeiten

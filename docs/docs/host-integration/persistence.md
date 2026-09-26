@@ -14,6 +14,18 @@ interface PluginPersistenceStrategy {
 Exactly one instance is configured for the whole framework, via `PluginManagerConfiguration.persistenceStrategy`
 (see [PluginManager](plugin-manager.md)).
 
+!!! tip "Security recommendations"
+
+    * Never use `NoPersistenceStrategy` in production for an `EXTERNAL` location - every approved
+      checksum and every security override resets on restart, which effectively re-opens the door to
+      previously rejected plugins without anyone deciding that on purpose.
+    * Wrap your chosen strategy in [`IntegrityProtectedPersistenceStrategy`](#integrity-protection)
+      whenever plugins can run with any filesystem access (an `UNRESTRICTED` sandbox policy, or one
+      that permits `FILESYSTEM`) - otherwise the persisted checksum/enabled state is trivially
+      forgeable by the very code it is meant to police.
+    * Keep the HMAC key file (`keyPath`) outside any directory a plugin can write to; once combined
+      with the [runtime sandbox](sandbox.md), block `FILESYSTEM` access to its directory entirely.
+
 ## Shipped implementations
 
 ### `NoPersistenceStrategy` (default)

@@ -19,6 +19,13 @@ val location = PluginLocation(
 * `scanStrategy` - which of the three load modes below applies to this location; defaults to
   `ZipJarScanStrategy`.
 
+!!! tip "Security recommendation"
+
+    `type = PluginLocationType.BUILTIN` is a trust signal only - the scanner does not itself verify
+    that a location is actually free of third-party content. Only use it for a location your own
+    build/installer fully controls; anything user-writable must be `EXTERNAL`, even if you expect
+    only vetted plugins to end up there in practice.
+
 ## Load modes
 
 The load mode of a location is expressed directly by the `PluginScanStrategy` implementation

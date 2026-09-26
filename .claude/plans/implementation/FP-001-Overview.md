@@ -7,7 +7,7 @@ Feature Plan: [FP-001-PluginRuntimeSandbox](../features/FP-001-PluginRuntimeSand
 | ID | Name | Dateiname |
 |----|------|-----------|
 | IP-01 | Sandbox-Grundmodell und Konfiguration | FP-001-IP-01-SandboxFoundation.md |
-| IP-02 | Agent-basierte Bytecode-API-Mediation | FP-001-IP-02-AgentApiMediation.md |
+| IP-02 (COMPLETED) | Agent-basierte Bytecode-API-Mediation | FP-001-IP-02-AgentApiMediation.md (entfernt, siehe Feature Plan) |
 | IP-03 | Thread- und Zeitlimit-Governance | FP-001-IP-03-ThreadGovernance.md |
 | IP-04 | Prozessisolation für hochriskante Plugins | FP-001-IP-04-ProcessIsolation.md |
 | IP-05 | Verstoßbehandlung und Beobachtbarkeit | FP-001-IP-05-ViolationHandling.md |

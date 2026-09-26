@@ -14,9 +14,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with directly in the underlying storage is detected and treated as unset instead of being
   returned as if it were legitimately written.
 - `PluginSandbox`: a new host-wide facade for a plugin's runtime sandbox, configurable per
-  `PluginLocation` (`sandboxOverride`) or globally per location type (`defaultSandboxPolicy`). As of
-  this release every sandbox check is a no-op placeholder; actual runtime enforcement follows in a
-  later release.
+  `PluginLocation` (`sandboxOverride`) or globally per location type (`defaultSandboxPolicy`).
+  Bytecode API mediation is now enforced via a Java agent: a plugin whose policy restricts a
+  `SandboxApiCategory` is blocked from that access. Coverage spans both the classic `java.io`/`java.net`
+  APIs and their `java.nio` equivalents (`Files`, `Path`, file and network channels, the
+  `FileSystemProvider`/`SelectorProvider` SPIs beneath them), the `javax.net` socket factories, DNS
+  resolution, `java.rmi`/JNDI, `Runtime.exec` and native library loading, the whole `java.lang.reflect`
+  and `java.lang.invoke` packages plus `Unsafe` and deserialization, and thread/executor creation -
+  reached directly, through a subclass, through reflection or through a method reference. Blocking a
+  call immediately unloads the plugin, marks it `PluginScanStatus.POTENTIAL_ATTACK` (never eligible for
+  `forceLoad` again) and reports it to the host's `ExceptionHandlingStrategy`. Requires the host JVM to
+  be started with this module's own JAR as a `-javaagent`; a restrictive policy activated without it
+  aborts startup with `SandboxAgentNotActiveException`. Thread/time-limit governance and process
+  isolation follow in a later release.
 
 ### Security
 

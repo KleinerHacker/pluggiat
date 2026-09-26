@@ -45,9 +45,11 @@ discovery, isolation or lifecycle handling.
   `PersistableSecurityStrategy` (e.g. the checksum strategy persisting its own accepted checksum),
   or a generic, persistent security exception via `forceLoad(pluginId, persistException = true)`
 * `PluginSandbox`: a host-wide facade for a plugin's runtime sandbox, configurable per
-  `PluginLocation` (`sandboxOverride`) or globally per location type (`defaultSandboxPolicy`); as of
-  now every sandbox check is a no-op placeholder, with actual enforcement (API mediation,
-  thread/time-limit governance, process isolation) following in later releases
+  `PluginLocation` (`sandboxOverride`) or globally per location type (`defaultSandboxPolicy`);
+  bytecode API mediation (filesystem/network/reflection/process-start/`System.exit`) via a Java
+  agent is implemented, with thread/time-limit governance and process isolation following in later
+  releases. **Requires a `-javaagent:<path-to-this-jar>` JVM start parameter** as soon as any policy
+  restricts an API category - see [Runtime sandbox](docs/docs/host-integration/sandbox.md)
 
 ## AI transparency notice
 
@@ -67,6 +69,10 @@ cd pluggiat
 ```
 
 On Windows use `gradlew.bat` instead of `./gradlew`.
+
+> **Embedding pluggiat in a host application?** As soon as you configure a restrictive
+> `PluginSandboxPolicy`, the host JVM must be started with this module's own JAR as a Java agent
+> (`-javaagent:<path-to-pluggiat-jar>`) - see [Runtime sandbox](docs/docs/host-integration/sandbox.md).
 
 ## Consuming the artifacts
 
@@ -147,7 +153,7 @@ be configured in `~/.m2/settings.xml`:
 | Persistence strategies                                                | implemented |
 | Persistence integrity protection (HMAC decorator)                     | implemented |
 | Orchestration runtime (`PluginManager`, ID collisions, `minVersion` check, force-load) | implemented |
-| Runtime sandbox facade and policy configuration (`PluginSandbox`, no enforcement yet)  | in progress |
+| Runtime sandbox facade and policy configuration; bytecode API mediation via Java agent (`PluginSandbox`) | in progress |
 
 All planned features of the initial feature plan (FP-001) are implemented. The runtime sandbox
 feature plan (`PluginSandbox` and its concrete enforcers) is in progress; see the sandbox row above.

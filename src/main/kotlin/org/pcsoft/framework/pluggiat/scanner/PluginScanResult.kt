@@ -54,6 +54,19 @@ enum class PluginScanStatus {
      * required dependency or a class loading error).
      */
     LOAD_FAILED,
+
+    /**
+     * The candidate was successfully loaded, but a loaded instance violated its
+     * `org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy` at runtime (a category-attributed
+     * API-mediation violation, see `org.pcsoft.framework.pluggiat.sandbox.agent.SandboxGuardRegistry`)
+     * and was forcibly unloaded as a result - deliberately a distinct status from [SECURITY_PROBLEM]:
+     * the latter is a pre-load check that never let the candidate run at all, this one is a
+     * post-load, runtime finding about a plugin that already executed. Like [SECURITY_PROBLEM], a
+     * candidate with this status cannot be force-loaded again
+     * (`org.pcsoft.framework.pluggiat.PluginManager.forceLoad`) and cannot displace a
+     * [LOADED] candidate of the same id via `org.pcsoft.framework.pluggiat.orchestration.IdCollisionResolver`.
+     */
+    POTENTIAL_ATTACK,
 }
 
 /**
