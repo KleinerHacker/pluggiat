@@ -39,7 +39,7 @@ val slf4jVersion = "2.0.19"
 val h2Version = "2.5.250"
 val byteBuddyVersion = "1.17.8"
 val objenesisVersion = "3.6"
-val bouncyCastleVersion = "1.80"
+val bouncyCastleVersion = "1.86"
 
 dependencies {
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${jacksonVersion}")
