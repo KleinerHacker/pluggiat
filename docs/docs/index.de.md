@@ -5,6 +5,26 @@ und verwaltet Plugins für eine Host-Anwendung, sodass der Host selbst weder Plu
 Isolation oder Lifecycle-Handling implementieren muss. Es ist so konzipiert, dass es sich in jede
 JVM-Anwendung einbetten lässt.
 
+## Keine Garantie für absolute Sicherheit
+
+!!! danger "pluggiat kann keine 100-prozentige Sicherheit garantieren"
+
+    Die Sicherheitsmechanismen von pluggiat (Signaturprüfungen, Checksummen-Freigabe, die
+    Laufzeit-Sandbox und die API-Whitelist) verringern das Risiko, können vollständige Sicherheit
+    aber nicht garantieren. Insbesondere:
+
+    * Der `SecurityManager` der JVM wurde vom JDK zur Entfernung als veraltet markiert und steht
+      nicht mehr als durchsetzender Mechanismus zur Verfügung; die Laufzeit-Sandbox von pluggiat
+      vermittelt Zugriffe über Bytecode-Instrumentierung, was aber nicht gleichwertig zu einer von
+      der JVM durchgesetzten Sicherheits-Sandbox ist.
+    * Wie jede Software können pluggiat und seine Sicherheitsmechanismen unentdeckte Fehler oder
+      Umgehungsmöglichkeiten enthalten.
+
+    Eine Host-Anwendung, die nicht vertrauenswürdige oder fremde Plugins lädt, darf sich nicht
+    allein auf pluggiat als Verteidigungslinie verlassen. Für jeden sicherheitskritischen Einsatz
+    werden zusätzliche Maßnahmen (Prozessisolation, Containerisierung, Sandboxing auf
+    Betriebssystemebene, Code-Review von Plugins vor der Freigabe) nachdrücklich empfohlen.
+
 ## Hinweis zur KI-Transparenz
 
 !!! note "Teile dieser Software wurden mit KI erstellt"
