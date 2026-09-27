@@ -16,8 +16,8 @@ import java.lang.reflect.Method
 
 /**
  * Thrown by a process-isolation extension proxy (see [ProcessIsolationStrategy]) at call time when
- * [method]'s signature cannot be mapped onto the minimal ASN.1 BER type set IP-04 supports (see
- * `org.pcsoft.framework.pluggiat.sandbox.process.ber.SandboxValue`) - a stateful/complex parameter
+ * [method]'s signature cannot be mapped onto the minimal ASN.1 DER type set IP-04 supports (see
+ * `org.pcsoft.framework.pluggiat.sandbox.process.der.SandboxValue`) - an unsupported parameter
  * or return type, a `Map`, a nested generic, etc.
  *
  * This is a **deliberate, permanent limitation** of process-isolated plugins, not a TODO: such a
@@ -35,5 +35,5 @@ class UnsupportedSandboxTypeException(method: Method, reason: String) :
     RuntimeException(
         "Method '${method.declaringClass.name}#${method.name}' is not callable on a process-isolated plugin: $reason. " +
             "This is a permanent limitation of process isolation (IP-04), not a temporary error - see the KDoc of " +
-            "org.pcsoft.framework.pluggiat.sandbox.process.ber.SandboxValue for the supported type set.",
+            "org.pcsoft.framework.pluggiat.sandbox.process.der.SandboxValue for the supported type set.",
     )

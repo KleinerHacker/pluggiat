@@ -240,7 +240,7 @@ Ein Plugin unter einer Policy mit `isolationLevel = SandboxIsolationLevel.PROCES
 Extension-Implementierungen in einem **separaten JVM-Subprozess** aus statt in der eigenen JVM des
 Hosts. Der Host sieht weiterhin gewöhnliche Extension-Instanzen über
 `PluginManager.getExtensions`/`getFirstExtension` - jeder Aufruf wird transparent über die
-Prozessgrenze hinweg weitergereicht, kodiert als ASN.1 BER (`org.bouncycastle:bcprov-jdk18on` - reines
+Prozessgrenze hinweg weitergereicht, kodiert als ASN.1 DER (`org.bouncycastle:bcprov-jdk18on` - reines
 ASN.1, kein TLS/Crypto-Funktionsumfang) und über einen Loopback-TCP-Socket übertragen. Ein
 Subprozessabsturz oder -hänger kann den Host-Prozess dadurch nie mit sich reißen - anders als ein im
 selben Prozess laufendes, aufgegebenes Thread eines In-VM-Plugins (`callTimeout`, siehe oben) oder ein
@@ -271,10 +271,10 @@ sequenceDiagram
         Sub->>Sub: Policy für den Classloader des Plugins registrieren
         Sub-->>Mgr: stdout "PLUGGIAT-PORT:<port>"
     end
-    Host->>Sub: Loopback-Socket öffnen, BER-kodierten Aufruf schreiben (mit IPC-Token)
+    Host->>Sub: Loopback-Socket öffnen, DER-kodierten Aufruf schreiben (mit IPC-Token)
     Sub->>Ext: Reflection: Method.invoke(...)
     Ext-->>Sub: Rückgabewert / Ausnahme
-    Sub-->>Host: BER-kodierte Antwort, Socket geschlossen
+    Sub-->>Host: DER-kodierte Antwort, Socket geschlossen
     Host->>Host: Antwort dekodieren, an Aufrufer zurückgeben
 ```
 
@@ -317,7 +317,7 @@ sequenceDiagram
 7. **Jeder Aufruf öffnet einen frischen Loopback-Socket.** Der `ProcessIpcClient` hält bewusst keine
    dauerhafte Verbindung offen - jeder einzelne Extension-Aufruf öffnet seinen eigenen
    Loopback-`Socket`, kodiert den Aufruf (Name der Implementierungsklasse, Methodenname,
-   ASN.1-BER-kodierte Argumente) über `BerCodec`, schreibt ihn und liest genau eine BER-kodierte
+   ASN.1-DER-kodierte Argumente) über `DerCodec`, schreibt ihn und liest genau eine DER-kodierte
    Antwort auf demselben Socket zurück. Ein Socket pro Aufruf hält die Zuordnung von Anfrage und
    Antwort trivial (kein Multiplexing, keine Aufruf-Ids), zum Preis eines TCP-Handshakes pro Aufruf
    - vernachlässigbar neben einem JVM-Roundtrip.
@@ -344,14 +344,47 @@ sequenceDiagram
 ### Unterstützte Extension-Signaturen
 
 Die IPC der Prozessisolation versteht nur eine **minimale, geschlossene Menge an ASN.1-Typen**:
-`Int`, `Long`, `Boolean`, `ByteArray`, `String`, `Unit`/`void`, sowie eine `List<T>` aus einem dieser
-Typen (nicht verschachtelt, keine `Map`, kein anderer `Collection`-Typ). Eine
-Extension-Point-Methode, deren Parameter- oder Rückgabetyp nicht in diese Menge passt, wirft
-`UnsupportedSandboxTypeException` **sofort am Aufrufort**, bevor der Subprozess überhaupt kontaktiert
-wird - dies ist eine **dauerhafte, bewusste Einschränkung** der Prozessisolation, keine vorübergehende
-Lücke, die später geschlossen wird. Ein Host, der eine solche Signatur benötigt, muss entweder seine
+`Int`, `Long`, `Boolean`, `ByteArray`, `String`, `Unit`/`void`, eine `List<T>` aus einem dieser Typen
+(nicht verschachtelt, keine `Map`, kein anderer `Collection`-Typ), sowie eine Kotlin-Data-Class, deren
+Parameter des primären Konstruktors jeweils - rekursiv - einem der vorherigen Fälle entsprechen
+(einschließlich einer weiteren Data-Class) - ein **komplexes Objekt**. Eine Extension-Point-Methode,
+deren Parameter- oder Rückgabetyp nicht in diese Menge passt, wirft `UnsupportedSandboxTypeException`
+**sofort am Aufrufort**, bevor der Subprozess überhaupt kontaktiert wird - dies ist eine
+**dauerhafte, bewusste Einschränkung** der Prozessisolation, keine vorübergehende Lücke, die später
+geschlossen wird. Ein Host, der eine solche Signatur benötigt, muss entweder seine
 Extension-Point-API auf den unterstützten Typumfang eingrenzen oder dieses Plugin bei
 `SandboxIsolationLevel.IN_VM` belassen.
+
+#### Wire-Format (ASN.1 DER)
+
+Jeder Wert auf der Leitung ist eine mit einem Diskriminator getaggte `SEQUENCE`, sodass der
+konkrete `SandboxValue`-Fall einer Nachricht selbst dort eindeutig ist, wo zwei Fälle denselben
+zugrundeliegenden ASN.1-Typ teilen (`Int` vs. `Long`, beide eine `INTEGER`):
+
+```text
+Value ::= SEQUENCE {
+    tag      INTEGER,     -- 0=Int, 1=Long, 2=Boolean, 3=Bytes, 4=String, 5=List, 6=Unit, 7=Object
+    payload  ANY DEFINED BY tag
+}
+```
+
+Ein komplexes Objekt (eine Data-Class) wird als `SET` seiner Felder übertragen - passend zum
+Kotlin-Data-Class-Fall, bei dem die Feldreihenfolge keine eigene Bedeutung trägt; jedes Feld ist
+selbst eine `SEQUENCE` aus seinem Namen und seinem (rekursiv kodierten) `Value`:
+
+```text
+ObjectValue ::= SET OF Field
+
+Field ::= SEQUENCE {
+    fieldName   UTF8String,
+    fieldValue  Value
+}
+```
+
+Der `fieldValue` eines Feldes kann rekursiv wieder ein `ObjectValue` (eine verschachtelte Data-Class)
+oder eine `List` sein (Tag 5, selbst eine `SEQUENCE OF Value`), sodass ein beliebig tiefer - aber
+weiterhin statisch typisierter - Objektgraph übertragen werden kann, solange jedes Blatt einer der
+Basisfälle oben ist.
 
 ### Bekannte Einschränkungen
 

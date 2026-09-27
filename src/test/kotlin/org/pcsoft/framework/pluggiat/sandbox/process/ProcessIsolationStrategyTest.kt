@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
 import org.pcsoft.framework.pluggiat.sandbox.SandboxTimeoutException
+import org.pcsoft.framework.pluggiat.sandbox.process.fixture.FixturePerson
 import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixtureApi
 import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixtureImpl
 import java.io.File
@@ -32,7 +33,7 @@ import java.util.jar.JarOutputStream
 /**
  * Verifies [ProcessIsolationStrategy]'s cross-process extension proxy end to end, against a real
  * subprocess JVM (see [SubprocessBootstrapMain]/[ProcessIpcServer]) - the slowest developer tests in
- * this suite (real JVM startup per test), but the only way to genuinely exercise the socket/BER wire
+ * this suite (real JVM startup per test), but the only way to genuinely exercise the socket/DER wire
  * format and process lifecycle rather than just their pieces in isolation.
  */
 class ProcessIsolationStrategyTest {
@@ -60,7 +61,7 @@ class ProcessIsolationStrategyTest {
         val folder = Files.createTempDirectory("process-isolation-fixture-")
         val jarPath = folder.resolve("fixture.jar")
         JarOutputStream(Files.newOutputStream(jarPath)).use { jar ->
-            for (fixtureClass in listOf(ProcessIsolationFixtureApi::class.java, ProcessIsolationFixtureImpl::class.java)) {
+            for (fixtureClass in listOf(ProcessIsolationFixtureApi::class.java, ProcessIsolationFixtureImpl::class.java, FixturePerson::class.java)) {
                 val resourceName = fixtureClass.name.replace('.', '/') + ".class"
                 val bytes = requireNotNull(fixtureClass.classLoader.getResourceAsStream(resourceName)) {
                     "Compiled class resource not found: $resourceName"
@@ -149,6 +150,24 @@ class ProcessIsolationStrategyTest {
 
         assertEquals("hello", proxy.echo("hello"))
         assertEquals(5L, proxy.add(2, 3))
+    }
+
+    /**
+     * Use case: a complex-object (`FixturePerson` data class) parameter/return value is proxied across
+     * the process boundary as a `SandboxValue.ObjectValue` (ASN.1 SET/SEQUENCE) and reconstructed on
+     * both ends without loss - including its nested `List<String>` field.
+     */
+    @Test
+    fun `complex object call is proxied across the process boundary`() {
+        val jar = buildFixtureJar()
+        val proxy = newStrategy().createExtensionProxy(
+            pluginId, jar, null, ProcessIsolationFixtureApi::class.java,
+            ProcessIsolationFixtureImpl::class.java.name, PluginSandboxPolicy.UNRESTRICTED,
+        ) as ProcessIsolationFixtureApi
+
+        val result = proxy.birthday(FixturePerson(name = "Ada", age = 36, nicknames = listOf("Countess")))
+
+        assertEquals(FixturePerson(name = "Ada", age = 37, nicknames = listOf("Countess")), result)
     }
 
     /**

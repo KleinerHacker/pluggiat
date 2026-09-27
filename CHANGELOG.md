@@ -36,11 +36,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cannot accumulate an unbounded number of abandoned threads. A `PluginSandboxPolicy` with
   `isolationLevel = SandboxIsolationLevel.PROCESS` now runs a plugin's extensions in a separate JVM
   subprocess instead of the host's own JVM: every extension call is transparently proxied across the
-  process boundary as ASN.1 BER over a loopback socket, so a subprocess crash or hang can never take
+  process boundary as ASN.1 DER over a loopback socket, so a subprocess crash or hang can never take
   down the host process. The subprocess is started lazily on first use, torn down on unload/reload,
   and an unexpected exit is reported as a sandbox violation like an IP-03 timeout. Only a minimal,
   closed set of parameter/return types is transportable this way (`Int`/`Long`/`Boolean`/`ByteArray`/
-  `String`/`Unit` and `List` thereof); a method outside that set throws
+  `String`/`Unit`, `List` thereof, and a complex object - a Kotlin data class whose fields are
+  recursively one of the former); a method outside that set throws
   `UnsupportedSandboxTypeException` immediately at the call site, without ever contacting the
   subprocess - a permanent limitation, not a temporary gap. Process isolation still runs the
   subprocess under the same OS user as the host, with no additional OS-level privilege separation.

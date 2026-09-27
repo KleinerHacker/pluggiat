@@ -234,7 +234,7 @@ policy = PluginSandboxPolicy(
 A plugin under a policy with `isolationLevel = SandboxIsolationLevel.PROCESS` runs its extension
 implementations in a **separate JVM subprocess** instead of the host's own JVM. The host still sees
 ordinary extension instances through `PluginManager.getExtensions`/`getFirstExtension` - every call
-is transparently proxied across the process boundary, encoded as ASN.1 BER
+is transparently proxied across the process boundary, encoded as ASN.1 DER
 (`org.bouncycastle:bcprov-jdk18on` - pure ASN.1, no TLS/crypto) and sent over a loopback TCP socket.
 A subprocess crash or hang can therefore never take down the host process, unlike an in-VM plugin's
 abandoned thread (`callTimeout`, see above) or an unmediated native call.
@@ -263,10 +263,10 @@ sequenceDiagram
         Sub->>Sub: register policy for the plugin's class loader
         Sub-->>Mgr: stdout "PLUGGIAT-PORT:<port>"
     end
-    Host->>Sub: open loopback socket, write BER-encoded call (with IPC token)
+    Host->>Sub: open loopback socket, write DER-encoded call (with IPC token)
     Sub->>Ext: reflection: Method.invoke(...)
     Ext-->>Sub: return value / exception
-    Sub-->>Host: BER-encoded response, socket closed
+    Sub-->>Host: DER-encoded response, socket closed
     Host->>Host: decode response, return to caller
 ```
 
@@ -304,8 +304,8 @@ sequenceDiagram
    connect to, then discards the rest of the subprocess's stdout into a debug log.
 7. **Each call opens a fresh loopback socket.** `ProcessIpcClient` deliberately does not keep one
    long-lived connection open - every single extension call opens its own loopback `Socket`, encodes
-   the call (implementation class name, method name, ASN.1-BER-encoded arguments) via `BerCodec`,
-   writes it, and reads back exactly one BER-encoded response on the same socket. One socket per call
+   the call (implementation class name, method name, ASN.1-DER-encoded arguments) via `DerCodec`,
+   writes it, and reads back exactly one DER-encoded response on the same socket. One socket per call
    keeps request/response correlation trivial (no multiplexing, no call ids), at the cost of a TCP
    handshake per call - negligible next to a JVM round trip.
 8. **The subprocess dispatches via plain reflection.** `ProcessIpcServer` decodes the incoming call,
@@ -328,13 +328,44 @@ sequenceDiagram
 ### Supported extension signatures
 
 Process isolation's IPC only understands a **minimal, closed set of ASN.1 types**: `Int`, `Long`,
-`Boolean`, `ByteArray`, `String`, `Unit`/`void`, and a `List<T>` of any of those (not nested, not a
-`Map`, no other `Collection` type). An extension-point method whose parameter or return type does
-not fit this set throws `UnsupportedSandboxTypeException` **immediately at the call site**, before
-the subprocess is ever contacted - this is a **permanent, deliberate limitation** of process
-isolation, not a temporary gap to be closed later. A host that needs such a signature must either
-narrow its extension point API to the supported type set, or keep that plugin at
-`SandboxIsolationLevel.IN_VM`.
+`Boolean`, `ByteArray`, `String`, `Unit`/`void`, a `List<T>` of any of those (not nested, not a
+`Map`, no other `Collection` type), and a Kotlin data class whose primary constructor parameters are
+each, recursively, one of the former (including another data class) - a **complex object**. An
+extension-point method whose parameter or return type does not fit this set throws
+`UnsupportedSandboxTypeException` **immediately at the call site**, before the subprocess is ever
+contacted - this is a **permanent, deliberate limitation** of process isolation, not a temporary gap
+to be closed later. A host that needs such a signature must either narrow its extension point API to
+the supported type set, or keep that plugin at `SandboxIsolationLevel.IN_VM`.
+
+#### Wire format (ASN.1 DER)
+
+Every value on the wire is a discriminator-tagged `SEQUENCE`, so the concrete `SandboxValue` case a
+message carries is unambiguous even where two cases share the same underlying ASN.1 type (`Int` vs.
+`Long`, both an `INTEGER`):
+
+```text
+Value ::= SEQUENCE {
+    tag      INTEGER,     -- 0=Int, 1=Long, 2=Boolean, 3=Bytes, 4=String, 5=List, 6=Unit, 7=Object
+    payload  ANY DEFINED BY tag
+}
+```
+
+A complex object (a data class) is transported as a `SET` of its fields, matching the Kotlin
+data class case where field order carries no meaning of its own; each field is itself a `SEQUENCE`
+of its name and its (recursively encoded) `Value`:
+
+```text
+ObjectValue ::= SET OF Field
+
+Field ::= SEQUENCE {
+    fieldName   UTF8String,
+    fieldValue  Value
+}
+```
+
+A field's `fieldValue` may recursively be another `ObjectValue` (a nested data class) or a `List`
+(tag 5, itself a `SEQUENCE OF Value`), so an arbitrarily deep - but still statically typed - object
+graph can be transported, as long as every leaf is one of the base cases above.
 
 ### Known limitations
 

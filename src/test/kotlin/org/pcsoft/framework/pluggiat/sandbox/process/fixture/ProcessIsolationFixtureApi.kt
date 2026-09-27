@@ -13,6 +13,16 @@
 package org.pcsoft.framework.pluggiat.sandbox.process.fixture
 
 /**
+ * A supported complex-object parameter/return value - a data class recursively built from the IP-04
+ * supported type set (here: `String`, `Int`, `List<String>`).
+ */
+data class FixturePerson(
+    val name: String,
+    val age: Int,
+    val nicknames: List<String>,
+)
+
+/**
  * Test-only extension point API used by `ProcessIsolationStrategyTest` - a mix of supported (IP-04
  * ASN.1 type set) and one deliberately unsupported method signature.
  */
@@ -28,6 +38,9 @@ interface ProcessIsolationFixtureApi {
 
     /** Supported: no parameters, `Unit` return - halts the subprocess JVM immediately. */
     fun crash()
+
+    /** Supported: [FixturePerson] complex-object parameter/return (ASN.1 SET/SEQUENCE). */
+    fun birthday(person: FixturePerson): FixturePerson
 
     /** Unsupported: `Map` is not part of the IP-04 type set. */
     fun unsupported(values: Map<String, String>): String
@@ -49,6 +62,8 @@ class ProcessIsolationFixtureImpl : ProcessIsolationFixtureApi {
     override fun crash() {
         Runtime.getRuntime().halt(1)
     }
+
+    override fun birthday(person: FixturePerson): FixturePerson = person.copy(age = person.age + 1)
 
     override fun unsupported(values: Map<String, String>): String = values.toString()
 }

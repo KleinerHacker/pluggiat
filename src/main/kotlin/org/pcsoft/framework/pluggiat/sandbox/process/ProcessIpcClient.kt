@@ -12,9 +12,9 @@
 
 package org.pcsoft.framework.pluggiat.sandbox.process
 
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.BerCodec
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessResponse
+import org.pcsoft.framework.pluggiat.sandbox.process.der.DerCodec
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessCall
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessResponse
 import java.net.InetAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
@@ -46,8 +46,8 @@ class ProcessIpcClient(
             callTimeout?.let { socket.soTimeout = it.toMillis().toInt().coerceAtLeast(1) }
             try {
                 // SECURITY: the token goes out with every single call - the connection itself proves nothing.
-                BerCodec.writeCall(call, token, socket.getOutputStream())
-                return BerCodec.readResponse(socket.getInputStream())
+                DerCodec.writeCall(call, token, socket.getOutputStream())
+                return DerCodec.readResponse(socket.getInputStream())
             } catch (_: SocketTimeoutException) {
                 throw org.pcsoft.framework.pluggiat.sandbox.SandboxTimeoutException(pluginId, callTimeout ?: Duration.ZERO)
             }

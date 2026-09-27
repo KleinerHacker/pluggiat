@@ -16,9 +16,9 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Test
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessResponse
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.SandboxValue
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessCall
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessResponse
+import org.pcsoft.framework.pluggiat.sandbox.process.der.SandboxValue
 import java.time.Duration
 
 /**

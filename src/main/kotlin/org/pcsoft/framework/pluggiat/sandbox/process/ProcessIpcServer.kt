@@ -12,10 +12,10 @@
 
 package org.pcsoft.framework.pluggiat.sandbox.process
 
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.BerCodec
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessResponse
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.SandboxValue
+import org.pcsoft.framework.pluggiat.sandbox.process.der.DerCodec
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessCall
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessResponse
+import org.pcsoft.framework.pluggiat.sandbox.process.der.SandboxValue
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.nio.charset.StandardCharsets
@@ -63,7 +63,7 @@ class ProcessIpcServer(
                     // peer that connects and then never sends anything would otherwise block every
                     // further call of the legitimate host indefinitely.
                     it.soTimeout = ACCEPTED_SOCKET_READ_TIMEOUT_MILLIS
-                    val authenticated = BerCodec.readCall(it.getInputStream())
+                    val authenticated = DerCodec.readCall(it.getInputStream())
                     // SECURITY: the token is checked before the call is dispatched, so an unauthenticated peer
                     // SECURITY: never gets a class resolved or a method invoked on its behalf.
                     val response = if (isAuthentic(authenticated.token)) {
@@ -71,9 +71,9 @@ class ProcessIpcServer(
                     } else {
                         ProcessResponse.Failure(UNAUTHENTICATED_FAILURE_MESSAGE)
                     }
-                    BerCodec.writeResponse(response, it.getOutputStream())
+                    DerCodec.writeResponse(response, it.getOutputStream())
                 } catch (e: Exception) {
-                    runCatching { BerCodec.writeResponse(ProcessResponse.Failure(e.message ?: e::class.java.name), it.getOutputStream()) }
+                    runCatching { DerCodec.writeResponse(ProcessResponse.Failure(e.message ?: e::class.java.name), it.getOutputStream()) }
                 }
             }
         }

@@ -55,12 +55,14 @@ dependencies {
     // bcpg-jdk18on references ASN.1 object identifiers (e.g. CryptlibObjectIdentifiers) that live
     // here, but does not declare it as a dependency itself.
     implementation("org.bouncycastle:bcutil-jdk18on:${bouncyCastleVersion}")
-    // Pure ASN.1/BER encoding (ASN1Integer, ASN1Boolean, DEROctetString, DERUTF8String, DERSequence,
-    // ASN1InputStream/ASN1OutputStream) for IP-04's process-isolation IPC wire format - no
-    // bcpkix/TLS functionality is used, see org.pcsoft.framework.pluggiat.sandbox.process.ber.BerCodec.
+    // Pure ASN.1/DER encoding (ASN1Integer, ASN1Boolean, DEROctetString, DERUTF8String, DERSequence,
+    // DERSet, ASN1InputStream/ASN1OutputStream) for IP-04's process-isolation IPC wire format - no
+    // bcpkix/TLS functionality is used, see org.pcsoft.framework.pluggiat.sandbox.process.der.DerCodec.
     implementation("org.bouncycastle:bcprov-jdk18on:${bouncyCastleVersion}")
+    // Reflective mapping of Kotlin data classes onto SandboxValue.ObjectValue for IP-04's complex-object
+    // support, see org.pcsoft.framework.pluggiat.sandbox.process.SandboxTypeSupport.
+    implementation(kotlin("reflect"))
 
-    testImplementation(kotlin("reflect"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
     testImplementation("org.junit.jupiter:junit-jupiter-params:${junitVersion}")
     // In-memory JDBC driver used only to test DatabasePersistenceStrategy against a real database.

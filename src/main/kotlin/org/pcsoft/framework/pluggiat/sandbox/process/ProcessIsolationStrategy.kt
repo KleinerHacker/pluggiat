@@ -19,8 +19,8 @@ import org.pcsoft.framework.pluggiat.sandbox.SandboxCheckResult
 import org.pcsoft.framework.pluggiat.sandbox.SandboxIsolationLevel
 import org.pcsoft.framework.pluggiat.sandbox.SandboxViolation
 import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxAgentNotActiveException
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessResponse
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessCall
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessResponse
 import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import org.slf4j.LoggerFactory
 import java.lang.reflect.InvocationHandler
@@ -97,7 +97,7 @@ class ProcessIsolationStrategy(
 
     /**
      * Creates (starting the subprocess on first use for [pluginId]) a `java.lang.reflect.Proxy` of
-     * [apiType] whose every call is encoded via [org.pcsoft.framework.pluggiat.sandbox.process.ber.BerCodec]
+     * [apiType] whose every call is encoded via [org.pcsoft.framework.pluggiat.sandbox.process.der.DerCodec]
      * and sent to [pluginId]'s subprocess, which instantiates/invokes [implementationClassName] there.
      *
      * A method whose signature [SandboxTypeSupport] rejects throws [UnsupportedSandboxTypeException]

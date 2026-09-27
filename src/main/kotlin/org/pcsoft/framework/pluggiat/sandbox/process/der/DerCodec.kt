@@ -10,17 +10,21 @@
  * See the License for the specific language governing permissions and limitations.
  */
 
-package org.pcsoft.framework.pluggiat.sandbox.process.ber
+package org.pcsoft.framework.pluggiat.sandbox.process.der
 
 import org.bouncycastle.asn1.ASN1Boolean
+import org.bouncycastle.asn1.ASN1Encodable
 import org.bouncycastle.asn1.ASN1EncodableVector
+import org.bouncycastle.asn1.ASN1Encoding
 import org.bouncycastle.asn1.ASN1InputStream
 import org.bouncycastle.asn1.ASN1Integer
 import org.bouncycastle.asn1.ASN1Object
 import org.bouncycastle.asn1.ASN1OutputStream
 import org.bouncycastle.asn1.ASN1Sequence
+import org.bouncycastle.asn1.ASN1Set
 import org.bouncycastle.asn1.DEROctetString
 import org.bouncycastle.asn1.DERSequence
+import org.bouncycastle.asn1.DERSet
 import org.bouncycastle.asn1.DERUTF8String
 import java.io.InputStream
 import java.io.OutputStream
@@ -73,19 +77,19 @@ sealed interface ProcessResponse {
 }
 
 /**
- * ASN.1 BER encoder/decoder (Bouncy Castle `org.bouncycastle.asn1.*`, `bcprov-jdk18on`) for
+ * ASN.1 DER encoder/decoder (Bouncy Castle `org.bouncycastle.asn1.*`, `bcprov-jdk18on`) for
  * [ProcessCall]/[ProcessResponse] messages exchanged over IP-04's process-isolation IPC socket.
  *
  * Deliberately minimal, closed ASN.1 type vocabulary (see [SandboxValue]): every value is
  * length-tagged with an explicit [ValueTag] `ASN1Integer` ahead of its payload rather than relying
  * on the payload's own concrete ASN.1 type, so decoding a [SandboxValue.IntValue] vs.
  * [SandboxValue.LongValue] (both backed by [ASN1Integer]) is unambiguous. Every encoded message is a
- * self-delimiting `DERSequence` (ASN.1 BER/DER TLV encoding carries its own length octets), so the
- * wire format needs no separate length prefix - see
+ * self-delimiting `DERSequence` (ASN.1 DER TLV encoding carries its own length octets), so the wire
+ * format needs no separate length prefix - see
  * [org.pcsoft.framework.pluggiat.sandbox.process.ProcessIpcClient]/[org.pcsoft.framework.pluggiat.sandbox.process.ProcessIpcServer]
  * for how one message is read off a socket's `InputStream` via [ASN1InputStream].
  */
-object BerCodec {
+object DerCodec {
     /**
      * Upper bound for a single decoded IPC message, handed to [ASN1InputStream] so a malformed or
      * hostile length header cannot make the decoder allocate arbitrarily much memory before the
@@ -96,9 +100,9 @@ object BerCodec {
      */
     const val MAX_MESSAGE_SIZE_BYTES: Int = 16 * 1024 * 1024
 
-    /** Discriminator tag written ahead of every [SandboxValue]'s payload, see [BerCodec]. */
+    /** Discriminator tag written ahead of every [SandboxValue]'s payload, see [DerCodec]. */
     private enum class ValueTag(val code: Int) {
-        INT(0), LONG(1), BOOLEAN(2), BYTES(3), STRING(4), LIST(5), UNIT(6);
+        INT(0), LONG(1), BOOLEAN(2), BYTES(3), STRING(4), LIST(5), UNIT(6), OBJECT(7);
 
         companion object {
             /**
@@ -120,6 +124,12 @@ object BerCodec {
             is SandboxValue.BytesValue -> ValueTag.BYTES to DEROctetString(value.value)
             is SandboxValue.StringValue -> ValueTag.STRING to DERUTF8String(value.value)
             is SandboxValue.ListValue -> ValueTag.LIST to DERSequence(value.values.map(::encodeValue).toTypedArray())
+            is SandboxValue.ObjectValue -> ValueTag.OBJECT to DERSet(
+                value.fields.map { (name, fieldValue) ->
+                    DERSequence(arrayOf<ASN1Encodable>(DERUTF8String(name), encodeValue(fieldValue)))
+                }.toTypedArray(),
+            )
+
             SandboxValue.UnitValue -> ValueTag.UNIT to DERSequence()
         }
         return DERSequence(arrayOf(ASN1Integer(tag.code.toLong()), payload))
@@ -141,6 +151,19 @@ object BerCodec {
             ValueTag.BYTES -> SandboxValue.BytesValue(DEROctetString.getInstance(payload).octets)
             ValueTag.STRING -> SandboxValue.StringValue(DERUTF8String.getInstance(payload).string)
             ValueTag.LIST -> SandboxValue.ListValue(ASN1Sequence.getInstance(payload).map { decodeValue(it.toASN1Primitive()) })
+            ValueTag.OBJECT -> {
+                val fields = LinkedHashMap<String, SandboxValue>()
+                for (element in ASN1Set.getInstance(payload)) {
+                    val fieldSequence = ASN1Sequence.getInstance(element.toASN1Primitive())
+                    require(fieldSequence.size() == 2) {
+                        "Malformed SandboxValue.ObjectValue field: expected 2 elements, got ${fieldSequence.size()}"
+                    }
+                    val name = DERUTF8String.getInstance(fieldSequence.getObjectAt(0)).string
+                    fields[name] = decodeValue(fieldSequence.getObjectAt(1).toASN1Primitive())
+                }
+                SandboxValue.ObjectValue(fields)
+            }
+
             ValueTag.UNIT -> SandboxValue.UnitValue
         }
     }
@@ -153,7 +176,7 @@ object BerCodec {
     private const val RESPONSE_TAG_FAILURE = 1L
 
     /**
-     * Encodes [call] as a self-delimiting ASN.1 BER `DERSequence` and writes it to [output], with
+     * Encodes [call] as a self-delimiting ASN.1 DER `DERSequence` and writes it to [output], with
      * [token] as the message's **first** field.
      *
      * The token goes first so the receiver can authenticate the sender before interpreting anything
@@ -185,7 +208,7 @@ object BerCodec {
         return AuthenticatedProcessCall(token, ProcessCall(implementationClassName, methodName, arguments))
     }
 
-    /** Encodes [response] as a self-delimiting ASN.1 BER `DERSequence` and writes it to [output]. */
+    /** Encodes [response] as a self-delimiting ASN.1 DER `DERSequence` and writes it to [output]. */
     fun writeResponse(response: ProcessResponse, output: OutputStream) {
         val vector = ASN1EncodableVector()
         when (response) {
@@ -220,10 +243,12 @@ object BerCodec {
      * Writes [sequence] to [output] without closing it - the socket connection carrying multiple
      * messages (or a caller-managed stream in tests) must stay open past a single [writeCall]/
      * [writeResponse] call, unlike [ASN1OutputStream.close]'s default behavior of closing its
-     * underlying stream too.
+     * underlying stream too. The encoding is explicitly pinned to [ASN1Encoding.DER] rather than
+     * relying on [ASN1OutputStream.create]'s default BER output stream, even though every value
+     * written here is already built from DER-only types (`DERSequence`, `DERSet`, `DERUTF8String`, ...).
      */
     private fun writeSequence(sequence: DERSequence, output: OutputStream) {
-        val asn1Output = ASN1OutputStream.create(output)
+        val asn1Output = ASN1OutputStream.create(output, ASN1Encoding.DER)
         asn1Output.writeObject(sequence)
         output.flush()
     }

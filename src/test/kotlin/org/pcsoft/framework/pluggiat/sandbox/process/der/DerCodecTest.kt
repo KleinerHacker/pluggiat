@@ -10,7 +10,7 @@
  * See the License for the specific language governing permissions and limitations.
  */
 
-package org.pcsoft.framework.pluggiat.sandbox.process.ber
+package org.pcsoft.framework.pluggiat.sandbox.process.der
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -19,14 +19,14 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
 /**
- * Verifies [BerCodec]'s encode/decode round trip for a [ProcessCall]/[ProcessResponse] without any
- * real socket - the pure ASN.1 BER (de)serialization logic in isolation.
+ * Verifies [DerCodec]'s encode/decode round trip for a [ProcessCall]/[ProcessResponse] without any
+ * real socket - the pure ASN.1 DER (de)serialization logic in isolation.
  */
-class BerCodecTest {
+class DerCodecTest {
 
     /**
      * Use case: a [ProcessCall] carrying one of every supported [SandboxValue] case (including a
-     * nested [SandboxValue.ListValue]) round-trips through [BerCodec.writeCall]/[BerCodec.readCall]
+     * nested [SandboxValue.ListValue]) round-trips through [DerCodec.writeCall]/[DerCodec.readCall]
      * unchanged, together with the IPC token it was written with.
      */
     @Test
@@ -46,15 +46,46 @@ class BerCodecTest {
         )
         val output = ByteArrayOutputStream()
 
-        BerCodec.writeCall(call, "test-ipc-token", output)
-        val decoded = BerCodec.readCall(ByteArrayInputStream(output.toByteArray()))
+        DerCodec.writeCall(call, "test-ipc-token", output)
+        val decoded = DerCodec.readCall(ByteArrayInputStream(output.toByteArray()))
 
         assertEquals("test-ipc-token", decoded.token)
         assertEquals(call, decoded.call)
     }
 
     /**
-     * Use case: a message whose value carries a tag outside [BerCodec]'s closed vocabulary is rejected
+     * Use case: an [SandboxValue.ObjectValue] carrying a mix of scalar fields, a nested
+     * [SandboxValue.ListValue] field and a nested [SandboxValue.ObjectValue] field round-trips through
+     * [DerCodec.writeCall]/[DerCodec.readCall] unchanged - the complex-object SET/SEQUENCE wire format.
+     */
+    @Test
+    fun `ObjectValue with nested fields round-trips through write and read`() {
+        val call = ProcessCall(
+            implementationClassName = "com.example.Impl",
+            methodName = "doSomethingComplex",
+            arguments = listOf(
+                SandboxValue.ObjectValue(
+                    fields = linkedMapOf(
+                        "name" to SandboxValue.StringValue("Ada"),
+                        "age" to SandboxValue.IntValue(37),
+                        "tags" to SandboxValue.ListValue(listOf(SandboxValue.StringValue("x"), SandboxValue.StringValue("y"))),
+                        "address" to SandboxValue.ObjectValue(
+                            fields = linkedMapOf("city" to SandboxValue.StringValue("London")),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val output = ByteArrayOutputStream()
+
+        DerCodec.writeCall(call, "test-ipc-token", output)
+        val decoded = DerCodec.readCall(ByteArrayInputStream(output.toByteArray()))
+
+        assertEquals(call, decoded.call)
+    }
+
+    /**
+     * Use case: a message whose value carries a tag outside [DerCodec]'s closed vocabulary is rejected
      * instead of being guessed at - an unknown tag can only come from a malformed or forged message.
      */
     @Test
@@ -78,7 +109,7 @@ class BerCodecTest {
         )
 
         assertThrows(IllegalArgumentException::class.java) {
-            BerCodec.readCall(ByteArrayInputStream(forged.encoded))
+            DerCodec.readCall(ByteArrayInputStream(forged.encoded))
         }
     }
 
@@ -97,12 +128,12 @@ class BerCodecTest {
         )
 
         assertThrows(IllegalArgumentException::class.java) {
-            BerCodec.readCall(ByteArrayInputStream(forged.encoded))
+            DerCodec.readCall(ByteArrayInputStream(forged.encoded))
         }
     }
 
     /**
-     * Use case: a message that declares more content than [BerCodec.MAX_MESSAGE_SIZE_BYTES] allows is
+     * Use case: a message that declares more content than [DerCodec.MAX_MESSAGE_SIZE_BYTES] allows is
      * rejected by the decoder instead of being allocated - a forged length header must not be able to
      * exhaust the heap of whoever reads it.
      */
@@ -110,7 +141,7 @@ class BerCodecTest {
     fun `a message larger than the size limit is rejected`() {
         // A definite-length octet string header claiming far more content than the limit permits, with
         // no content following it: the decoder has to refuse it on the header alone.
-        val claimedLength = BerCodec.MAX_MESSAGE_SIZE_BYTES.toLong() + 1
+        val claimedLength = DerCodec.MAX_MESSAGE_SIZE_BYTES.toLong() + 1
         val header = ByteArrayOutputStream()
         header.write(0x04)
         header.write(0x84)
@@ -120,36 +151,36 @@ class BerCodecTest {
         header.write((claimedLength and 0xFF).toInt())
 
         assertThrows(Exception::class.java) {
-            BerCodec.readCall(ByteArrayInputStream(header.toByteArray()))
+            DerCodec.readCall(ByteArrayInputStream(header.toByteArray()))
         }
     }
 
     /**
      * Use case: a successful [ProcessResponse.Success] round-trips through
-     * [BerCodec.writeResponse]/[BerCodec.readResponse] unchanged.
+     * [DerCodec.writeResponse]/[DerCodec.readResponse] unchanged.
      */
     @Test
     fun `ProcessResponse Success round-trips through write and read`() {
         val response = ProcessResponse.Success(SandboxValue.StringValue("result"))
         val output = ByteArrayOutputStream()
 
-        BerCodec.writeResponse(response, output)
-        val decoded = BerCodec.readResponse(ByteArrayInputStream(output.toByteArray()))
+        DerCodec.writeResponse(response, output)
+        val decoded = DerCodec.readResponse(ByteArrayInputStream(output.toByteArray()))
 
         assertEquals(response, decoded)
     }
 
     /**
      * Use case: a failed [ProcessResponse.Failure] round-trips through
-     * [BerCodec.writeResponse]/[BerCodec.readResponse] unchanged.
+     * [DerCodec.writeResponse]/[DerCodec.readResponse] unchanged.
      */
     @Test
     fun `ProcessResponse Failure round-trips through write and read`() {
         val response = ProcessResponse.Failure("boom")
         val output = ByteArrayOutputStream()
 
-        BerCodec.writeResponse(response, output)
-        val decoded = BerCodec.readResponse(ByteArrayInputStream(output.toByteArray()))
+        DerCodec.writeResponse(response, output)
+        val decoded = DerCodec.readResponse(ByteArrayInputStream(output.toByteArray()))
 
         assertEquals(response, decoded)
     }

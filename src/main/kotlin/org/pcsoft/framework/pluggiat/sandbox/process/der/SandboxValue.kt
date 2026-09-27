@@ -10,21 +10,21 @@
  * See the License for the specific language governing permissions and limitations.
  */
 
-package org.pcsoft.framework.pluggiat.sandbox.process.ber
+package org.pcsoft.framework.pluggiat.sandbox.process.der
 
 /**
  * The minimal, deliberately closed set of parameter/return value shapes IP-04's process isolation
- * IPC can transport across the subprocess boundary, encoded as ASN.1 BER via [BerCodec] (Bouncy
+ * IPC can transport across the subprocess boundary, encoded as ASN.1 DER via [DerCodec] (Bouncy
  * Castle `org.bouncycastle.asn1.*`).
  *
  * This is a hard, permanent limitation of process-isolated plugins, not a temporary gap: an
- * extension method whose parameter or return type does not map onto one of these cases (a
- * stateful/complex object, a generic type parameter that is not itself one of these cases, a
- * `Map`, ...) can never be called across the process boundary. [org.pcsoft.framework.pluggiat.sandbox.process.SandboxTypeSupport]
+ * extension method whose parameter or return type does not map onto one of these cases (a generic
+ * type parameter that is not itself one of these cases, a `Map`, ...) can never be called across the
+ * process boundary. [org.pcsoft.framework.pluggiat.sandbox.process.SandboxTypeSupport]
  * detects this ahead of time and [org.pcsoft.framework.pluggiat.sandbox.process.UnsupportedSandboxTypeException]
  * is thrown immediately at the proxy call site - the subprocess is never contacted for such a call.
  *
- * @see BerCodec
+ * @see DerCodec
  */
 sealed interface SandboxValue {
     /** A 32-bit integer parameter/return value. */
@@ -47,6 +47,14 @@ sealed interface SandboxValue {
 
     /** A homogeneous list of one of the other, non-[ListValue] [SandboxValue] cases. */
     data class ListValue(val values: List<SandboxValue>) : SandboxValue
+
+    /**
+     * A complex object's fields, keyed by field name - a Kotlin data class instance
+     * (see [org.pcsoft.framework.pluggiat.sandbox.process.SandboxTypeSupport]), encoded as an ASN.1
+     * `SET` whose elements are each a `SEQUENCE { fieldName UTF8String, fieldValue Value }`. A field's
+     * value may itself recursively be an [ObjectValue] or [ListValue].
+     */
+    data class ObjectValue(val fields: Map<String, SandboxValue>) : SandboxValue
 
     /** The `Unit`/`void` return value - carries no payload. */
     data object UnitValue : SandboxValue

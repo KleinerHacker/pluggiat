@@ -12,10 +12,13 @@
 
 package org.pcsoft.framework.pluggiat.sandbox.process
 
-import org.pcsoft.framework.pluggiat.sandbox.process.ber.SandboxValue
+import org.pcsoft.framework.pluggiat.sandbox.process.der.SandboxValue
 import java.lang.reflect.Method
 import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Type
+import kotlin.reflect.full.memberProperties
+import kotlin.reflect.full.primaryConstructor
+import kotlin.reflect.jvm.javaType
 
 /**
  * Checks an extension-point interface [Method]'s signature against IP-04's minimal, closed ASN.1
@@ -23,11 +26,13 @@ import java.lang.reflect.Type
  * the single source of truth [ProcessIsolationStrategy]'s proxy `InvocationHandler` consults
  * *before* ever contacting the subprocess, so an unsupported signature throws
  * [UnsupportedSandboxTypeException] locally instead of failing inside the subprocess (see
- * [org.pcsoft.framework.pluggiat.sandbox.process.ber.BerCodec]).
+ * [org.pcsoft.framework.pluggiat.sandbox.process.der.DerCodec]).
  *
- * Supported: `Int`/`Integer`, `Long`, `Boolean`, `ByteArray`/`byte[]`, `String`, `Unit`/`void`, and a
+ * Supported: `Int`/`Integer`, `Long`, `Boolean`, `ByteArray`/`byte[]`, `String`, `Unit`/`void`, a
  * `List<T>` of any of the former (`List` itself, not a narrower/wider `Collection` subtype, and not
- * nested another level deep).
+ * nested another level deep), and a Kotlin data class whose primary constructor parameters are each,
+ * recursively, one of the former (including another data class) - mapped onto/from
+ * [SandboxValue.ObjectValue].
  */
 object SandboxTypeSupport {
     /**
@@ -35,8 +40,10 @@ object SandboxTypeSupport {
      * one of the supported cases
      */
     // SECURITY: an allow-list of types, checked before the subprocess is even started. Only a closed,
-    // SECURITY: primitive-plus-String-plus-List vocabulary crosses the process boundary, which is what keeps
-    // SECURITY: the IPC free of arbitrary object graphs - i.e. free of Java deserialization as an attack path.
+    // SECURITY: primitive-plus-String-plus-List-plus-data-class vocabulary crosses the process boundary, which
+    // SECURITY: is what keeps the IPC free of arbitrary object graphs - i.e. free of Java deserialization as an
+    // SECURITY: attack path (a data class is only ever reconstructed via its own primary constructor, never via
+    // SECURITY: field injection or a no-arg constructor plus setters).
     fun requireSupported(method: Method) {
         unsupportedReason(method.genericReturnType)?.let {
             throw UnsupportedSandboxTypeException(method, "return type ${method.genericReturnType} is unsupported ($it)")
@@ -65,9 +72,22 @@ object SandboxTypeSupport {
             }
         }
 
+        type is Class<*> && type.kotlin.isData -> unsupportedDataClassReason(type)
+
         // SECURITY: anything not explicitly listed above is unsupported - new types have to be added
         // SECURITY: deliberately, they never become transferable by accident.
         else -> "not part of the IP-04 supported type set"
+    }
+
+    /** `null` if the data class [type] is supported (every primary constructor parameter is), otherwise why not. */
+    private fun unsupportedDataClassReason(type: Class<*>): String? {
+        val constructor = type.kotlin.primaryConstructor ?: return "data class ${type.name} has no primary constructor"
+        for (parameter in constructor.parameters) {
+            unsupportedReason(parameter.type.javaType)?.let {
+                return "field '${parameter.name}' of data class ${type.name} is unsupported ($it)"
+            }
+        }
+        return null
     }
 
     /** Encodes a plain JVM [value] (as passed into a proxy call) into its [SandboxValue] wire form. */
@@ -79,9 +99,28 @@ object SandboxTypeSupport {
         is ByteArray -> SandboxValue.BytesValue(value)
         is String -> SandboxValue.StringValue(value)
         is List<*> -> SandboxValue.ListValue(value.map(::encode))
-        // SECURITY: refuses to encode anything outside the vocabulary instead of falling back to a generic
-        // SECURITY: representation.
-        else -> throw IllegalArgumentException("Value of type ${value::class.java} is not encodable as a SandboxValue")
+        else -> encodeDataClass(value)
+    }
+
+    /**
+     * Encodes a Kotlin data class [value] into a [SandboxValue.ObjectValue] keyed by its primary
+     * constructor's parameter names - the same names [decode] reads back by, so field order on the
+     * wire (a `SET`) never matters.
+     *
+     * @throws IllegalArgumentException if [value] is not a data class instance, refusing to encode
+     * anything outside the vocabulary instead of falling back to a generic representation
+     */
+    private fun encodeDataClass(value: Any): SandboxValue.ObjectValue {
+        val kClass = value::class
+        require(kClass.isData) { "Value of type ${value::class.java} is not encodable as a SandboxValue" }
+        val properties = kClass.memberProperties.associateBy { it.name }
+        val fields = kClass.primaryConstructor!!.parameters.associate { parameter ->
+            val property = requireNotNull(properties[parameter.name]) {
+                "Data class ${kClass} has no property matching constructor parameter '${parameter.name}'"
+            }
+            parameter.name!! to encode(property.call(value))
+        }
+        return SandboxValue.ObjectValue(fields)
     }
 
     /** Decodes [value] back into a plain JVM value for [returnType] (a method's generic return type). */
@@ -96,6 +135,20 @@ object SandboxTypeSupport {
             value.values.map { decode(it, elementType) }
         }
 
+        is SandboxValue.ObjectValue -> decodeDataClass(value, returnType as Class<*>)
+
         SandboxValue.UnitValue -> if (returnType == Unit::class.java || returnType == Void.TYPE) Unit else null
+    }
+
+    /** Reconstructs [type]'s instance from [value]'s fields via [type]'s own primary constructor. */
+    private fun decodeDataClass(value: SandboxValue.ObjectValue, type: Class<*>): Any {
+        val constructor = requireNotNull(type.kotlin.primaryConstructor) { "Data class ${type.name} has no primary constructor" }
+        val args = constructor.parameters.map { parameter ->
+            val fieldValue = requireNotNull(value.fields[parameter.name]) {
+                "Missing field '${parameter.name}' to reconstruct ${type.name}"
+            }
+            decode(fieldValue, parameter.type.javaType)
+        }
+        return constructor.call(*args.toTypedArray())
     }
 }

@@ -67,9 +67,9 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   Mechanismus mehr, sondern erfordert eine bewusste Host-Konfiguration.
 * Es existiert keine Prozess- oder Modul-Isolation; alle Plugins laufen im selben JVM-Prozess wie
   der Host.
-* Das JDK bietet keine öffentliche API zur ASN.1-BER-Kodierung/-Dekodierung (nur interne,
+* Das JDK bietet keine öffentliche API zur ASN.1-Kodierung/-Dekodierung (nur interne,
   projektintern nicht nutzbare `sun.security`-Klassen). Der Nutzer hat vorgegeben, für die
-  BER-Kodierung/-Dekodierung die Fremdbibliothek **Bouncy Castle** (`org.bouncycastle:bcprov-jdk18on`,
+  ASN.1-Kodierung/-Dekodierung die Fremdbibliothek **Bouncy Castle** (`org.bouncycastle:bcprov-jdk18on`,
   Klassen wie `ASN1InputStream`/`ASN1OutputStream`/`DERSequence` etc.) einzusetzen; dies ist die
   in `dependencies.md` geforderte Nutzer-Abstimmung für diese neue Fremdabhängigkeit.
 * `PluginPersistenceStrategy` (`PluginPersistenceStrategy.kt:24`) ist ein generischer,
@@ -117,7 +117,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 * Für Plugins, die als besonders nicht vertrauenswürdig eingestuft werden (Location-Typ oder
   Manifest-Flag), steht optional eine **Prozessisolation** zur Verfügung: das Plugin läuft in
   einem separaten JVM-Subprozess und kommuniziert mit dem Host ausschließlich über ein
-  **TLV-Protokoll nach ASN.1 BER**, kodiert/dekodiert über **Bouncy Castle**, auf einfachen
+  **TLV-Protokoll nach ASN.1 DER**, kodiert/dekodiert über **Bouncy Castle**, auf einfachen
   `java.net`-Sockets (kein RMI, keine Java-Objektserialisierung) und kann dessen Prozessraum,
   Dateisystemzugriff und Ressourcen unabhängig vom Host-Prozess begrenzt bekommen (OS-Mittel:
   Working Directory, Umgebungsvariablen, ggf. Speicher-/CPU-Limits der gestarteten JVM). Eine
@@ -189,7 +189,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   geladenen Kandidaten derselben Id verdrängen.
 * Bestehende Extension-Points und der Lifecycle (`PluginLifecycle`) funktionieren unverändert für
   Plugins ohne aktivierte Sandbox bzw. mit In-VM-Sandbox; für prozessisolierte Plugins wird die
-  Extension-Aufruf-Semantik über die Bouncy-Castle-basierte ASN.1-BER/TLV-IPC-Schicht transparent
+  Extension-Aufruf-Semantik über die Bouncy-Castle-basierte ASN.1-DER/TLV-IPC-Schicht transparent
   nachgebildet, soweit technisch möglich.
 * Jede `PluginPersistenceStrategy`-Implementierung (dateibasiert, Datenbank, benutzerdefiniert)
   kann wahlweise durch einen Integritätsschutz-Decorator umschlossen werden, ohne dass Framework
@@ -207,7 +207,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
 * Keine Abhängigkeit von `java.lang.SecurityManager`/`AccessController` (JDK 25, JEP 486: entfernt).
 * Reine Kotlin/Gradle-Umsetzung, keine neue Fremdabhängigkeit ohne Rückfrage beim Nutzer
   (siehe `dependencies.md`); für die Prozessisolation ist **Bouncy Castle** als
-  ASN.1-BER-Bibliothek vom Nutzer vorgegeben und damit als Fremdabhängigkeit bestätigt - eine
+  ASN.1-Bibliothek vom Nutzer vorgegeben und damit als Fremdabhängigkeit bestätigt - eine
   eigene Serialisierungslösung entfällt dadurch für diesen Teil.
 * `PluginSandbox` ist die einzige öffentliche API-Oberfläche der Laufzeit-Sandbox; die konkreten
   `PluginSandboxStrategy`-Implementierungen (Agent, Thread-Watchdog, Prozessisolation) sind
@@ -268,12 +268,17 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   zuständig (Plattform → Whitelist → eigene JARs → Dependencies) und wird durch den Agenten
   ergänzt, nicht ersetzt. Der Agent meldet erkannte Verstöße ausschließlich über
   `PluginSandbox.reportViolation`, nie direkt an `PluginManager`.
-* Ein Package `org.pcsoft.framework.pluggiat.sandbox.process.ber` kapselt die Verwendung von
-  **Bouncy Castle** für die IPC-Nachrichten: Encoder/Decoder-Funktionen, die Extension-Aufrufe und
-  Rückgabewerte auf Bouncy-Castle-ASN.1-Typen (z. B. `ASN1Integer`, `ASN1Boolean`, `DEROctetString`,
-  `DERUTF8String`, `DERSequence`, `DERNull`) abbilden und über `ASN1OutputStream`/`ASN1InputStream`
-  auf dem Socket versenden/empfangen; der Typumfang orientiert sich am tatsächlich benötigten
-  Extension-Aufrufumfang, nicht an vollständiger ASN.1-Konformität.
+* Ein Package `org.pcsoft.framework.pluggiat.sandbox.process.der` (ursprünglich als `.ber`
+  angelegt, nachträglich auf ASN.1 DER statt BER umgestellt - siehe unten) kapselt die Verwendung
+  von **Bouncy Castle** für die IPC-Nachrichten: `DerCodec` bildet Extension-Aufrufe und
+  Rückgabewerte auf Bouncy-Castle-ASN.1-Typen ab (`ASN1Integer`, `ASN1Boolean`, `DEROctetString`,
+  `DERUTF8String`, `DERSequence`, `DERSet`) und versendet/empfängt sie über
+  `ASN1OutputStream`/`ASN1InputStream` (explizit mit `ASN1Encoding.DER`) auf dem Socket; der
+  Typumfang (`SandboxValue`) orientiert sich am tatsächlich benötigten Extension-Aufrufumfang,
+  nicht an vollständiger ASN.1-Konformität. Ein komplexes Objekt (eine Kotlin-Data-Class, deren
+  Felder rekursiv aus demselben Typumfang bestehen) wird zusätzlich als `SandboxValue.ObjectValue`
+  unterstützt - kodiert als ASN.1 `SET` von `SEQUENCE { fieldName UTF8String, fieldValue Value }`
+  -, automatisch gemappt über `SandboxTypeSupport` mittels `kotlin-reflect`.
 * Ein als prozessisoliert konfiguriertes Plugin durchläuft weiterhin den regulären In-VM-Ladepfad
   (Manifest, Abhängigkeiten, Extension-Point-/Konfigurations-Mapping); lediglich die
   Instanziierung seiner Extension-Implementierungsklassen entfällt, der zugehörige Subprozess wird
@@ -334,6 +339,15 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   Integritätsanspruch), wird aber intern von `PluginManager` nicht mehr für frisch geprüfte
   Kandidaten verwendet.
 
+**Nachträgliche Abweichung (nach Feature-Abschluss)**: Das IPC-Wireformat wurde von ASN.1 BER auf
+ASN.1 DER umgestellt (`ASN1OutputStream.create(output, ASN1Encoding.DER)` statt des BER-Defaults)
+und das Package `sandbox.process.ber`/die Klasse `BerCodec` in `sandbox.process.der`/`DerCodec`
+umbenannt. Zusätzlich unterstützt die IPC seither komplexe Objekte (Kotlin-Data-Classes,
+rekursiv aus dem bestehenden Typumfang) als `SandboxValue.ObjectValue`, automatisch gemappt über
+`kotlin-reflect` (neue `implementation`-Abhängigkeit, vom Nutzer bestätigt). Dies engt den in
+Abschnitt 6 beschriebenen "geschlossenen Typumfang" nicht ein, sondern erweitert ihn um einen
+weiteren, ebenso geschlossenen Fall.
+
 ## 6. Risks and Open Questions
 
 * **Kein `SecurityManager` verfügbar** (JDK 25 / JEP 486): jede In-VM-Durchsetzung basiert auf
@@ -368,7 +382,7 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   Schlüssel bleibt bis zu seinem regulären Ablauf vertrauenswürdig - eine bewusste, vom Nutzer
   akzeptierte Grenze.
 * **Performance-Overhead**: Bytecode-Instrumentierung, dedizierte Executors, Bouncy-Castle-ASN.1-
-  BER-IPC, HMAC-Berechnung pro Persistenzzugriff und vollständiges Einlesen der Kandidatenbytes
+  DER-IPC, HMAC-Berechnung pro Persistenzzugriff und vollständiges Einlesen der Kandidatenbytes
   vor dem Laden fügen Latenz/Speicherbedarf hinzu; ein Host mit performancekritischen
   Extension-Aufrufen kann die Sandbox gezielt abschalten.
 * **Abwärtskompatibilität**: Standardverhalten ohne konfigurierte Sandbox-Policy entspricht dem
@@ -393,7 +407,8 @@ zu seinen eigenen Gunsten manipuliert, sowie einer Härtung der Checksum-/Signat
   Host-Prozess nicht dauerhaft und wird als Sandbox-Verstoß erkannt.
 * Ein als prozessisoliert konfiguriertes Plugin läuft nachweislich in einem eigenen Prozess, dessen
   Absturz den Host-Prozess nicht beendet, dessen Kommunikation ausschließlich über das
-  Bouncy-Castle-basierte ASN.1-BER-TLV-Protokoll läuft, und dessen Extensions über die normale
+  Bouncy-Castle-basierte ASN.1-DER-TLV-Protokoll läuft (Werte inkl. komplexer Objekte als ASN.1
+  `SET`/`SEQUENCE`), und dessen Extensions über die normale
   `getExtensions`/`getFirstExtension`-API weiterhin nutzbar sind.
 * Eine direkte Manipulation der Persistenzdatei ohne Kenntnis des zugehörigen HMAC-Schlüssels wird
   beim nächsten `read` nachweislich erkannt und als "nicht gesetzt" behandelt, nicht stillschweigend
