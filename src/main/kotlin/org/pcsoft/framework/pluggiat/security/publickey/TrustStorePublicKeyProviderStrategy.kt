@@ -45,6 +45,8 @@ class TrustStorePublicKeyProviderStrategy(
             // SECURITY: an unknown alias resolves to null, which fails the signature check - it is never taken
             // SECURITY: as permission to accept any other key.
             logger.warn("No truststore entry found for plugin '{}' under alias '{}'", pluginId, alias)
+        } else {
+            logger.trace("Resolved public key for plugin '{}' from truststore alias '{}' via TrustStorePublicKeyProviderStrategy", pluginId, alias)
         }
         return key
     }

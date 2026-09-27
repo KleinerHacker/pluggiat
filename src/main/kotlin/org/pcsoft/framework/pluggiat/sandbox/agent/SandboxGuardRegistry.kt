@@ -15,6 +15,7 @@ package org.pcsoft.framework.pluggiat.sandbox.agent
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
 import org.pcsoft.framework.pluggiat.sandbox.SandboxApiCategory
 import org.pcsoft.framework.pluggiat.sandbox.SandboxViolation
+import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -50,6 +51,7 @@ import java.util.concurrent.ConcurrentHashMap
  * needs; `internal` only stops other *Kotlin* source from referencing this object directly.
  */
 internal object SandboxGuardRegistry {
+    private val logger = LoggerFactory.getLogger(SandboxGuardRegistry::class.java)
 
     /** What is currently known about one plugin class loader. */
     private sealed interface State {
@@ -85,6 +87,7 @@ internal object SandboxGuardRegistry {
     fun register(classLoader: ClassLoader, pluginId: String, policy: PluginSandboxPolicy, onViolation: (String, SandboxViolation) -> Unit) {
         // SECURITY: keyed by the plugin's class loader, which is the only thing a guard call can derive from
         // SECURITY: its caller - a plugin cannot present a different identity than the loader that defined it.
+        logger.trace("Registering sandbox guard policy for plugin '{}': allowedApiCategories={}", pluginId, policy.allowedApiCategories)
         states[classLoader] = State.Entry(pluginId, policy, onViolation)
     }
 
@@ -100,7 +103,10 @@ internal object SandboxGuardRegistry {
         // SECURITY: thread fail instead of finding no policy and being waved through (fail-closed).
         // SECURITY: computeIfPresent, so an unknown loader is not invented into the map - only loaders the
         // SECURITY: framework itself registered are tracked.
-        states.computeIfPresent(classLoader) { _, state -> State.Revoked(state.pluginId, state.onViolation) }
+        states.computeIfPresent(classLoader) { _, state ->
+            logger.trace("Revoking sandbox guard registration for plugin '{}' (fail-closed from now on)", state.pluginId)
+            State.Revoked(state.pluginId, state.onViolation)
+        }
     }
 
     /**
@@ -111,7 +117,8 @@ internal object SandboxGuardRegistry {
     fun release(classLoader: ClassLoader) {
         // SECURITY: gives up the fail-closed guarantee for this loader - only ever correct once none of its
         // SECURITY: classes can run again.
-        states.remove(classLoader)
+        val removed = states.remove(classLoader)
+        if (removed != null) logger.trace("Released sandbox guard registration for plugin '{}'", removed.pluginId)
     }
 
     /**
@@ -131,7 +138,14 @@ internal object SandboxGuardRegistry {
             is State.Entry -> {
                 // SECURITY: allow-list semantics - a category has to be listed explicitly to pass, so a new,
                 // SECURITY: unclassified category is denied rather than permitted by default.
-                if (category in state.policy.allowedApiCategories) return
+                if (category in state.policy.allowedApiCategories) {
+                    // Guarded by isTraceEnabled: this runs on every guarded call site in instrumented plugin
+                    // bytecode, so the varargs/formatting cost must not be paid when TRACE is disabled.
+                    if (logger.isTraceEnabled) {
+                        logger.trace("Allowed {} access from {} for plugin '{}' (allow-listed)", category, callerType.name, state.pluginId)
+                    }
+                    return
+                }
                 "Blocked $category access attempted from ${callerType.name}"
             }
 
@@ -145,6 +159,7 @@ internal object SandboxGuardRegistry {
             category = category,
             reason = reason,
         )
+        logger.trace("Denied {} access from {} for plugin '{}': {}", category, callerType.name, state.pluginId, reason)
         // SECURITY: the host is notified first, then the call is aborted - the notification must not depend
         // SECURITY: on anyone catching the exception.
         state.onViolation(state.pluginId, violation)

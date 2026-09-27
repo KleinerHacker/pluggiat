@@ -70,7 +70,9 @@ class ChecksumSecurityStrategy(
 
         val actualDigest = algorithm.digest(actualBytes)
         // SECURITY: compared via digestsEqual, i.e. in constant time - see DigestComparison.
-        val checkResult = if (digestsEqual(expectedDigest, actualDigest)) {
+        val matches = digestsEqual(expectedDigest, actualDigest)
+        logger.trace("{} checksum comparison for plugin '{}' via ChecksumSecurityStrategy: matches={}", algorithm.id, manifest.id, matches)
+        val checkResult = if (matches) {
             PluginSecurityCheckResult.Success
         } else {
             PluginSecurityCheckResult.Failure(

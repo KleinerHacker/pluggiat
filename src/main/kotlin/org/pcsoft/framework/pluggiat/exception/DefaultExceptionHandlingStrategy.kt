@@ -12,6 +12,7 @@
 
 package org.pcsoft.framework.pluggiat.exception
 
+import org.slf4j.LoggerFactory
 import kotlin.reflect.KClass
 
 /**
@@ -32,15 +33,24 @@ class DefaultExceptionHandlingStrategy(
     private val matrix: Map<KClass<out Throwable>, ExceptionHandlingAction> = STANDARD_MATRIX,
     private val parent: ExceptionHandlingStrategy? = null,
 ) : ExceptionHandlingStrategy {
+    private val logger = LoggerFactory.getLogger(DefaultExceptionHandlingStrategy::class.java)
 
     override fun resolve(throwable: Throwable): ExceptionHandlingAction {
-        lookup(throwable::class, matrix)?.let { return it }
-        parent?.let { return it.resolve(throwable) }
-        return if (throwable is Exception && throwable !is RuntimeException) {
+        lookup(throwable::class, matrix)?.let {
+            logger.trace("Resolved {} for {} via the configured matrix", it, throwable::class.simpleName)
+            return it
+        }
+        parent?.let {
+            logger.trace("No matrix entry for {}, delegating resolution to parent strategy {}", throwable::class.simpleName, it::class.simpleName)
+            return it.resolve(throwable)
+        }
+        val action = if (throwable is Exception && throwable !is RuntimeException) {
             ExceptionHandlingAction.IGNORE
         } else {
             ExceptionHandlingAction.UNLOAD
         }
+        logger.trace("Resolved {} for {} via the standard checked/unchecked fallback rule", action, throwable::class.simpleName)
+        return action
     }
 
     private fun lookup(kClass: KClass<*>, matrix: Map<KClass<out Throwable>, ExceptionHandlingAction>): ExceptionHandlingAction? {

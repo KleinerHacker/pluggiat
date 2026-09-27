@@ -22,6 +22,7 @@ import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxAgentNotActiveExceptio
 import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall
 import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessResponse
 import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
+import org.slf4j.LoggerFactory
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
@@ -52,12 +53,14 @@ import java.time.Duration
 class ProcessIsolationStrategy(
     private val startupTimeout: Duration = Duration.ofSeconds(15),
 ) : PluginSandboxStrategy {
+    private val logger = LoggerFactory.getLogger(ProcessIsolationStrategy::class.java)
 
     /** Invoked whenever a subprocess crashes or exits unexpectedly - wired by [org.pcsoft.framework.pluggiat.sandbox.PluginSandbox]. */
     var onViolation: (pluginId: String, violation: SandboxViolation) -> Unit = { _, _ -> }
 
     private val processManager: PluginProcessManager by lazy {
         PluginProcessManager(onCrash = { pluginId ->
+            logger.trace("Forwarding subprocess crash of plugin '{}' as a sandbox violation", pluginId)
             onViolation(
                 pluginId,
                 SandboxViolation(pluginId, category = null, reason = "Process-isolated plugin subprocess crashed or exited unexpectedly"),
@@ -79,6 +82,10 @@ class ProcessIsolationStrategy(
      * an in-VM plugin whose JVM was started without `-javaagent`.
      */
     override fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult {
+        logger.trace(
+            "ProcessIsolationStrategy.activate for plugin '{}': isolationLevel={}, requiresApiMediation={}",
+            loadedPlugin.pluginId, policy.isolationLevel, policy.requiresApiMediation,
+        )
         if (policy.isolationLevel == SandboxIsolationLevel.PROCESS &&
             policy.requiresApiMediation &&
             PluginProcessManager.sandboxAgentJar() == null
@@ -146,6 +153,7 @@ class ProcessIsolationStrategy(
             methodName = method.name,
             arguments = (args ?: emptyArray()).map { SandboxTypeSupport.encode(it) },
         )
+        logger.trace("Forwarding process-isolated call '{}.{}' for plugin '{}' to its subprocess", implementationClassName, method.name, pluginId)
         val response = try {
             ipcClient.call(call)
         } catch (e: java.io.IOException) {

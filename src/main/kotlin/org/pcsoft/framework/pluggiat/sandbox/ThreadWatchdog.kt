@@ -95,11 +95,19 @@ class ThreadWatchdog {
     fun <T> runGoverned(pluginId: String, policy: PluginSandboxPolicy, block: () -> T): T {
         // SECURITY: without a configured timeout there is nothing to govern - the call runs on the caller's
         // SECURITY: thread rather than silently gaining an extra thread.
-        val timeout = policy.callTimeout ?: return block()
+        val timeout = policy.callTimeout
+        if (timeout == null) {
+            logger.trace("Running call for plugin '{}' ungoverned - no callTimeout configured in policy", pluginId)
+            return block()
+        }
         // SECURITY: a re-entrant call of the same plugin runs inline: handing it to the same single-threaded
         // SECURITY: executor would deadlock, and a plugin able to deadlock its watchdog could stall the host.
-        if (currentPluginId.get() == pluginId) return block()
+        if (currentPluginId.get() == pluginId) {
+            logger.trace("Running reentrant call for plugin '{}' inline, bypassing the watchdog executor", pluginId)
+            return block()
+        }
 
+        logger.trace("Running governed call for plugin '{}' with timeout {} on its dedicated watchdog executor", pluginId, timeout)
         val slot = slots.compute(pluginId) { _, existing ->
             when (existing) {
                 is Slot.Ready -> existing
@@ -109,7 +117,10 @@ class ThreadWatchdog {
         }
         // SECURITY: a deactivated plugin gets no executor back - its calls are refused instead of resurrecting
         // SECURITY: a plugin that was just unloaded.
-        if (slot !is Slot.Ready) throw SandboxDeactivatedException(pluginId)
+        if (slot !is Slot.Ready) {
+            logger.trace("Refusing governed call for plugin '{}': marked deactivated (fail-closed)", pluginId)
+            throw SandboxDeactivatedException(pluginId)
+        }
         val executor = slot.executor
 
         val future = executor.submit(

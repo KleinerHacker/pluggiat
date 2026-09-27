@@ -147,6 +147,35 @@ class ThreadWatchdogTest {
     }
 
     /**
+     * Use case: when a governed call times out while a second governed call for the *same* plugin is
+     * still queued behind it on the single-thread executor, abandoning (`shutdownNow`) that executor
+     * finds pending work and takes the "had N pending sandbox-governed call(s) still queued at
+     * shutdown" warning path instead of the empty-queue path.
+     */
+    @Test
+    fun `a timeout with a call still queued behind it hits the pending-work shutdown path`() {
+        val watchdog = ThreadWatchdog()
+        val firstStartedLatch = CountDownLatch(1)
+
+        val secondCallThread = Thread {
+            runCatching {
+                watchdog.runGoverned("plugin-a", policyWithTimeout(5000)) { "queued" }
+            }
+        }
+
+        assertThrows(SandboxTimeoutException::class.java) {
+            watchdog.runGoverned("plugin-a", policyWithTimeout(50)) {
+                firstStartedLatch.countDown()
+                // Give the second call a moment to actually queue behind this one before we overrun our timeout.
+                secondCallThread.start()
+                Thread.sleep(200)
+                Thread.sleep(5000)
+            }
+        }
+        secondCallThread.join(5000)
+    }
+
+    /**
      * Use case: concurrent governed calls for the same plugin id are serialized on that plugin's
      * single-thread executor rather than running in parallel.
      */

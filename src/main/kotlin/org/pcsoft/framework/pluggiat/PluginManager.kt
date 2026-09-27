@@ -314,6 +314,7 @@ class PluginManager(val config: PluginManagerConfiguration) {
      */
     fun scan() {
         lock.withLock {
+            logger.trace("Starting scan of {} plugin location(s), each pre-checked via its effective PluginSecurity chain", config.pluginLocations.size)
             var results = scanner.scan(config.pluginLocations)
             results = IdCollisionResolver().resolve(results)
             results = results.map { result ->

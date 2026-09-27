@@ -44,6 +44,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `UnsupportedSandboxTypeException` immediately at the call site, without ever contacting the
   subprocess - a permanent limitation, not a temporary gap. Process isolation still runs the
   subprocess under the same OS user as the host, with no additional OS-level privilege separation.
+- Every security- and sandbox-relevant decision (signature/checksum verification, public key
+  resolution, sandbox guard checks, plugin dependency visibility, exception-handling resolution) is
+  now logged at TRACE level, naming the concrete strategy involved and the decision it made - so a
+  host can enable TRACE logging to fully follow why a plugin was accepted, rejected or blocked.
 
 ### Security
 

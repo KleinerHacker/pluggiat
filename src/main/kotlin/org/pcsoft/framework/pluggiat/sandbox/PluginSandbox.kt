@@ -76,13 +76,19 @@ class PluginSandbox(
      * plugin is governed normally again instead of being permanently rejected.
      */
     fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult {
+        logger.trace(
+            "Activating sandbox for plugin '{}' via strategy {} with policy(allowed={}, isolation={}, timeout={})",
+            loadedPlugin.pluginId, strategy::class.simpleName, policy.allowedApiCategories, policy.isolationLevel, policy.callTimeout,
+        )
         // SECURITY: clears a deactivation marker left by an earlier unload, so a freshly reloaded plugin is
         // SECURITY: governed normally again instead of being permanently rejected.
         watchdog.activate(loadedPlugin.pluginId)
         // SECURITY: process isolation gets to refuse activation first (e.g. no agent JAR for a restricted
         // SECURITY: policy), before any strategy reports success.
         processIsolation.activate(loadedPlugin, policy)
-        return strategy.activate(loadedPlugin, policy)
+        val result = strategy.activate(loadedPlugin, policy)
+        logger.trace("Sandbox activation for plugin '{}' via strategy {} resulted in {}", loadedPlugin.pluginId, strategy::class.simpleName, result)
+        return result
     }
 
     /**
@@ -116,6 +122,7 @@ class PluginSandbox(
         } else {
             logger.warn("Sandbox violation for plugin '{}': {}", pluginId, violation.reason)
         }
+        logger.trace("Forwarding sandbox violation for plugin '{}' to violationListener={}", pluginId, violationListener != null)
         violationListener?.invoke(pluginId, violation)
     }
 
@@ -136,6 +143,7 @@ class PluginSandbox(
      * [SandboxGuardRegistry] revocation (e.g. when no plugin was ever actually loaded for [pluginId])
      */
     fun deactivate(pluginId: String, classLoader: ClassLoader? = null) {
+        logger.trace("Deactivating sandbox for plugin '{}' (classLoader known={})", pluginId, classLoader != null)
         // SECURITY: marks the id deactivated and shuts its executor down, so a governed call racing with this
         // SECURITY: deactivation cannot keep running afterwards.
         watchdog.deactivate(pluginId)
@@ -157,7 +165,15 @@ class PluginSandbox(
         fun effectivePolicy(
             location: PluginLocation,
             sandboxPolicies: Map<PluginLocationType, PluginSandboxPolicy>,
-        ): PluginSandboxPolicy =
-            location.sandboxOverride ?: sandboxPolicies[location.type] ?: PluginSandboxPolicy.UNRESTRICTED
+        ): PluginSandboxPolicy {
+            val override = location.sandboxOverride
+            val policy = override ?: sandboxPolicies[location.type] ?: PluginSandboxPolicy.UNRESTRICTED
+            LoggerFactory.getLogger(PluginSandbox::class.java).trace(
+                "Resolved effective sandbox policy for location '{}' (type={}): source={}",
+                location.path, location.type,
+                if (override != null) "override" else if (sandboxPolicies.containsKey(location.type)) "default" else "unrestricted-fallback",
+            )
+            return policy
+        }
     }
 }

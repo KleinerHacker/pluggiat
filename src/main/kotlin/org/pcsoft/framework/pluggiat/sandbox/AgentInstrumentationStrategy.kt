@@ -16,6 +16,7 @@ import org.pcsoft.framework.pluggiat.classloader.LoadedPlugin
 import org.pcsoft.framework.pluggiat.sandbox.agent.PluginSandboxAgent
 import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxAgentNotActiveException
 import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxGuardRegistry
+import org.slf4j.LoggerFactory
 
 /**
  * The [PluginSandboxStrategy] that mediates a loaded plugin's access to risk-bearing JDK APIs via
@@ -33,11 +34,16 @@ import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxGuardRegistry
  * constructed).
  */
 class AgentInstrumentationStrategy : PluginSandboxStrategy {
+    private val logger = LoggerFactory.getLogger(AgentInstrumentationStrategy::class.java)
 
     /** Set once by [PluginSandbox] to its own [PluginSandbox.reportViolation]; a no-op until then. */
     var onViolation: (pluginId: String, violation: SandboxViolation) -> Unit = { _, _ -> }
 
     override fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult {
+        logger.trace(
+            "AgentInstrumentationStrategy.activate for plugin '{}': requiresApiMediation={}, agentActive={}",
+            loadedPlugin.pluginId, policy.requiresApiMediation, PluginSandboxAgent.isActive,
+        )
         // SECURITY: a restrictive policy without an active agent would be a promise nothing enforces - the
         // SECURITY: activation fails instead of loading the plugin with unmediated JDK access.
         if (policy.requiresApiMediation && !PluginSandboxAgent.isActive) {

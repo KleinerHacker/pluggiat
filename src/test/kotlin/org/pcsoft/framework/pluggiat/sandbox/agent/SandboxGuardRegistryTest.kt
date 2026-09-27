@@ -178,4 +178,37 @@ class SandboxGuardRegistryTest {
         SandboxGuardRegistry.check(Marker::class.java, SandboxApiCategory.FILESYSTEM)
         foreignClassLoader.close()
     }
+
+    /**
+     * Use case: [SandboxGuardRegistry.release] on a class loader with a live registration removes it
+     * entirely - a subsequent [SandboxGuardRegistry.check] finds no entry at all and is a silent no-op,
+     * instead of continuing to enforce (or fail-closed block) the now-discarded policy.
+     */
+    @Test
+    fun `release removes a live registration so a later check is a no-op`() {
+        val classLoader = Marker::class.java.classLoader
+        SandboxGuardRegistry.register(
+            classLoader, "example",
+            PluginSandboxPolicy(allowedApiCategories = emptySet()),
+        ) { _, _ -> }
+
+        SandboxGuardRegistry.release(classLoader)
+
+        // No policy is registered any more, so even a category the policy above would have blocked
+        // passes silently - this is what an unregistered (non-plugin) class loader looks like.
+        SandboxGuardRegistry.check(Marker::class.java, SandboxApiCategory.FILESYSTEM)
+    }
+
+    /**
+     * Use case: [SandboxGuardRegistry.release] for a class loader that has no registration at all is a
+     * silent no-op, without throwing or otherwise affecting the registry.
+     */
+    @Test
+    fun `release is a no-op for a class loader with no registration`() {
+        val foreignClassLoader = java.net.URLClassLoader(emptyArray())
+
+        SandboxGuardRegistry.release(foreignClassLoader)
+
+        foreignClassLoader.close()
+    }
 }

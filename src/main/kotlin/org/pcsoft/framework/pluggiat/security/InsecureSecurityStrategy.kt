@@ -29,6 +29,7 @@ class InsecureSecurityStrategy : PluginSecurityStrategy {
     // SECURITY: configured explicitly, by name, as a strategy in a location's chain - PluginSecurity refuses an
     // SECURITY: empty chain, so the only way to accept unverified plugins is to say so out loud here.
     override fun check(result: PluginScanResult): PluginSecurityCheckResult {
+        logger.trace("Strategy InsecureSecurityStrategy deliberately skips every cryptographic/checksum check for '{}'", result.path)
         logger.debug("No security check performed for candidate '{}', passed through as insecure", result.path)
         return PluginSecurityCheckResult.Success
     }

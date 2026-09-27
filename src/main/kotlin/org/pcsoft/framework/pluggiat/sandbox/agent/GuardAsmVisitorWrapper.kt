@@ -26,6 +26,9 @@ import net.bytebuddy.jar.asm.Opcodes
 import net.bytebuddy.jar.asm.Type
 import net.bytebuddy.pool.TypePool
 import org.pcsoft.framework.pluggiat.sandbox.SandboxApiCategory
+import org.slf4j.LoggerFactory
+
+private val logger = LoggerFactory.getLogger(GuardAsmVisitorWrapper::class.java)
 
 /**
  * Maps a single call-site instruction (owner/name/descriptor of an `INVOKE*` instruction, or of a
@@ -451,7 +454,10 @@ internal object GuardAsmVisitorWrapper : AsmVisitorWrapper.AbstractBase() {
         methods: MethodList<*>,
         writerFlags: Int,
         readerFlags: Int,
-    ): ClassVisitor = GuardClassVisitor(classVisitor, instrumentedType.internalName, typePool)
+    ): ClassVisitor {
+        logger.trace("Instrumenting plugin class '{}' with sandbox guard calls", instrumentedType.internalName)
+        return GuardClassVisitor(classVisitor, instrumentedType.internalName, typePool)
+    }
 }
 
 private class GuardClassVisitor(
@@ -526,6 +532,7 @@ private class GuardMethodVisitor(
 
     private fun emitGuard(category: SandboxApiCategory?) {
         if (category == null) return
+        logger.trace("Emitting sandbox guard call for category {} in instrumented class '{}'", category, ownerInternalName)
         // SECURITY: the *instrumented* class is baked in as a constant, not read from the call stack: a
         // SECURITY: plugin cannot forge it, and SandboxGuardRegistry resolves the policy from exactly this.
         super.visitLdcInsn(Type.getObjectType(ownerInternalName))

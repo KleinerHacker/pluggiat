@@ -69,6 +69,7 @@ object PluginSandboxAgent {
         // SECURITY: site, which is not more secure, only slower and harder to reason about.
         if (isActive) return
 
+        logger.trace("Installing pluggiat sandbox Java agent via strategy AgentInstrumentationStrategy (Byte Buddy AgentBuilder)")
         AgentBuilder.Default()
             // SECURITY: instruments method bodies only - no added members, no auxiliary types, and above
             // SECURITY: all no injected static initializer. Byte Buddy's default self-injection strategy

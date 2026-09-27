@@ -23,6 +23,7 @@ import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
 import org.pcsoft.framework.pluggiat.scanner.PluginScanStatus
 import org.pcsoft.framework.pluggiat.scanner.SingleJarScanStrategy
+import java.nio.file.Files
 import java.nio.file.Path
 
 class PluginSecurityTest {
@@ -156,6 +157,58 @@ class PluginSecurityTest {
         val result = PluginSecurity().reevaluate(location, jarPath, emptyMap())
 
         assertTrue(result is PluginSecurityCheckResult.Failure)
+    }
+
+    /**
+     * Use case: if the location's scan strategy no longer reports the candidate path at all any more
+     * (e.g. it was deleted between the original scan and this re-check), [PluginSecurity.reevaluate]
+     * fails with a message saying so, rather than a [NoSuchElementException] thrown out of the check.
+     */
+    @Test
+    fun `reevaluate fails when the candidate is no longer reported at all on re-check`(@org.junit.jupiter.api.io.TempDir tempDir: Path) {
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+
+        val result = PluginSecurity().reevaluate(location, tempDir.resolve("never-existed.jar"), emptyMap())
+
+        assertTrue(result is PluginSecurityCheckResult.Failure)
+        assertTrue((result as PluginSecurityCheckResult.Failure).reason.contains("no longer reported as a plugin candidate"))
+    }
+
+    /**
+     * Use case: [PluginSecurity.reevaluateAndPin] re-reads and pins the candidate's bytes, evaluates
+     * the chain against the pinned content, and on success returns that same [org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent]
+     * for reuse by the actual (re-)load.
+     */
+    @Test
+    fun `reevaluateAndPin pins the candidate and returns it on a successful check`(@org.junit.jupiter.api.io.TempDir tempDir: Path) {
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.writeJar(
+            jarPath,
+            mapOf("META-INF/plugin.yml" to org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.validManifestYaml("plugin-a")),
+        )
+        val strategy = FixedResultStrategy(PluginSecurityCheckResult.Success)
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy(), securityOverride = listOf(strategy))
+
+        val result = PluginSecurity().reevaluateAndPin(location, jarPath, emptyMap())
+
+        assertEquals(PluginSecurityCheckResult.Success, result.checkResult)
+        assertEquals(org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent.Single(Files.readAllBytes(jarPath)), result.pinnedContent)
+    }
+
+    /**
+     * Use case: [PluginSecurity.reevaluateAndPin] fails without any pinned content when the candidate
+     * is no longer valid on re-check - the same re-check that backs [PluginSecurity.reevaluate].
+     */
+    @Test
+    fun `reevaluateAndPin fails without pinned content when the candidate is no longer valid`(@org.junit.jupiter.api.io.TempDir tempDir: Path) {
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.writeJar(jarPath, emptyMap())
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+
+        val result = PluginSecurity().reevaluateAndPin(location, jarPath, emptyMap())
+
+        assertTrue(result.checkResult is PluginSecurityCheckResult.Failure)
+        assertEquals(null, result.pinnedContent)
     }
 
     /**

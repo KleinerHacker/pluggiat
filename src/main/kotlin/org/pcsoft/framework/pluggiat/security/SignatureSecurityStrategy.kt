@@ -169,7 +169,11 @@ class SignatureSecurityStrategy(
                     // SECURITY: being signed is not enough - it has to be signed with the key the host expects
                     // SECURITY: for this plugin, otherwise any self-signed key would do.
                     val matchingSigner = codeSigners.firstOrNull { signer -> signer.signerCertPath.certificates.firstOrNull()?.publicKey == expectedKey }
-                        ?: return PluginSecurityCheckResult.Failure("Entry '${entry.name}' of '$label' is not signed with the expected public key")
+                    if (matchingSigner == null) {
+                        logger.trace("Entry '{}' of '{}' has {} code signer(s), none matching the expected public key", entry.name, label, codeSigners.size)
+                        return PluginSecurityCheckResult.Failure("Entry '${entry.name}' of '$label' is not signed with the expected public key")
+                    }
+                    logger.trace("Entry '{}' of '{}' is signed with the expected public key", entry.name, label)
 
                     // No X.509 certificate means no validity period, no issuer and no revocation
                     // information - nothing that could be checked. Accepting such a signer (as a missing

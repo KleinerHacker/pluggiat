@@ -12,6 +12,7 @@
 
 package org.pcsoft.framework.pluggiat.classloader
 
+import org.slf4j.LoggerFactory
 import java.nio.file.Path
 
 /**
@@ -19,5 +20,10 @@ import java.nio.file.Path
  * framework's default strategy.
  */
 class UnrestrictedPluginDependencyStrategy : PluginDependencyStrategy {
-    override fun isVisible(from: Path, to: Path): Boolean = true
+    private val logger = LoggerFactory.getLogger(UnrestrictedPluginDependencyStrategy::class.java)
+
+    override fun isVisible(from: Path, to: Path): Boolean {
+        logger.trace("UnrestrictedPluginDependencyStrategy: allowing visibility from '{}' to '{}'", from, to)
+        return true
+    }
 }

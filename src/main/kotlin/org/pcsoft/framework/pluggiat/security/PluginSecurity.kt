@@ -195,8 +195,11 @@ class PluginSecurity(
      * strategy a second time for that message would read the candidate from disk again, which is both a
      * fresh chance for it to change and a second way to fail.
      */
-    private fun rescan(location: PluginLocation, path: Path): PluginScanResult? =
-        location.scanStrategy.scan(location).firstOrNull { it.path == path }
+    private fun rescan(location: PluginLocation, path: Path): PluginScanResult? {
+        val rescanned = location.scanStrategy.scan(location).firstOrNull { it.path == path }
+        logger.trace("Re-scanned candidate '{}' via {}: status={}", path, location.scanStrategy::class.simpleName, rescanned?.status)
+        return rescanned
+    }
 
     /** The failure message for a [rescan] result that is absent or no longer `LOADED`. */
     private fun rescanFailureMessage(path: Path, rescanned: PluginScanResult?): String =
@@ -235,7 +238,15 @@ class PluginSecurity(
         fun effectiveChain(
             location: PluginLocation,
             defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
-        ): List<PluginSecurityStrategy> =
-            location.securityOverride.ifEmpty { defaultSecurityChains[location.type] ?: emptyList() }
+        ): List<PluginSecurityStrategy> {
+            val override = location.securityOverride
+            val chain = override.ifEmpty { defaultSecurityChains[location.type] ?: emptyList() }
+            LoggerFactory.getLogger(PluginSecurity::class.java).trace(
+                "Resolved effective security chain for location '{}' (type={}): source={}, strategies={}",
+                location.path, location.type, if (override.isNotEmpty()) "override" else "default",
+                chain.map { it::class.simpleName },
+            )
+            return chain
+        }
     }
 }

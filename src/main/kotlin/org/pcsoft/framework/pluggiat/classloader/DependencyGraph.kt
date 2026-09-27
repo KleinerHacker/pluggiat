@@ -13,6 +13,7 @@
 package org.pcsoft.framework.pluggiat.classloader
 
 import org.pcsoft.framework.pluggiat.manifest.PluginManifest
+import org.slf4j.LoggerFactory
 import java.nio.file.Path
 
 /**
@@ -27,6 +28,7 @@ class CyclicDependencyException(val cycle: List<String>) :
  * `required`/`optional` dependencies, and detects dependency cycles.
  */
 internal object DependencyGraph {
+    private val logger = LoggerFactory.getLogger(DependencyGraph::class.java)
 
     /**
      * Returns [manifests] in an order where every plugin appears after every other plugin of
@@ -49,7 +51,15 @@ internal object DependencyGraph {
             return manifest.dependencies.mapNotNull { dependency ->
                 val target = byId[dependency.id] ?: return@mapNotNull null
                 val toLocation = locationOf(target)
-                target.takeIf { strategy.isVisible(fromLocation, toLocation) }
+                // SECURITY: cross-plugin visibility is decided here, once, for both dependency ordering and the
+                // SECURITY: actual dependency map handed to a plugin at load time (see PluginManager) - the two
+                // SECURITY: must never diverge.
+                val visible = strategy.isVisible(fromLocation, toLocation)
+                logger.trace(
+                    "Dependency visibility check via {} for '{}' -> '{}' (locations '{}' -> '{}'): {}",
+                    strategy::class.simpleName, manifest.id, dependency.id, fromLocation, toLocation, visible,
+                )
+                target.takeIf { visible }
             }
         }
 
