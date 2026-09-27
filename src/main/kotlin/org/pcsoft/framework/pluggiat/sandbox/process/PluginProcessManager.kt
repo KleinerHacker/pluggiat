@@ -12,70 +12,102 @@
 
 package org.pcsoft.framework.pluggiat.sandbox.process
 
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
+import org.pcsoft.framework.pluggiat.sandbox.agent.PluginSandboxAgent
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import org.slf4j.LoggerFactory
 import java.io.BufferedReader
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.SecureRandom
 import java.time.Duration
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * A single plugin's live subprocess: the OS [process] itself plus the [ipcClient] connected to its
- * [ProcessIpcServer].
+ * One running subprocess of a process-isolated plugin, with everything needed to talk to it and to
+ * clean up after it.
  */
 internal data class ManagedProcess(val process: Process, val ipcClient: ProcessIpcClient, val workingDirectory: Path)
 
 /**
- * Starts, tracks and tears down one JVM subprocess per process-isolated plugin id, on behalf of
- * [ProcessIsolationStrategy] - IP-04's subprocess lifecycle management (task 4 of its
- * implementation plan).
+ * Starts, tracks and stops the JVM subprocesses of process-isolated plugins (IP-04) and hands out one
+ * [ProcessIpcClient] per plugin id.
  *
- * A subprocess is a plain `java` JVM (resolved from `java.home`, see [javaExecutable]) running
- * [SubprocessBootstrapMain] as its main class, its own classpath set to the *current* JVM's own
- * classpath (`java.class.path`) so it always finds [SubprocessBootstrapMain]/[ProcessIpcServer]/the
- * `bcprov-jdk18on` classes regardless of whether the host runs from a built JAR or straight from
- * Gradle's test classpath; the plugin's own JAR(s) are passed as [SubprocessBootstrapMain]'s single
- * program argument and loaded there into their own, separate `URLClassLoader` - the plugin's classes
- * are therefore never on the subprocess JVM's own classpath, exactly mirroring the in-VM isolation
- * [org.pcsoft.framework.pluggiat.classloader.PluginClassLoader] provides.
+ * Each subprocess is started with:
+ * * the sandbox Java agent (`-javaagent:<this module's own JAR>`), so the plugin's classes are
+ *   instrumented for API mediation inside the subprocess exactly as they would be in the host - process
+ *   isolation alone bounds *what a plugin can reach through the host*, not what it does with the JDK,
+ *   and a subprocess without the agent would be a strictly weaker sandbox than an in-VM one;
+ * * a freshly generated, per-subprocess IPC token, which every call has to present (see
+ *   [ProcessIpcServer]);
+ * * the plugin's effective set of allowed [org.pcsoft.framework.pluggiat.sandbox.SandboxApiCategory]
+ *   values, which the subprocess registers as its own policy.
  *
- * Each subprocess gets its own fresh, empty temporary working directory (no access to the host's
- * current working directory), is expected to print exactly one `PLUGGIAT-PORT:<port>` handshake line
- * to stdout, and is watched for an unexpected exit via [Process.onExit] - see [onCrash].
- *
- * @property onCrash invoked with a plugin id whenever its subprocess exits without a prior [stop] -
- * wired by [ProcessIsolationStrategy] to report a [org.pcsoft.framework.pluggiat.sandbox.SandboxViolation]
- * exactly like an IP-03 timeout (category `null`, not [org.pcsoft.framework.pluggiat.sandbox.SandboxApiCategory] -
- * see the FP-002 feature plan's IP-05 scope note)
+ * @property onCrash invoked with the plugin id whenever a tracked subprocess exits without having been
+ * [stop]ped
  */
 class PluginProcessManager(private val onCrash: (pluginId: String) -> Unit = {}) {
     private val logger = LoggerFactory.getLogger(PluginProcessManager::class.java)
     private val processes = ConcurrentHashMap<String, ManagedProcess>()
 
-    /** Whether [pluginId] currently has a live, started subprocess. */
     fun isRunning(pluginId: String): Boolean = processes.containsKey(pluginId)
 
     /**
-     * Starts a fresh subprocess for [pluginId] loading [jarPaths], unless one is already running (in
-     * which case the existing one is reused). Blocks until the subprocess's `PLUGGIAT-PORT:` handshake
-     * line was read or [startupTimeout] elapses.
+     * Starts (or returns the already-running) subprocess for [pluginId] under [policy].
      *
-     * @throws ProcessIsolationStartupException if the subprocess could not be started, or did not
-     * complete its handshake within [startupTimeout]
+     * @param pluginPath the plugin's own location, used as the classpath source when [pinnedContent] is
+     * `null` and to reject a mounted ZIP candidate
+     * @param pinnedContent the plugin's security-checked bytes, written into the subprocess's private
+     * working directory and used as its classpath; `null` falls back to reading [pluginPath] from disk
+     * @param startupTimeout upper bound for the subprocess's port handshake
+     * @throws ProcessIsolationStartupException if the subprocess could not be started or did not
+     * complete its handshake
      */
-    fun start(pluginId: String, jarPaths: List<Path>, startupTimeout: Duration, callTimeout: Duration?): ProcessIpcClient {
+    fun start(
+        pluginId: String,
+        pluginPath: Path,
+        pinnedContent: PinnedPluginContent?,
+        policy: PluginSandboxPolicy,
+        startupTimeout: Duration,
+    ): ProcessIpcClient {
         processes[pluginId]?.let { return it.ipcClient }
 
         val workingDirectory = Files.createTempDirectory("pluggiat-plugin-$pluginId-")
+        val jarPaths = if (pinnedContent != null) {
+            PluginProcessClasspath.jarsFor(pinnedContent, pluginPath, workingDirectory)
+        } else {
+            logger.warn(
+                "Starting the subprocess of process-isolated plugin '{}' from its path instead of its " +
+                    "security-checked bytes - the candidate was never pinned, so it could have changed on disk since the check",
+                pluginId,
+            )
+            PluginProcessClasspath.jarsFor(pluginPath)
+        }
         val classpath = jarPaths.joinToString(File.pathSeparator) { it.toAbsolutePath().toString() }
-        val command = listOf(
-            javaExecutable(),
-            "-cp", System.getProperty("java.class.path"),
-            SubprocessBootstrapMain::class.java.name,
-            classpath,
-        )
+
+        // A fresh 256-bit secret per subprocess: it is the only thing separating the host's calls from
+        // those of any other local process that finds the subprocess's loopback port.
+        val token = newIpcToken()
+        val command = buildList {
+            // SECURITY: the same JVM that runs the host, so the subprocess cannot be steered to a different
+            // SECURITY: (older, unpatched) runtime through PATH.
+            add(javaExecutable())
+            // SECURITY: the agent makes the subprocess mediate guarded APIs at all; ProcessIsolationStrategy
+            // SECURITY: refuses a restrictive policy when there is no agent JAR to pass here.
+            sandboxAgentJar()?.let { add("-javaagent:$it") }
+            add("-cp")
+            add(System.getProperty("java.class.path"))
+            add(SubprocessBootstrapMain::class.java.name)
+            add(classpath)
+            add(pluginId)
+            add(token)
+            // SECURITY: the effective allow-list travels with the subprocess, so it enforces the same policy
+            // SECURITY: the host would - an empty list means nothing is allowed, not everything.
+            add(policy.allowedApiCategories.joinToString(",") { it.name })
+        }
         val process = try {
             ProcessBuilder(command)
                 .directory(workingDirectory.toFile())
@@ -94,7 +126,8 @@ class PluginProcessManager(private val onCrash: (pluginId: String) -> Unit = {})
             throw ProcessIsolationStartupException(pluginId, e.message ?: "handshake failed", e)
         }
 
-        val ipcClient = ProcessIpcClient(pluginId, port, callTimeout)
+        // SECURITY: only this client knows the token, so only its calls are accepted by the subprocess.
+        val ipcClient = ProcessIpcClient(pluginId, port, policy.callTimeout, token)
         val managed = ManagedProcess(process, ipcClient, workingDirectory)
         processes[pluginId] = managed
 
@@ -104,16 +137,12 @@ class PluginProcessManager(private val onCrash: (pluginId: String) -> Unit = {})
                 logger.warn("Subprocess of process-isolated plugin '{}' exited unexpectedly (exit code {})", pluginId, it.exitValue())
                 onCrash(pluginId)
             }
-            runCatching { workingDirectory.toFile().deleteRecursively() }
+            runCatching { managed.workingDirectory.toFile().deleteRecursively() }
         }
 
         return ipcClient
     }
 
-    /**
-     * Orderly shuts down [pluginId]'s subprocess, if any: `destroy()`, escalating to
-     * `destroyForcibly()` if it has not exited within [gracePeriod].
-     */
     fun stop(pluginId: String, gracePeriod: Duration = Duration.ofSeconds(3)) {
         val managed = processes.remove(pluginId) ?: return
         val process = managed.process
@@ -122,6 +151,8 @@ class PluginProcessManager(private val onCrash: (pluginId: String) -> Unit = {})
             logger.warn("Subprocess of plugin '{}' did not exit within {}, escalating to destroyForcibly()", pluginId, gracePeriod)
             process.destroyForcibly()
         }
+        // Removes the materialized pinned JARs together with the working directory - nothing of the
+        // plugin's code outlives its subprocess.
         runCatching { managed.workingDirectory.toFile().deleteRecursively() }
     }
 
@@ -164,11 +195,47 @@ class PluginProcessManager(private val onCrash: (pluginId: String) -> Unit = {})
         val exe = if (System.getProperty("os.name").lowercase().contains("win")) "java.exe" else "java"
         return Path.of(javaHome, "bin", exe).toString()
     }
+
+    companion object {
+        private val secureRandom = SecureRandom()
+
+        /** Length of a generated IPC token before Base64 encoding. */
+        private const val IPC_TOKEN_BYTES = 32
+
+        /**
+         * A fresh IPC token: [IPC_TOKEN_BYTES] bytes from [SecureRandom] (never
+         * [java.util.Random]/`Math.random`, whose output is predictable from a few observed values),
+         * Base64-URL encoded so it survives being passed as a plain program argument.
+         *
+         * Known limitation: a program argument is visible to other processes of the same machine (e.g.
+         * through `ps`), so the token authenticates the host against *unrelated* local processes, not
+         * against a local attacker who can already enumerate this user's process arguments.
+         */
+        private fun newIpcToken(): String {
+            val bytes = ByteArray(IPC_TOKEN_BYTES)
+            // SECURITY: SecureRandom, never java.util.Random - a predictable token is no token at all.
+            secureRandom.nextBytes(bytes)
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        }
+
+        /**
+         * This module's own JAR, which doubles as the sandbox Java agent (see `build.gradle.kts`), or
+         * `null` when the framework runs from an exploded class directory (a plain `./gradlew test`, an
+         * IDE run) where there is no agent JAR to pass.
+         *
+         * Resolved from [PluginSandboxAgent]'s own code source rather than from a configured path, so
+         * the subprocess is always instrumented by the very same build of the agent that is running in
+         * the host.
+         */
+        internal fun sandboxAgentJar(): Path? {
+            // SECURITY: derived from the agent class's own code source, not from configuration - the subprocess
+            // SECURITY: is always instrumented by the exact build running in the host.
+            val location = runCatching { PluginSandboxAgent::class.java.protectionDomain?.codeSource?.location }.getOrNull() ?: return null
+            val path = runCatching { Path.of(location.toURI()) }.getOrNull() ?: return null
+            return path.takeIf { it.toString().endsWith(".jar", ignoreCase = true) && Files.isRegularFile(it) }
+        }
+    }
 }
 
-/**
- * Thrown by [PluginProcessManager.start] when a process-isolated plugin's subprocess could not be
- * started or failed to complete its handshake in time.
- */
 class ProcessIsolationStartupException(pluginId: String, reason: String, cause: Throwable? = null) :
     RuntimeException("Process isolation subprocess for plugin '$pluginId' could not be started: $reason", cause)

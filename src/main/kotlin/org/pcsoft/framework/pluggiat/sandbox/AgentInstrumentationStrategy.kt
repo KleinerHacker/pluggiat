@@ -38,10 +38,14 @@ class AgentInstrumentationStrategy : PluginSandboxStrategy {
     var onViolation: (pluginId: String, violation: SandboxViolation) -> Unit = { _, _ -> }
 
     override fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult {
+        // SECURITY: a restrictive policy without an active agent would be a promise nothing enforces - the
+        // SECURITY: activation fails instead of loading the plugin with unmediated JDK access.
         if (policy.requiresApiMediation && !PluginSandboxAgent.isActive) {
             throw SandboxAgentNotActiveException(loadedPlugin.pluginId)
         }
 
+        // SECURITY: registering the policy is what gives the already-injected guard calls something to
+        // SECURITY: enforce; re-registering also clears a previous Revoked marker for this loader.
         SandboxGuardRegistry.register(loadedPlugin.classLoader, loadedPlugin.pluginId, policy, onViolation)
         return SandboxCheckResult.Success
     }

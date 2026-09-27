@@ -51,17 +51,24 @@ wird an der abgesicherten Aufrufstelle blockiert.
 | Kategorie | Abgesicherte APIs |
 |-----------|-------------------|
 | `FILESYSTEM` | `java.io`-Dateitypen (`File` bei *jedem* Member, `FileInputStream`/`FileOutputStream`/`FileReader`/`FileWriter`/`RandomAccessFile`, `FileDescriptor`); das vollständige `java.nio.file`-Gegenstück (`Files`, `Paths`, `FileSystem`/`FileSystems`, `DirectoryStream`, `WatchService`) samt der darunterliegenden SPI `java.nio.file.spi.FileSystemProvider`; `FileChannel`/`AsynchronousFileChannel`; die dateisystemberührenden `Path`-Member (`toRealPath`, `register`, `toFile`); dateiöffnende Konstruktoren von `PrintStream`/`PrintWriter`/`Scanner`/`Formatter`; `ZipFile`, `JarFile`, `ImageIO`, `FileHandler` |
-| `NETWORK` | `Socket`, `ServerSocket`, `DatagramSocket`, `MulticastSocket` (je bei *jedem* Member), `URLConnection`/`HttpURLConnection`/`JarURLConnection`, `URL.openConnection`/`openStream`/`getContent`, `java.net.http.HttpClient`, die `java.nio.channels`-Netzwerkkanäle samt des darunterliegenden Selector-Providers aus `java.nio.channels.spi`, die Socket-Factories aus `javax.net`/`javax.net.ssl`, DNS-Auflösung über `InetAddress`, `NetworkInterface`, `java.rmi` und `javax.naming` (JNDI) |
-| `REFLECTION` | die vollständigen Pakete `java.lang.reflect` und `java.lang.invoke` (`Field.get`/`set`/`setAccessible`, `Constructor.newInstance`, `Proxy`, `MethodHandle.invoke`, `VarHandle`, `MethodHandles.privateLookupIn`), die reflektiven `java.lang.Class`-Member (`forName`, `getDeclared*`, `getClassLoader`, …), `ClassLoader.defineClass`/`loadClass`, `ObjectInputStream` (Deserialisierung), `sun.misc.Unsafe`/`jdk.internal.misc.Unsafe` |
+| `NETWORK` | `Socket`, `ServerSocket`, `DatagramSocket`, `MulticastSocket` (je bei *jedem* Member), `URLConnection`/`HttpURLConnection`/`JarURLConnection`, `URL.openConnection`/`openStream`/`getContent`, `java.net.http.HttpClient`, die `java.nio.channels`-Netzwerkkanäle samt des darunterliegenden Selector-Providers aus `java.nio.channels.spi`, die Socket-Factories aus `javax.net`/`javax.net.ssl`, das JDK-eigene HTTP-*Server*-Paket `com.sun.net.httpserver` (eingehende Verbindungen), DNS-Auflösung über `InetAddress`, `NetworkInterface`, `java.rmi` und `javax.naming` (JNDI) |
+| `REFLECTION` | die vollständigen Pakete `java.lang.reflect` und `java.lang.invoke` (`Field.get`/`set`/`setAccessible`, `Constructor.newInstance`, `Proxy`, `MethodHandle.invoke`, `VarHandle`, `MethodHandles.privateLookupIn`), die reflektiven `java.lang.Class`-Member (`forName`, `getDeclared*`, `getClassLoader`, …), `ClassLoader.defineClass`/`loadClass`, `URLClassLoader` und `ModuleLayer` (bei *jedem* Member - beide laden Code, den das Framework nie gescannt, geprüft oder instrumentiert hat), `ServiceLoader` (instanziiert per Daten benannte Provider), `ObjectInputStream` (Deserialisierung), `sun.misc.Unsafe`/`jdk.internal.misc.Unsafe` |
 | `PROCESS_START` | `ProcessBuilder`, `Process`, `ProcessHandle`, `Runtime.exec`/`halt`/`addShutdownHook`, `System.exit` sowie das Laden nativen Codes (`System.load`/`loadLibrary`) |
-| `THREAD_CREATION` | Erzeugen/Starten von `Thread` (auch virtuelle Threads), `ThreadGroup`, `Executors`, Konstruktion von `ThreadPoolExecutor`/`ScheduledThreadPoolExecutor`/`ForkJoinPool`/`Timer`, `ForkJoinPool.commonPool`, die asynchronen `CompletableFuture`-Stufen |
+| `THREAD_CREATION` | Erzeugen/Starten von `Thread` (auch virtuelle Threads), `ThreadGroup`, `Executors`, Konstruktion von `ThreadPoolExecutor`/`ScheduledThreadPoolExecutor`/`ForkJoinPool`/`Timer`, `ForkJoinPool.commonPool`, `ForkJoinTask` (bei *jedem* Member), implizite Parallelität über `Stream.parallel()` und `Collection.parallelStream()`, die asynchronen `CompletableFuture`-Stufen |
 
 Die Absicherung beschränkt sich nicht auf die wörtlich genannten Typen:
 
 * **Subklassen sind erfasst.** Definiert ein Plugin `class MyFile : File` und ruft `myFile.delete()`
   auf, greift der Guard ebenfalls - der Agent löst die Typhierarchie der Aufrufstelle auf und wendet
   den Guard des Basistyps an, inklusive dessen Member-Unterscheidungen (eine `Thread`-Subklasse wird
-  bei `start()` blockiert, darf aber weiter `currentThread()` aufrufen).
+  bei `start()` blockiert, darf aber weiter `currentThread()` aufrufen). Eine `URLClassLoader`-Subklasse
+  erbt den Ganztyp-Guard dieses Typs und nicht die engeren Member-Regeln von `ClassLoader`.
+* **Die eigenen Klassen des Frameworks sind unerreichbar.** Ein Plugin kann keine eigene Kopie einer
+  `org.pcsoft.framework.pluggiat`-Klasse oder -Ressource mitbringen: diese werden immer vom Host
+  aufgelöst, vor der SDK-Whitelist und vor den eigenen JARs des Plugins (siehe
+  [SDK-Whitelist](sdk-whitelist.de.md)). Ohne das würden bei einem Plugin, das eine eigene
+  Guard-Registry-Klasse mitliefert, seine Guard-Aufrufe in eine von ihm kontrollierte Registry
+  auflösen.
 * **Reflektive und indirekte Zugriffe sind erfasst.** Sowohl Reflection à la `Method.invoke` als auch
   Methoden*referenzen* (`Files::readAllBytes`, die keine direkte Aufrufinstruktion erzeugen) werden
   abgesichert.
@@ -138,6 +145,11 @@ Ein `POTENTIAL_ATTACK`-Kandidat kann **nie** erneut per Force-Load geladen werde
 (`PluginManager.forceLoad` wirft `IllegalStateException`) und kann nie einen `LOADED`-Kandidaten
 derselben Plugin-ID über den `IdCollisionResolver` verdrängen - anders als jeder andere
 Nicht-`LOADED`-Status gibt es dafür keine Host-Überschreibung.
+
+Das Entladen eines Plugins vergisst dessen Policy nicht nur, es **widerruft** sie: Bei einem Thread,
+den das Plugin weiterlaufen ließ, wird von da an jeder abgesicherte Aufruf blockiert, und der Verstoß
+wird weiterhin markiert, persistiert und gemeldet, obwohl das Plugin bereits weg ist. Ein Plugin kann
+sich also keinen abgesicherten Zugriff verschaffen, indem es erst *nach* dem Entladen angreift.
 
 ## Thread- und Zeitlimit-Governance
 
@@ -254,11 +266,12 @@ sequenceDiagram
 
     Host->>Host: erster Aufruf auf dem Proxy
     alt Subprozess läuft noch nicht
-        Host->>Mgr: start(pluginId, jarPaths)
-        Mgr->>Sub: java -cp ... SubprocessBootstrapMain starten
+        Host->>Mgr: start(pluginId, pinnedContent, policy)
+        Mgr->>Sub: java -javaagent:<pluggiat.jar> ... SubprocessBootstrapMain starten<br/>(Classpath, pluginId, IPC-Token, erlaubte Kategorien)
+        Sub->>Sub: Policy für den Classloader des Plugins registrieren
         Sub-->>Mgr: stdout "PLUGGIAT-PORT:<port>"
     end
-    Host->>Sub: Loopback-Socket öffnen, BER-kodierten Aufruf schreiben
+    Host->>Sub: Loopback-Socket öffnen, BER-kodierten Aufruf schreiben (mit IPC-Token)
     Sub->>Ext: Reflection: Method.invoke(...)
     Ext-->>Sub: Rückgabewert / Ausnahme
     Sub-->>Host: BER-kodierte Antwort, Socket geschlossen
@@ -277,25 +290,38 @@ sequenceDiagram
    Hosts) mit `SubprocessBootstrapMain` als Hauptklasse zu starten - mit den JAR-Pfaden des Plugins
    als einzigem Programmargument und einem frischen, leeren temporären Arbeitsverzeichnis. Jeder
    spätere Aufruf für dieselbe Plugin-Id verwendet denselben Subprozess wieder.
-3. **Der Subprozess baut seinen eigenen, ausschließlich plugin-bezogenen Classloader.**
-   `SubprocessBootstrapMain` öffnet einen schlichten `URLClassLoader` über die JAR(s) des Plugins,
-   direkt dem Platform-Classloader des JDK untergeordnet - bewusst *nicht* dem
-   Application-Classloader der startenden JVM - sodass der Subprozess immer nur die eigenen Klassen
-   des Plugins plus das JDK sehen kann, analog zu dem, was `PluginClassLoader` bereits in der VM
-   durchsetzt.
-4. **Ein einzeiliger Handshake liefert den Port zurück.** Der Subprozess öffnet einen
+3. **Der Subprozess setzt dieselbe Policy durch wie der Host.** Er wird mit dem eigenen JAR von
+   pluggiat als `-javaagent` und mit der effektiven Menge der erlaubten `SandboxApiCategory`-Werte des
+   Plugins als Programmargument gestartet, die er für den Classloader des Plugins registriert - ein
+   abgesicherter Aufruf innerhalb des Subprozesses wird also genau nach den Regeln blockiert, die auch
+   in der VM gelten würden. Das Aktivieren einer *eingeschränkten*, prozessisolierten Policy schlägt
+   mit `SandboxAgentNotActiveException` fehl, wenn kein Agent-JAR zum Übergeben verfügbar ist (z. B.
+   wenn das Framework selbst aus einem entpackten Klassenverzeichnis läuft), statt das Plugin ohne
+   Mediation auszuführen.
+4. **Jeder Aufruf wird authentifiziert.** Der Subprozess lauscht auf einem Loopback-Port, den jeder
+   Prozess auf der Maschine erreichen kann - ein Port ist kein Berechtigungsnachweis. Jeder Aufruf
+   führt daher ein je Subprozess erzeugtes Token mit sich, erzeugt mit `SecureRandom` und
+   laufzeitkonstant verglichen; ein Aufruf ohne dieses Token wird abgewiesen und nie weitergeleitet.
+   Eine dekodierte Nachricht ist zusätzlich auf 16 MiB begrenzt.
+5. **Der Subprozess baut seinen eigenen, ausschließlich plugin-bezogenen Classloader.**
+   `SubprocessBootstrapMain` öffnet einen `PluginClassLoader` über die JAR(s) des Plugins - sodass der
+   Agent die Klassen des Plugins dort instrumentiert und die eigenen Klassen des Frameworks immer aus
+   der eigenen Kopie des Subprozesses kommen - und zwar ganz ohne SDK-Whitelist, sodass der Subprozess
+   immer nur die eigenen Klassen des Plugins plus das JDK sehen kann, analog zu dem, was
+   `PluginClassLoader` bereits in der VM durchsetzt.
+6. **Ein einzeiliger Handshake liefert den Port zurück.** Der Subprozess öffnet einen
    `ProcessIpcServer` auf einem vom Betriebssystem vergebenen Loopback-Port und gibt genau eine
    Zeile `PLUGGIAT-PORT:<port>` auf stdout aus; der `PluginProcessManager` liest diese Zeile zurück
    (begrenzt durch ein Start-Timeout), um den Verbindungsport zu erfahren, und leitet den restlichen
    stdout-Ausgabestrom des Subprozesses in ein Debug-Log ab.
-5. **Jeder Aufruf öffnet einen frischen Loopback-Socket.** Der `ProcessIpcClient` hält bewusst keine
+7. **Jeder Aufruf öffnet einen frischen Loopback-Socket.** Der `ProcessIpcClient` hält bewusst keine
    dauerhafte Verbindung offen - jeder einzelne Extension-Aufruf öffnet seinen eigenen
    Loopback-`Socket`, kodiert den Aufruf (Name der Implementierungsklasse, Methodenname,
    ASN.1-BER-kodierte Argumente) über `BerCodec`, schreibt ihn und liest genau eine BER-kodierte
    Antwort auf demselben Socket zurück. Ein Socket pro Aufruf hält die Zuordnung von Anfrage und
    Antwort trivial (kein Multiplexing, keine Aufruf-Ids), zum Preis eines TCP-Handshakes pro Aufruf
    - vernachlässigbar neben einem JVM-Roundtrip.
-6. **Der Subprozess verteilt die Aufrufe per einfacher Reflection.** Der `ProcessIpcServer`
+8. **Der Subprozess verteilt die Aufrufe per einfacher Reflection.** Der `ProcessIpcServer`
    dekodiert den eingehenden Aufruf, ermittelt die Zielinstanz der Extension-Implementierung anhand
    des Klassennamens (instanziiert sie träge und hält sie im Cache), findet die passende Methode
    über Name und Parameteranzahl, dekodiert die Argumente, ruft sie über `Method.invoke` auf und
@@ -303,12 +329,12 @@ sequenceDiagram
    Durch das Cachen der Instanz behält eine zustandsbehaftete Extension-Implementierung ihren
    Zustand über Aufrufe hinweg für die Lebensdauer des Subprozesses - genau wie eine
    In-VM-Singleton-Extension-Instanz.
-7. **`callTimeout` begrenzt, sofern konfiguriert, das Lesen auf dem Socket** auf Host-Seite
+9. **`callTimeout` begrenzt, sofern konfiguriert, das Lesen auf dem Socket** auf Host-Seite
    (`Socket.soTimeout`): Ein Subprozess, der nie antwortet, lässt den Aufruf mit
    `SandboxTimeoutException` fehlschlagen, statt den Host-Thread dauerhaft zu blockieren - genau wie
    bei einem in der VM gesteuerten Aufruf (siehe
-   [Thread- und Zeitlimit-Governance](#thread--und-zeitlimit-governance) oben).
-8. **Der Abbau erfolgt geordnet, dann erzwungen.** Das Entladen/Neuladen des Plugins ruft `destroy()`
+   [Thread- und Zeitlimit-Governance](#thread-und-zeitlimit-governance) oben).
+10. **Der Abbau erfolgt geordnet, dann erzwungen.** Das Entladen/Neuladen des Plugins ruft `destroy()`
    auf dem Subprozess auf, mit Eskalation zu `destroyForcibly()`, falls er nicht innerhalb einer
    kurzen Karenzzeit beendet ist; sein temporäres Arbeitsverzeichnis wird danach gelöscht. Ein
    *unerwartetes* Beenden (der Subprozess stirbt von selbst) wird über `Process.onExit()` erkannt und
@@ -338,10 +364,15 @@ Extension-Point-API auf den unterstützten Typumfang eingrenzen oder dieses Plug
 * Ein prozessisoliertes Plugin muss aus einem einfachen JAR oder Ordner-Verzeichnis geladen werden -
   nicht aus einem `ZIP_JAR`-Verzeichnis, da der Subprozess einen echten Dateisystempfad für den
   eigenen Klassenpfad benötigt.
-* Die JAR(s) des Plugins werden für den Klassenpfad des Subprozesses direkt erneut von der Platte
-  gelesen, nicht aus der gepinnten Im-Speicher-Kopie der Sicherheitskette - anders als beim
-  In-VM-Laden öffnet dies für prozessisolierte Plugins gezielt wieder ein schmales
-  Check-to-Load-TOCTOU-Fenster.
+* Das IPC-Token wird dem Subprozess als Programmargument übergeben, das andere Prozesse *desselben
+  OS-Benutzers* lesen können (z. B. über `ps`). Es trennt die Aufrufe des Hosts von unbeteiligten
+  lokalen Prozessen, nicht von einem lokalen Angreifer, der die Prozessargumente dieses Benutzers
+  bereits auflisten kann.
+* Bei einem Kandidaten, der von der Sicherheitskette nie gepinnt wurde (also außerhalb des regulären
+  Scan-Pfads geladen wurde), werden seine JAR(s) für den Klassenpfad des Subprozesses weiterhin erneut
+  von der Platte gelesen, was für diesen Fall das Check-to-Load-Fenster wieder öffnet; ein regulär
+  gescannter Kandidat wird aus seinen sicherheitsgeprüften Bytes gestartet, die in das eigene temporäre
+  Arbeitsverzeichnis des Subprozesses geschrieben werden.
 
 ### Sicherheitsempfehlungen
 

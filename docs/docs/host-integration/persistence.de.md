@@ -133,11 +133,37 @@ val strategy = IntegrityProtectedPersistenceStrategy(
 ```
 
 Der Schlüssel unter `keyPath` wird beim ersten Zugriff einmalig per `SecureRandom` erzeugt (nie Teil
-einer JAR, nie hartkodiert) und bei jedem weiteren Start wiederverwendet. Ein gespeicherter Wert,
-dessen HMAC nicht mehr passt, wird bei `read` als `null` zurückgegeben, so als wäre er nie gesetzt
-worden, begleitet von einem `WARN`-Log-Eintrag - dies ist eine Erschwerung/Erkennung innerhalb
-desselben Prozesses und OS-Benutzers, keine Garantie gegen Code, der in genau diesem Prozess und
-unter demselben Benutzer läuft.
+einer JAR, nie hartkodiert) und bei jedem weiteren Start wiederverwendet. Die Schlüsseldatei wird nur
+für ihren Eigentümer les- und schreibbar angelegt (POSIX `600` bzw. eine ACL nur für den Eigentümer
+unter Windows), und eine bestehende Schlüsseldatei, die über ihren Eigentümer hinaus zugänglich ist,
+wird als `WARN` gemeldet - wer sie lesen kann, kann jeden gespeicherten HMAC fälschen. Ein
+gespeicherter Wert, dessen HMAC nicht mehr passt, wird bei `read` als `null` zurückgegeben, so als
+wäre er nie gesetzt worden, begleitet von einem `WARN`-Log-Eintrag - dies ist eine
+Erschwerung/Erkennung innerhalb desselben Prozesses und OS-Benutzers, keine Garantie gegen Code, der
+in genau diesem Prozess und unter demselben Benutzer läuft.
+
+Der MAC deckt `(pluginId, key, value)` ab, wobei jedes Feld mit einem Längenpräfix versehen wird -
+ein gespeicherter MAC ist also für genau dieses Tripel gültig: Verschiebt man ihn auf eine andere
+Plugin-ID oder einen anderen Schlüssel, verifiziert er dort nicht. Gespeicherte MACs werden
+laufzeitkonstant verglichen, und ein fehlender MAC-Eintrag zählt als Abweichung, nicht als
+"ungeschützt" - ihn zu löschen führt nicht dazu, dass ein gefälschter Wert akzeptiert wird.
+
+!!! warning "Zustand, der von einer früheren Version geschrieben wurde, wird nicht akzeptiert"
+
+    Die Eingabekodierung des MAC hat sich mit dieser Härtung geändert, sodass Werte, die von einer
+    früheren pluggiat-Version gespeichert wurden, als nicht gesetzt zurückgelesen werden (als `WARN`
+    protokolliert, genau wie ein manipulierter Wert). Für den eigenen Zustand von pluggiat bedeutet
+    das, dass ein Enabled-Flag oder eine akzeptierte Prüfsumme noch einmal bestätigt wird; es gehen
+    keine Daten verloren, die nicht erneut hergeleitet werden können.
+
+`FilePersistenceStrategy` schreibt ihre Datei zusätzlich atomar (eine temporäre Datei im selben
+Verzeichnis plus ein Rename) und nur für den Eigentümer zugänglich, sodass ein Leser nie einen halb
+geschriebenen Zustand sieht und ein anderer lokaler Benutzer nicht bearbeiten kann, welches Plugin
+aktiviert ist oder welche Prüfsumme akzeptiert wurde. In den Formaten `PROPERTIES`/`XML` werden
+Plugin-ID und Schlüssel mit `|` statt mit `.` verbunden, da `.` innerhalb einer Plugin-ID zulässig
+ist und die Abflachung dadurch mehrdeutig wurde - von einer früheren Version geschriebene Einträge
+werden mit einem `WARN` ignoriert (`JSON`/`YAML` sind nicht betroffen).
+`DatabasePersistenceStrategy` schreibt jeden Wert in einer einzigen Transaktion.
 
 ## Eine eigene Implementierung schreiben
 

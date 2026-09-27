@@ -307,6 +307,28 @@ apply regardless of which strategy or strategies a location uses:
   (`PluginScanStatus.LOADED`); a candidate that failed its check keeps its own status and can no
   longer win a colliding id away from an already-verified candidate by simply declaring a higher
   manifest `version`.
+* **Reading a candidate is bounded.** Before any strategy runs, the candidate's own bytes are read
+  under fixed limits: candidate file size and total candidate size, unpacked size per archive entry and
+  per candidate, archive nesting depth, and manifest size. A candidate exceeding one of them becomes a
+  `SECURITY_PROBLEM` with the limit named in its `errorMessage`, instead of taking the host JVM down
+  with an `OutOfMemoryError` while merely being read - an attack that would otherwise need neither a
+  signature nor a successful load. The limits are deliberately not configurable.
+* **Every entry of a signed JAR must really be signed.** `SignatureSecurityStrategy` exempts only the
+  signature files the JAR verifier actually consumes (`META-INF/MANIFEST.MF` plus each `.SF` *with* its
+  matching signature block). An entry added after signing, or one merely named like signing metadata,
+  has to carry a matching signer like any other - so a signed JAR cannot be used as an envelope for
+  unsigned content. A signer presenting no X.509 certificate is rejected as well, since its validity
+  could not be checked at all.
+* **A keyserver's answer is bound to the key id that was requested.** `OpenPgpKeyserverPublicKeyProviderStrategy`
+  searches every key ring of the response and accepts only a key whose fingerprint or 64-bit key id
+  matches the one asked for; anything else resolves to `null`. Its base URL must use `https://` (a
+  loopback host may use plain HTTP), so the response cannot be replaced in transit.
+* **Accepting a candidate accepts its checked bytes.** `PluginManager.write` and
+  `ChecksumSecurityStrategy.persist` derive the state they persist from the candidate's pinned bytes,
+  not from a fresh read of its path - a candidate swapped between the failed check and the host's
+  decision cannot have its own checksum persisted as trusted. For a multi-JAR candidate, each file's
+  bytes are length-prefixed before digesting, so bytes cannot be shifted across file boundaries while
+  keeping the checksum valid.
 
 ### Restrictions
 

@@ -79,6 +79,62 @@ class ProcessIsolationStrategyTest {
     }
 
     /**
+     * Use case: activating a process-isolated policy that restricts at least one API category fails with
+     * [org.pcsoft.framework.pluggiat.sandbox.agent.SandboxAgentNotActiveException] when no agent JAR is
+     * available to hand to the subprocess - as here, where the framework runs from an exploded class
+     * directory. Without the agent the subprocess would run the plugin entirely unmediated, which would
+     * make process isolation a weaker sandbox than in-VM mediation; the positive case (agent JAR present)
+     * is covered by `ProcessIsolationPolicyEnforcementTest` in the `sandboxAgentTest` source set.
+     */
+    @Test
+    fun `activate refuses a restricted policy without an agent jar`() {
+        val classLoader = org.pcsoft.framework.pluggiat.classloader.PluginClassLoader(
+            emptyArray(), javaClass.classLoader, emptyList(), emptyList(),
+        )
+        val plugin = org.pcsoft.framework.pluggiat.classloader.LoadedPlugin(
+            pluginId,
+            org.pcsoft.framework.pluggiat.manifest.PluginManifest(
+                id = pluginId, name = pluginId, version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==",
+            ),
+            classLoader,
+        )
+        val policy = PluginSandboxPolicy(
+            allowedApiCategories = setOf(org.pcsoft.framework.pluggiat.sandbox.SandboxApiCategory.FILESYSTEM),
+            isolationLevel = org.pcsoft.framework.pluggiat.sandbox.SandboxIsolationLevel.PROCESS,
+        )
+
+        assertThrows(org.pcsoft.framework.pluggiat.sandbox.agent.SandboxAgentNotActiveException::class.java) {
+            newStrategy().activate(plugin, policy)
+        }
+        classLoader.close()
+    }
+
+    /**
+     * Use case: an unrestricted process-isolated policy needs no agent at all (there is nothing to
+     * mediate), so activation succeeds even from an exploded class directory.
+     */
+    @Test
+    fun `activate accepts an unrestricted process isolated policy without an agent jar`() {
+        val classLoader = org.pcsoft.framework.pluggiat.classloader.PluginClassLoader(
+            emptyArray(), javaClass.classLoader, emptyList(), emptyList(),
+        )
+        val plugin = org.pcsoft.framework.pluggiat.classloader.LoadedPlugin(
+            pluginId,
+            org.pcsoft.framework.pluggiat.manifest.PluginManifest(
+                id = pluginId, name = pluginId, version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==",
+            ),
+            classLoader,
+        )
+        val policy = PluginSandboxPolicy(isolationLevel = org.pcsoft.framework.pluggiat.sandbox.SandboxIsolationLevel.PROCESS)
+
+        assertEquals(
+            org.pcsoft.framework.pluggiat.sandbox.SandboxCheckResult.Success,
+            newStrategy().activate(plugin, policy),
+        )
+        classLoader.close()
+    }
+
+    /**
      * Use case: a supported extension method call is encoded, sent across the process boundary,
      * executed against the real (subprocess-instantiated) implementation, and its decoded result is
      * returned unchanged to the caller.
@@ -87,7 +143,7 @@ class ProcessIsolationStrategyTest {
     fun `successful extension call is proxied across the process boundary`() {
         val jar = buildFixtureJar()
         val proxy = newStrategy().createExtensionProxy(
-            pluginId, jar, ProcessIsolationFixtureApi::class.java,
+            pluginId, jar, null, ProcessIsolationFixtureApi::class.java,
             ProcessIsolationFixtureImpl::class.java.name, PluginSandboxPolicy.UNRESTRICTED,
         ) as ProcessIsolationFixtureApi
 
@@ -105,7 +161,7 @@ class ProcessIsolationStrategyTest {
         val jar = buildFixtureJar()
         val isolationStrategy = newStrategy()
         val proxy = isolationStrategy.createExtensionProxy(
-            pluginId, jar, ProcessIsolationFixtureApi::class.java,
+            pluginId, jar, null, ProcessIsolationFixtureApi::class.java,
             ProcessIsolationFixtureImpl::class.java.name, PluginSandboxPolicy.UNRESTRICTED,
         ) as ProcessIsolationFixtureApi
 
@@ -124,7 +180,7 @@ class ProcessIsolationStrategyTest {
     fun `subprocess crash during a call surfaces as an IOException`() {
         val jar = buildFixtureJar()
         val proxy = newStrategy().createExtensionProxy(
-            pluginId, jar, ProcessIsolationFixtureApi::class.java,
+            pluginId, jar, null, ProcessIsolationFixtureApi::class.java,
             ProcessIsolationFixtureImpl::class.java.name, PluginSandboxPolicy.UNRESTRICTED,
         ) as ProcessIsolationFixtureApi
 
@@ -141,7 +197,7 @@ class ProcessIsolationStrategyTest {
         val jar = buildFixtureJar()
         val policy = PluginSandboxPolicy(callTimeout = Duration.ofMillis(500))
         val proxy = newStrategy().createExtensionProxy(
-            pluginId, jar, ProcessIsolationFixtureApi::class.java,
+            pluginId, jar, null, ProcessIsolationFixtureApi::class.java,
             ProcessIsolationFixtureImpl::class.java.name, policy,
         ) as ProcessIsolationFixtureApi
 

@@ -20,6 +20,9 @@ import java.security.MessageDigest
  * digest comparison itself.
  */
 fun digestsEqual(expected: String, actual: String): Boolean =
+    // SECURITY: MessageDigest.isEqual, not `==`: it does not short-circuit on the first differing byte, so how
+    // SECURITY: long the comparison takes says nothing about how many leading characters of a guessed digest
+    // SECURITY: were correct. Case is normalized first so hex spelling never decides the outcome.
     MessageDigest.isEqual(
         expected.lowercase().toByteArray(Charsets.US_ASCII),
         actual.lowercase().toByteArray(Charsets.US_ASCII),

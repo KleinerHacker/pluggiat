@@ -21,38 +21,32 @@ import java.net.SocketTimeoutException
 import java.time.Duration
 
 /**
- * Host-side IPC client for one process-isolated plugin's subprocess (see
- * [ProcessIsolationStrategy]/[PluginProcessManager]), connecting to the loopback [port] its
- * [ProcessIpcServer] listens on.
+ * The host side of IP-04's process-isolation IPC: opens one loopback connection per call to the
+ * subprocess's [ProcessIpcServer] and exchanges one [ProcessCall]/[ProcessResponse] pair over it.
  *
- * Opens a fresh loopback [Socket] per [call] rather than keeping one long-lived connection: it keeps
- * request/response correlation trivial (exactly one [org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall]/
- * [org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessResponse] pair per connection, no
- * multiplexing needed) at the cost of a per-call TCP handshake, which is negligible next to a JVM
- * subprocess round trip.
- *
- * @property port loopback TCP port the subprocess's [ProcessIpcServer] listens on
- * @property callTimeout upper bound for a single call's socket I/O, mirrored from
- * [org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy.callTimeout] - `null` means no
- * socket-level bound (the call is still bounded by
- * [org.pcsoft.framework.pluggiat.sandbox.PluginSandbox.runGoverned]'s own [org.pcsoft.framework.pluggiat.sandbox.ThreadWatchdog]
- * whenever the proxy call runs under it, see [ProcessIsolationStrategy])
+ * @property pluginId the process-isolated plugin this client talks to, for error reporting
+ * @property port the loopback port the subprocess's server announced during its startup handshake
+ * @property callTimeout socket read timeout per call, from the plugin's effective
+ * [org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy]; `null` waits indefinitely
+ * @property token the shared secret [PluginProcessManager] generated for this subprocess and passed
+ * to it at startup; sent as the first field of every call so the subprocess can tell this client's
+ * calls apart from those of any other local process that guessed its port
  */
-class ProcessIpcClient(private val pluginId: String, private val port: Int, private val callTimeout: Duration? = null) {
-    /**
-     * Sends [call] to the subprocess and returns its decoded [ProcessResponse].
-     *
-     * @throws java.io.IOException if the connection could not be established or failed mid-call
-     * (e.g. the subprocess crashed) - see [ProcessIsolationStrategy] for how this is turned into a
-     * reported [org.pcsoft.framework.pluggiat.sandbox.SandboxViolation]
-     * @throws org.pcsoft.framework.pluggiat.sandbox.SandboxTimeoutException if [callTimeout] is set
-     * and the subprocess does not answer within it
-     */
+class ProcessIpcClient(
+    private val pluginId: String,
+    private val port: Int,
+    private val callTimeout: Duration? = null,
+    private val token: String,
+) {
     fun call(call: ProcessCall): ProcessResponse {
+        // SECURITY: loopback only - the subprocess is a local collaborator, never a network peer.
         Socket(InetAddress.getLoopbackAddress(), port).use { socket ->
+            // SECURITY: the policy's call timeout also bounds the *transport*: a subprocess that stops
+            // SECURITY: answering cannot pin the calling host thread indefinitely.
             callTimeout?.let { socket.soTimeout = it.toMillis().toInt().coerceAtLeast(1) }
             try {
-                BerCodec.writeCall(call, socket.getOutputStream())
+                // SECURITY: the token goes out with every single call - the connection itself proves nothing.
+                BerCodec.writeCall(call, token, socket.getOutputStream())
                 return BerCodec.readResponse(socket.getInputStream())
             } catch (_: SocketTimeoutException) {
                 throw org.pcsoft.framework.pluggiat.sandbox.SandboxTimeoutException(pluginId, callTimeout ?: Duration.ZERO)

@@ -145,8 +145,22 @@ class ChecksumSecurityStrategyTest {
     }
 
     /**
+     * The digest input [ChecksumSecurityStrategy] builds for a multi-file candidate: every file's bytes
+     * preceded by its length as a four-byte big-endian integer.
+     */
+    private fun lengthPrefixed(vararg files: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        for (bytes in files) {
+            out.write(java.nio.ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
+            out.write(bytes)
+        }
+        return out.toByteArray()
+    }
+
+    /**
      * Use case: for a `MULTI_JAR_WITH_OWN_FOLDER`-style candidate (`path` is a folder), the checksum
-     * covers the concatenated bytes of every `*.jar` directly inside it, in sorted file name order.
+     * covers the bytes of every `*.jar` directly inside it, in sorted file name order, each prefixed
+     * with its own length - so no rearrangement of bytes across file boundaries keeps the digest valid.
      */
     @Test
     fun `computes the checksum over every jar in a folder candidate`(@TempDir tempDir: Path) {
@@ -156,7 +170,10 @@ class ChecksumSecurityStrategyTest {
         val manifest = PluginManifest(id = "plugin-a", name = "plugin-a", version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==")
         val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
         val result = PluginScanResult(location, folder, manifest, PluginScanStatus.LOADED)
-        val expectedBytes = folder.resolve("plugin-a-lib.jar").toFile().readBytes() + folder.resolve("plugin-a-manifest.jar").toFile().readBytes()
+        val expectedBytes = lengthPrefixed(
+            folder.resolve("plugin-a-lib.jar").toFile().readBytes(),
+            folder.resolve("plugin-a-manifest.jar").toFile().readBytes(),
+        )
         val expected = MessageDigestChecksumAlgorithm("SHA-512").digest(expectedBytes)
 
         val checkResult = ChecksumSecurityStrategy(persistenceOf(expected)).check(result)

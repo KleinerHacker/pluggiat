@@ -59,6 +59,70 @@ class SignatureSecurityStrategyTest {
     }
 
     /**
+     * Use case: an entry added to a JAR *after* it was signed fails the check. The inserted entry carries
+     * no code signer of its own, and every non-signing-metadata entry has to - otherwise a signed JAR
+     * could be used as an envelope for arbitrary unsigned classes.
+     */
+    @Test
+    fun `rejects a candidate with an entry inserted after signing`(@TempDir tempDir: Path) {
+        val keystorePath = SignatureTestFixtures.generateSelfSignedKeystore(tempDir, "signer")
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        PluginScannerTestFixtures.writeJar(jarPath, mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")))
+        SignatureTestFixtures.signJar(jarPath, keystorePath, "signer")
+        appendEntry(jarPath, "com/example/Injected.class", "injected after signing")
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, jarPath, manifest, PluginScanStatus.LOADED)
+
+        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
+
+        assertTrue(checkResult is PluginSecurityCheckResult.Failure)
+        assertTrue((checkResult as PluginSecurityCheckResult.Failure).reason.contains("Injected.class"))
+    }
+
+    /**
+     * Use case: an entry that merely *looks* like signing metadata (`META-INF/<name>.SF`) but has no
+     * matching signature block is not exempt from the signing requirement - only the signature files the
+     * verifier actually consumes are, so this envelope trick fails as well.
+     */
+    @Test
+    fun `rejects a candidate with an unpaired signature-file-looking entry`(@TempDir tempDir: Path) {
+        val keystorePath = SignatureTestFixtures.generateSelfSignedKeystore(tempDir, "signer")
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        PluginScannerTestFixtures.writeJar(jarPath, mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")))
+        SignatureTestFixtures.signJar(jarPath, keystorePath, "signer")
+        appendEntry(jarPath, "META-INF/SMUGGLED.SF", "not a real signature file")
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, jarPath, manifest, PluginScanStatus.LOADED)
+
+        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
+
+        assertTrue(checkResult is PluginSecurityCheckResult.Failure)
+        assertTrue((checkResult as PluginSecurityCheckResult.Failure).reason.contains("SMUGGLED.SF"))
+    }
+
+    /**
+     * Rewrites [jarPath] with [content] added under [entryName], leaving every existing entry untouched -
+     * how a candidate would be tampered with after its signature was produced.
+     */
+    private fun appendEntry(jarPath: Path, entryName: String, content: String) {
+        val original = Files.readAllBytes(jarPath)
+        ZipOutputStream(Files.newOutputStream(jarPath)).use { out ->
+            java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(original)).use { input ->
+                var entry = input.nextEntry
+                while (entry != null) {
+                    out.putNextEntry(ZipEntry(entry.name))
+                    out.write(input.readBytes())
+                    out.closeEntry()
+                    entry = input.nextEntry
+                }
+            }
+            out.putNextEntry(ZipEntry(entryName))
+            out.write(content.toByteArray())
+            out.closeEntry()
+        }
+    }
+
+    /**
      * Use case: an unsigned SINGLE_JAR candidate fails the check.
      */
     @Test
@@ -145,6 +209,39 @@ class SignatureSecurityStrategyTest {
         val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
 
         assertEquals(PluginSecurityCheckResult.Success, checkResult)
+    }
+
+    /**
+     * Use case: a MULTI_JAR_WITH_OWN_FOLDER candidate with an *additional* JAR that the signed checksum
+     * list does not mention at all fails the check. Every sibling JAR has to be listed, otherwise
+     * dropping one more JAR next to a properly signed manifest JAR would smuggle unsigned, unchecked code
+     * into the plugin's own class path.
+     */
+    @Test
+    fun `rejects a MULTI_JAR_WITH_OWN_FOLDER candidate with a JAR missing from the checksum list`(@TempDir tempDir: Path) {
+        val keystorePath = SignatureTestFixtures.generateSelfSignedKeystore(tempDir, "signer")
+        val folder = Files.createDirectory(tempDir.resolve("plugin-a"))
+        val libJarPath = folder.resolve("lib.jar")
+        PluginScannerTestFixtures.writeJar(libJarPath, mapOf("some/Class.class" to "not real bytecode"))
+        val checksumListEntry = "${sha512Hex(libJarPath)}  lib.jar\n"
+        val manifestJarPath = folder.resolve("plugin-a-manifest.jar")
+        PluginScannerTestFixtures.writeJar(
+            manifestJarPath,
+            mapOf(
+                "META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a"),
+                "META-INF/plugin-checksums.txt" to checksumListEntry,
+            ),
+        )
+        SignatureTestFixtures.signJar(manifestJarPath, keystorePath, "signer")
+        // Added only now: signed manifest JAR and checksum list stay exactly as they were.
+        PluginScannerTestFixtures.writeJar(folder.resolve("smuggled.jar"), mapOf("com/example/Smuggled.class" to "unsigned code"))
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, MultiJarWithOwnFolderScanStrategy())
+        val result = PluginScanResult(location, folder, manifest, PluginScanStatus.LOADED)
+
+        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
+
+        assertTrue(checkResult is PluginSecurityCheckResult.Failure)
+        assertTrue((checkResult as PluginSecurityCheckResult.Failure).reason.contains("smuggled.jar"))
     }
 
     /**

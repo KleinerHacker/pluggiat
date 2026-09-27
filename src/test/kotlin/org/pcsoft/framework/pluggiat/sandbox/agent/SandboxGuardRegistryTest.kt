@@ -13,6 +13,7 @@
 package org.pcsoft.framework.pluggiat.sandbox.agent
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
@@ -44,7 +45,7 @@ class SandboxGuardRegistryTest {
             SandboxGuardRegistry.check(Marker::class.java, SandboxApiCategory.NETWORK)
             assertEquals(0, violationCalls)
         } finally {
-            SandboxGuardRegistry.unregister(classLoader)
+            SandboxGuardRegistry.release(classLoader)
         }
     }
 
@@ -70,16 +71,111 @@ class SandboxGuardRegistryTest {
             assertEquals(1, reported.size)
             assertEquals(SandboxApiCategory.FILESYSTEM, reported.single().category)
         } finally {
-            SandboxGuardRegistry.unregister(classLoader)
+            SandboxGuardRegistry.release(classLoader)
         }
     }
 
     /**
      * Use case: [SandboxGuardRegistry.check] for a class loader with no registration at all (not a
-     * plugin class, or its plugin was already deactivated) is a silent no-op.
+     * plugin class) is a silent no-op.
      */
     @Test
     fun `check is a no-op for an unregistered class loader`() {
         SandboxGuardRegistry.check(Marker::class.java, SandboxApiCategory.PROCESS_START)
+    }
+
+    /**
+     * Use case: after [SandboxGuardRegistry.revoke], [SandboxGuardRegistry.check] blocks *every*
+     * category - including the ones the revoked policy used to allow - instead of finding no entry and
+     * waving the call through (fail-closed). This is the state a plugin thread that outlived its
+     * plugin's unload runs in.
+     */
+    @Test
+    fun `check blocks every category after revoke`() {
+        val classLoader = Marker::class.java.classLoader
+        val reported = mutableListOf<SandboxViolation>()
+        SandboxGuardRegistry.register(
+            classLoader, "example",
+            PluginSandboxPolicy(allowedApiCategories = SandboxApiCategory.entries.toSet()),
+        ) { _, violation -> reported += violation }
+
+        try {
+            SandboxGuardRegistry.revoke(classLoader)
+
+            for (category in SandboxApiCategory.entries) {
+                val exception = assertThrows(SandboxViolationException::class.java) {
+                    SandboxGuardRegistry.check(Marker::class.java, category)
+                }
+                assertEquals(category, exception.violation.category)
+            }
+            assertEquals(SandboxApiCategory.entries.size, reported.size)
+        } finally {
+            SandboxGuardRegistry.release(classLoader)
+        }
+    }
+
+    /**
+     * Use case: a guarded call made from a *different thread* after the plugin was revoked is blocked
+     * just the same - the registration is keyed by class loader, not by thread, so a worker thread a
+     * plugin left running cannot regain access its plugin no longer has.
+     */
+    @Test
+    fun `check blocks a call from a surviving plugin thread after revoke`() {
+        val classLoader = Marker::class.java.classLoader
+        SandboxGuardRegistry.register(
+            classLoader, "example",
+            PluginSandboxPolicy(allowedApiCategories = setOf(SandboxApiCategory.NETWORK)),
+        ) { _, _ -> }
+
+        try {
+            SandboxGuardRegistry.revoke(classLoader)
+            var thrown: Throwable? = null
+            val survivingThread = Thread {
+                thrown = runCatching { SandboxGuardRegistry.check(Marker::class.java, SandboxApiCategory.NETWORK) }.exceptionOrNull()
+            }
+
+            survivingThread.start()
+            survivingThread.join()
+
+            assertInstanceOf(SandboxViolationException::class.java, thrown)
+        } finally {
+            SandboxGuardRegistry.release(classLoader)
+        }
+    }
+
+    /**
+     * Use case: re-registering a revoked class loader (what a successful reactivation of its plugin
+     * does) lifts the revocation, so an allowed category passes again - the revoked state is not a
+     * permanent dead end.
+     */
+    @Test
+    fun `register lifts a previous revocation`() {
+        val classLoader = Marker::class.java.classLoader
+        val policy = PluginSandboxPolicy(allowedApiCategories = setOf(SandboxApiCategory.NETWORK))
+        SandboxGuardRegistry.register(classLoader, "example", policy) { _, _ -> }
+        SandboxGuardRegistry.revoke(classLoader)
+
+        try {
+            SandboxGuardRegistry.register(classLoader, "example", policy) { _, _ -> }
+
+            SandboxGuardRegistry.check(Marker::class.java, SandboxApiCategory.NETWORK)
+        } finally {
+            SandboxGuardRegistry.release(classLoader)
+        }
+    }
+
+    /**
+     * Use case: [SandboxGuardRegistry.revoke] for a class loader that was never registered leaves it
+     * unknown rather than inventing a revoked entry for it - the framework only ever tracks loaders it
+     * registered itself.
+     */
+    @Test
+    fun `revoke does not create an entry for an unknown class loader`() {
+        val foreignClassLoader = java.net.URLClassLoader(emptyArray())
+
+        SandboxGuardRegistry.revoke(foreignClassLoader)
+
+        SandboxGuardRegistry.check(Marker::class.java, SandboxApiCategory.FILESYSTEM)
+        foreignClassLoader.close()
     }
 }

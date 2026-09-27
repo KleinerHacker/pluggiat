@@ -19,6 +19,8 @@ import java.security.MessageDigest
  * JVM (see `java.security.MessageDigest#getInstance`), e.g. `"MD5"`, `"SHA-256"` or `"SHA-512"`.
  */
 class MessageDigestChecksumAlgorithm(override val id: String) : ChecksumAlgorithm {
+    // SECURITY: a fresh MessageDigest per call - a shared instance carries state from the previous digest
+    // SECURITY: and could, under concurrent checks, produce a digest belonging to a different candidate.
     override fun digest(bytes: ByteArray): String =
         MessageDigest.getInstance(id).digest(bytes).joinToString("") { "%02x".format(it) }
 }

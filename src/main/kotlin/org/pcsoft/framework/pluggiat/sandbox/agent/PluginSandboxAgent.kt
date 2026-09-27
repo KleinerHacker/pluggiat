@@ -65,13 +65,27 @@ object PluginSandboxAgent {
 
     @Synchronized
     private fun install(instrumentation: Instrumentation) {
+        // SECURITY: installed at most once; a second transformer would inject a second guard call per call
+        // SECURITY: site, which is not more secure, only slower and harder to reason about.
         if (isActive) return
 
         AgentBuilder.Default()
+            // SECURITY: instruments method bodies only - no added members, no auxiliary types, and above
+            // SECURITY: all no injected static initializer. Byte Buddy's default self-injection strategy
+            // SECURITY: adds a <clinit> to every transformed class that reaches its own bookkeeping
+            // SECURITY: reflectively; that injected code sits *inside* the plugin class, so this very
+            // SECURITY: transformer would guard it and a plugin whose policy blocks REFLECTION would fail
+            // SECURITY: during class initialization - before any of its own code ever ran. Freezing the
+            // SECURITY: class format keeps the transformation to exactly what GuardAsmVisitorWrapper emits.
+            .disableClassFormatChanges()
+            // SECURITY: matches on the class *loader*, not on class names: every class a PluginClassLoader
+            // SECURITY: defines is instrumented, so a plugin cannot avoid mediation by choosing its package.
             .type(PluginClassLoaderRawMatcher)
             .transform(GuardTransformer)
             .installOn(instrumentation)
 
+        // SECURITY: only set after a successful install - AgentInstrumentationStrategy refuses to activate a
+        // SECURITY: restrictive policy while this is false, instead of running the plugin unmediated.
         isActive = true
         logger.info("pluggiat sandbox agent installed - plugin classes are now instrumented for API mediation")
     }
@@ -89,6 +103,8 @@ private object PluginClassLoaderRawMatcher : AgentBuilder.RawMatcher {
         module: JavaModule?,
         classBeingRedefined: Class<*>?,
         protectionDomain: ProtectionDomain?,
+        // SECURITY: exactly the plugin loaders and nothing else: host and JDK classes stay untransformed, so
+        // SECURITY: the framework's own guard code can never end up guarding itself.
     ): Boolean = classLoader is PluginClassLoader
 }
 

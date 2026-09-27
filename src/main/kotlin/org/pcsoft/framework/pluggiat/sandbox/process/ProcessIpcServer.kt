@@ -13,37 +13,43 @@
 package org.pcsoft.framework.pluggiat.sandbox.process
 
 import org.pcsoft.framework.pluggiat.sandbox.process.ber.BerCodec
+import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall
 import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessResponse
 import org.pcsoft.framework.pluggiat.sandbox.process.ber.SandboxValue
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Runs *inside* a plugin subprocess (see [SubprocessBootstrapMain]): a loopback [ServerSocket]
- * accepting one [org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall]/
- * [ProcessResponse] pair per connection (mirroring [ProcessIpcClient]'s per-call connection model),
- * dispatching each call to the target extension implementation via plain reflection.
+ * The subprocess side of IP-04's process-isolation IPC: serves one [ProcessCall] per accepted
+ * loopback connection by instantiating (once, then cached) and invoking the named extension
+ * implementation inside this subprocess, and answers with a [ProcessResponse].
  *
- * An implementation instance is instantiated (via its no-arg constructor) lazily on first use and
- * then cached for [implementationClassName], so a stateful extension implementation keeps its state
- * across calls within the subprocess's lifetime, and `PluginLifecycle.onLoad`/`onEnable` (if the
- * caller routes those through IPC too) run against the same instance later calls use.
+ * The listening socket is bound to the loopback address only, but a loopback port is reachable by
+ * *every* process of the machine, not only by the host that started this subprocess - a port is not a
+ * credential. Each call therefore has to present [token], the secret the host generated for exactly
+ * this subprocess, and a call that does not is answered with a plain failure and never dispatched:
+ * otherwise any local process could drive a process-isolated plugin's extension methods, with
+ * arbitrary arguments, through this server.
  *
- * @property classLoader the subprocess's own class loader, built from the plugin's JAR(s) - see
- * [SubprocessBootstrapMain]
+ * @property classLoader the class loader the plugin's extension implementations are loaded from - a
+ * [org.pcsoft.framework.pluggiat.classloader.PluginClassLoader] built by [SubprocessBootstrapMain],
+ * so the subprocess enforces the same class isolation (and instrumentation) as the host would
+ * @property token the shared secret every accepted call must present as its first field
  */
-class ProcessIpcServer(private val classLoader: ClassLoader) : AutoCloseable {
+class ProcessIpcServer(
+    private val classLoader: ClassLoader,
+    private val token: String,
+) : AutoCloseable {
     private val instances = ConcurrentHashMap<String, Any>()
+    // SECURITY: bound to the loopback address only, so the plugin's IPC endpoint is never reachable from
+    // SECURITY: the network - port 0 lets the OS pick a port nobody can predict in advance.
     private val serverSocket = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
 
-    /** The loopback port this server ended up listening on - passed back to the host process. */
     val port: Int get() = serverSocket.localPort
 
-    /**
-     * Accepts and serves connections until [close] is called (from another thread) or the socket is
-     * otherwise closed - intended to be run on its own thread by [SubprocessBootstrapMain].
-     */
     fun serveForever() {
         while (!serverSocket.isClosed) {
             val socket = try {
@@ -53,8 +59,18 @@ class ProcessIpcServer(private val classLoader: ClassLoader) : AutoCloseable {
             }
             socket.use {
                 try {
-                    val call = BerCodec.readCall(it.getInputStream())
-                    val response = handle(call)
+                    // Bounds how long one connection can occupy this single-threaded accept loop: a
+                    // peer that connects and then never sends anything would otherwise block every
+                    // further call of the legitimate host indefinitely.
+                    it.soTimeout = ACCEPTED_SOCKET_READ_TIMEOUT_MILLIS
+                    val authenticated = BerCodec.readCall(it.getInputStream())
+                    // SECURITY: the token is checked before the call is dispatched, so an unauthenticated peer
+                    // SECURITY: never gets a class resolved or a method invoked on its behalf.
+                    val response = if (isAuthentic(authenticated.token)) {
+                        handle(authenticated.call)
+                    } else {
+                        ProcessResponse.Failure(UNAUTHENTICATED_FAILURE_MESSAGE)
+                    }
                     BerCodec.writeResponse(response, it.getOutputStream())
                 } catch (e: Exception) {
                     runCatching { BerCodec.writeResponse(ProcessResponse.Failure(e.message ?: e::class.java.name), it.getOutputStream()) }
@@ -63,8 +79,24 @@ class ProcessIpcServer(private val classLoader: ClassLoader) : AutoCloseable {
         }
     }
 
-    private fun handle(call: org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall): ProcessResponse {
+    /**
+     * Whether [presented] is this subprocess's [token]. Compared with [MessageDigest.isEqual] rather
+     * than with `==`: a length-independent, non-short-circuiting comparison denies an attacker the
+     * timing signal that would let them recover the token byte by byte instead of guessing all of it
+     * at once.
+     */
+    private fun isAuthentic(presented: String): Boolean =
+        // SECURITY: constant-time comparison - a short-circuiting `==` would leak, through timing, how much of
+        // SECURITY: a guessed token was right and turn guessing into a per-character search.
+        MessageDigest.isEqual(
+            presented.toByteArray(StandardCharsets.UTF_8),
+            token.toByteArray(StandardCharsets.UTF_8),
+        )
+
+    private fun handle(call: ProcessCall): ProcessResponse {
         return try {
+            // SECURITY: resolved through the subprocess's PluginClassLoader, so the class comes from the
+            // SECURITY: plugin's own (pinned) JARs and is subject to this subprocess's sandbox policy.
             val instance = instances.getOrPut(call.implementationClassName) {
                 classLoader.loadClass(call.implementationClassName).getDeclaredConstructor().newInstance()
             }
@@ -88,5 +120,19 @@ class ProcessIpcServer(private val classLoader: ClassLoader) : AutoCloseable {
 
     override fun close() {
         serverSocket.close()
+    }
+
+    companion object {
+        /**
+         * Read timeout applied to every accepted connection, see [serveForever]. Generous enough that
+         * no legitimate call (which writes its message immediately after connecting) can hit it.
+         */
+        const val ACCEPTED_SOCKET_READ_TIMEOUT_MILLIS: Int = 30_000
+
+        /**
+         * Failure message returned for a call whose token does not match. Deliberately says nothing
+         * about *why* it was rejected beyond the fact itself.
+         */
+        const val UNAUTHENTICATED_FAILURE_MESSAGE: String = "Rejected: the call did not present this subprocess's IPC token"
     }
 }

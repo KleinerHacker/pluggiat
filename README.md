@@ -22,8 +22,9 @@ discovery, isolation or lifecycle handling.
   truststore, directly supplied key, or an OpenPGP keyserver) and checksum-based
   (`ChecksumSecurityStrategy`, host-managed approval of unknown/changed plugins)
 * Isolated plugin classpaths via parent-last `PluginClassLoader`s with a host-configured SDK
-  whitelist, preventing plugins from reflecting into host-internal code; loading is unconditional,
-  so a host can knowingly load a plugin that failed its security check
+  whitelist, preventing plugins from reflecting into host-internal code; pluggiat's own classes and
+  resources are always resolved from the host, so a plugin cannot substitute them; loading is
+  unconditional, so a host can knowingly load a plugin that failed its security check
 * Plugin dependency graph with required and optional dependencies, cycle detection, and a
   configurable `PluginDependencyStrategy` governing cross-location visibility
 * Plugin lifecycle hooks (`onLoad`/`onEnable`/`onDisable`/`onUnload`) and a persistent
@@ -50,10 +51,12 @@ discovery, isolation or lifecycle handling.
   agent, `PluginSandboxPolicy.callTimeout` thread/time-limit governance (a call exceeding it
   throws `SandboxTimeoutException` instead of blocking the host thread forever), and process
   isolation (`SandboxIsolationLevel.PROCESS` runs a plugin's extensions in a separate JVM
-  subprocess, proxied transparently over an ASN.1 BER/loopback-socket IPC with a minimal supported
-  parameter/return type set) are all implemented. **Requires a `-javaagent:<path-to-this-jar>` JVM
-  start parameter** as soon as any policy restricts an API category - see
-  [Runtime sandbox](docs/docs/host-integration/sandbox.md)
+  subprocess - itself instrumented with the same agent and policy, driven over an ASN.1
+  BER/loopback-socket IPC authenticated with a per-subprocess token, with a minimal supported
+  parameter/return type set) are all implemented. Unloading a plugin revokes its policy, so a thread it
+  left running loses its guarded APIs instead of gaining them. **Requires a
+  `-javaagent:<path-to-this-jar>` JVM start parameter** as soon as any policy restricts an API
+  category - see [Runtime sandbox](docs/docs/host-integration/sandbox.md)
 
 ## AI transparency notice
 

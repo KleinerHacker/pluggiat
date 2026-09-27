@@ -12,8 +12,10 @@
 
 package org.pcsoft.framework.pluggiat.scanner
 
+import org.pcsoft.framework.pluggiat.PluginResourceLimits
 import org.pcsoft.framework.pluggiat.manifest.ManifestParser
 import org.pcsoft.framework.pluggiat.manifest.ManifestValidationException
+import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -22,12 +24,29 @@ import java.util.jar.JarInputStream
 
 /**
  * Shared manifest-lookup logic used by the [PluginScanStrategy] implementations.
+ *
+ * Every lookup here follows the same two rules for choosing *the* manifest of a JAR, and it is the same
+ * choice [org.pcsoft.framework.pluggiat.classloader.jar.resolveJarEntries] makes for any other entry:
+ *
+ * 1. among the possible manifest *names*, the first of [ManifestParser.MANIFEST_FILE_NAMES] that is
+ *    present wins;
+ * 2. among several entries carrying that *same* name, the **last** one wins - matching
+ *    `java.util.zip.ZipFile`'s own duplicate-name behaviour.
+ *
+ * Both rules exist to keep the scanner, the signature verification and the class loader from ever
+ * disagreeing about which bytes are the manifest. A JAR may legally contain the same entry name twice,
+ * and a scanner that read the *first* `plugin.yml` while everything downstream used the *last* one
+ * would let a candidate present a harmless manifest for inspection and a different one for loading -
+ * different id, different dependencies, different extension implementations than were checked.
  */
 internal object PluginManifestLookup {
 
     /**
      * Returns the name of the manifest entry inside [jarFile], or `null` if [jarFile] contains
-     * none of [ManifestParser.MANIFEST_FILE_NAMES].
+     * none of [ManifestParser.MANIFEST_FILE_NAMES] - name priority as described for this object.
+     * Duplicate entries of the chosen name need no handling here: [JarFile.getJarEntry] already resolves
+     * a duplicate name to its last occurrence, which is exactly the rule [scanJarStream] implements by
+     * hand for the streaming case.
      */
     fun findManifestEntryName(jarFile: JarFile): String? =
         ManifestParser.MANIFEST_FILE_NAMES.firstOrNull { jarFile.getJarEntry(it) != null }
@@ -98,18 +117,33 @@ internal object PluginManifestLookup {
     /**
      * Streams [input] as a JAR, returning a [PluginScanResult] if it contains a manifest entry, or
      * `null` if it does not (so the caller can move on to the next candidate JAR).
+     *
+     * The stream is read to the end instead of stopping at the first manifest entry, because the entry
+     * that counts is the last one of its name (see this object's documentation). Each manifest entry is
+     * read only up to [PluginResourceLimits.MAX_MANIFEST_SIZE_BYTES] plus one byte: that one extra byte
+     * is what lets [ManifestParser] recognize an oversized manifest and reject the candidate, without
+     * this lookup ever holding more than the limit in memory.
      */
     private fun scanJarStream(location: PluginLocation, resultPath: Path, input: InputStream): PluginScanResult? =
         JarInputStream(input).use { jarStream ->
+            val manifestsByName = linkedMapOf<String, ByteArray>()
             var entry = jarStream.nextJarEntry
             while (entry != null) {
                 if (entry.name in ManifestParser.MANIFEST_FILE_NAMES) {
-                    return toResult(location, resultPath) { jarStream }
+                    // SECURITY: overwrites a previous entry of the same name on purpose: last one wins, exactly
+                    // SECURITY: as resolveJarEntries and ZipFile do, so scanner, verifier and class loader all
+                    // SECURITY: read the same manifest bytes.
+                    // SECURITY: capped read: one byte over the limit is enough for the parser to reject it.
+                    manifestsByName[entry.name] = jarStream.readNBytes((PluginResourceLimits.MAX_MANIFEST_SIZE_BYTES + 1).toInt())
                 }
                 jarStream.closeEntry()
                 entry = jarStream.nextJarEntry
             }
-            null
+
+            // SECURITY: name priority comes from the framework's own fixed list, never from the archive's
+            // SECURITY: entry order, which a candidate controls.
+            val chosenName = ManifestParser.MANIFEST_FILE_NAMES.firstOrNull { it in manifestsByName } ?: return@use null
+            toResult(location, resultPath) { ByteArrayInputStream(manifestsByName.getValue(chosenName)) }
         }
 
     private fun toResult(location: PluginLocation, candidatePath: Path, openManifestStream: () -> InputStream): PluginScanResult =

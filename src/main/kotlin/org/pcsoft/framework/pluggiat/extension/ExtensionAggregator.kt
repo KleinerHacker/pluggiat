@@ -23,6 +23,7 @@ import org.pcsoft.framework.pluggiat.sandbox.PluginSandbox
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
 import org.pcsoft.framework.pluggiat.sandbox.SandboxIsolationLevel
 import org.pcsoft.framework.pluggiat.sandbox.SandboxTimeoutException
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 
@@ -54,12 +55,18 @@ enum class PluginExtensionStatus {
  * `org.pcsoft.framework.pluggiat.exception.ExceptionHandlingAction.UNLOAD` for this plugin; a
  * caller that has the plugin's `org.pcsoft.framework.pluggiat.classloader.LoadedPlugin` wires this
  * to `LoadedPlugin.close()` so the class loader is actually discarded
+ * @property pinnedContent the candidate's security-checked bytes, as pinned by
+ * `org.pcsoft.framework.pluggiat.scanner.PluginScanner`; only used for a process-isolated plugin, whose
+ * subprocess is started from these bytes rather than from [path] (see
+ * [org.pcsoft.framework.pluggiat.sandbox.process.ProcessIsolationStrategy.createExtensionProxy]). `null`
+ * for a candidate that was never pinned - the subprocess then falls back to reading [path] from disk.
  */
 data class PluginExtensionCandidate(
     val pluginId: String,
     val path: Path,
     val manifest: PluginManifest,
     val onUnload: () -> Unit = {},
+    val pinnedContent: PinnedPluginContent? = null,
 )
 
 /**
@@ -213,7 +220,11 @@ class ExtensionAggregator(
                 "Extension point '$key' has no resolvable host plugin API type; process isolation " +
                     "(IP-04) requires one to build the cross-process proxy for plugin '${candidate.pluginId}'"
             }
-            sandbox.processIsolation.createExtensionProxy(candidate.pluginId, candidate.path, apiType, entry.implementation, policy)
+            // candidate.pinnedContent, not candidate.path: the subprocess must run the bytes that passed
+            // the security chain, not whatever the path holds by the time it starts.
+            sandbox.processIsolation.createExtensionProxy(
+                candidate.pluginId, candidate.path, candidate.pinnedContent, apiType, entry.implementation, policy,
+            )
         } else {
             resolved.instance
         }

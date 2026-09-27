@@ -13,6 +13,7 @@
 package org.pcsoft.framework.pluggiat.sandbox.process.ber
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -26,7 +27,7 @@ class BerCodecTest {
     /**
      * Use case: a [ProcessCall] carrying one of every supported [SandboxValue] case (including a
      * nested [SandboxValue.ListValue]) round-trips through [BerCodec.writeCall]/[BerCodec.readCall]
-     * unchanged.
+     * unchanged, together with the IPC token it was written with.
      */
     @Test
     fun `ProcessCall round-trips through write and read`() {
@@ -45,10 +46,82 @@ class BerCodecTest {
         )
         val output = ByteArrayOutputStream()
 
-        BerCodec.writeCall(call, output)
+        BerCodec.writeCall(call, "test-ipc-token", output)
         val decoded = BerCodec.readCall(ByteArrayInputStream(output.toByteArray()))
 
-        assertEquals(call, decoded)
+        assertEquals("test-ipc-token", decoded.token)
+        assertEquals(call, decoded.call)
+    }
+
+    /**
+     * Use case: a message whose value carries a tag outside [BerCodec]'s closed vocabulary is rejected
+     * instead of being guessed at - an unknown tag can only come from a malformed or forged message.
+     */
+    @Test
+    fun `an unknown value tag is rejected`() {
+        val forged = org.bouncycastle.asn1.DERSequence(
+            arrayOf(
+                org.bouncycastle.asn1.DERUTF8String("token"),
+                org.bouncycastle.asn1.DERUTF8String("com.example.Impl"),
+                org.bouncycastle.asn1.DERUTF8String("doSomething"),
+                org.bouncycastle.asn1.DERSequence(
+                    arrayOf<org.bouncycastle.asn1.ASN1Encodable>(
+                        org.bouncycastle.asn1.DERSequence(
+                            arrayOf<org.bouncycastle.asn1.ASN1Encodable>(
+                                org.bouncycastle.asn1.ASN1Integer(99L),
+                                org.bouncycastle.asn1.ASN1Integer(1L),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            BerCodec.readCall(ByteArrayInputStream(forged.encoded))
+        }
+    }
+
+    /**
+     * Use case: a message with the wrong number of top-level elements is rejected rather than partially
+     * interpreted - the field count of a call is fixed, and a short message must not be read as one
+     * whose missing fields simply default.
+     */
+    @Test
+    fun `a call with the wrong element count is rejected`() {
+        val forged = org.bouncycastle.asn1.DERSequence(
+            arrayOf(
+                org.bouncycastle.asn1.DERUTF8String("token"),
+                org.bouncycastle.asn1.DERUTF8String("com.example.Impl"),
+            ),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            BerCodec.readCall(ByteArrayInputStream(forged.encoded))
+        }
+    }
+
+    /**
+     * Use case: a message that declares more content than [BerCodec.MAX_MESSAGE_SIZE_BYTES] allows is
+     * rejected by the decoder instead of being allocated - a forged length header must not be able to
+     * exhaust the heap of whoever reads it.
+     */
+    @Test
+    fun `a message larger than the size limit is rejected`() {
+        // A definite-length octet string header claiming far more content than the limit permits, with
+        // no content following it: the decoder has to refuse it on the header alone.
+        val claimedLength = BerCodec.MAX_MESSAGE_SIZE_BYTES.toLong() + 1
+        val header = ByteArrayOutputStream()
+        header.write(0x04)
+        header.write(0x84)
+        header.write(((claimedLength shr 24) and 0xFF).toInt())
+        header.write(((claimedLength shr 16) and 0xFF).toInt())
+        header.write(((claimedLength shr 8) and 0xFF).toInt())
+        header.write((claimedLength and 0xFF).toInt())
+
+        assertThrows(Exception::class.java) {
+            BerCodec.readCall(ByteArrayInputStream(header.toByteArray()))
+        }
     }
 
     /**

@@ -76,7 +76,11 @@ class PluginSandbox(
      * plugin is governed normally again instead of being permanently rejected.
      */
     fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult {
+        // SECURITY: clears a deactivation marker left by an earlier unload, so a freshly reloaded plugin is
+        // SECURITY: governed normally again instead of being permanently rejected.
         watchdog.activate(loadedPlugin.pluginId)
+        // SECURITY: process isolation gets to refuse activation first (e.g. no agent JAR for a restricted
+        // SECURITY: policy), before any strategy reports success.
         processIsolation.activate(loadedPlugin, policy)
         return strategy.activate(loadedPlugin, policy)
     }
@@ -102,6 +106,8 @@ class PluginSandbox(
      * for [violationListener] to decide how to react.
      */
     fun reportViolation(pluginId: String, violation: SandboxViolation) {
+        // SECURITY: a category-attributed violation means a guarded API was actually attempted - logged at
+        // SECURITY: WARN with an explicit attack marker, because it is evidence, not a mishap.
         if (violation.category != null) {
             logger.warn(
                 "SECURITY WARNING - potential attack: plugin '{}' violated its sandbox policy (category={}): {}",
@@ -118,17 +124,26 @@ class PluginSandbox(
      * [org.pcsoft.framework.pluggiat.PluginManager] as part of unloading/reloading a plugin: shuts
      * down [pluginId]'s [ThreadWatchdog] executor (if any) and marks it deactivated so a governed call
      * racing against this deactivation cannot silently keep it running (see [ThreadWatchdog.deactivate]),
-     * and - if [classLoader] is given - removes its [SandboxGuardRegistry] entry so a stale entry does
-     * not keep the class loader (and everything it reaches) reachable after it should have been
-     * discarded.
+     * and - if [classLoader] is given - revokes its [SandboxGuardRegistry] registration.
+     *
+     * Revoking is deliberately not the same as forgetting: from then on every guarded call made from
+     * one of that class loader's classes is blocked outright, instead of finding no registration and
+     * being waved through (see [SandboxGuardRegistry.revoke]). A plugin thread that survives its
+     * plugin's unload therefore loses its guarded APIs at the moment of unload rather than gaining
+     * them.
      *
      * @param classLoader the deactivated plugin's class loader, if known; `null` skips the
-     * [SandboxGuardRegistry] cleanup (e.g. when no plugin was ever actually loaded for [pluginId])
+     * [SandboxGuardRegistry] revocation (e.g. when no plugin was ever actually loaded for [pluginId])
      */
     fun deactivate(pluginId: String, classLoader: ClassLoader? = null) {
+        // SECURITY: marks the id deactivated and shuts its executor down, so a governed call racing with this
+        // SECURITY: deactivation cannot keep running afterwards.
         watchdog.deactivate(pluginId)
+        // SECURITY: kills the subprocess of a process-isolated plugin - its own JVM would otherwise outlive
+        // SECURITY: the unload entirely.
         processIsolation.stop(pluginId)
-        classLoader?.let(SandboxGuardRegistry::unregister)
+        // SECURITY: revoke, not release: every later guarded call from this loader is blocked (fail-closed).
+        classLoader?.let(SandboxGuardRegistry::revoke)
     }
 
     companion object {

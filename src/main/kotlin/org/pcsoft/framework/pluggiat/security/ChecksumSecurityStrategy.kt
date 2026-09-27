@@ -20,6 +20,8 @@ import org.pcsoft.framework.pluggiat.security.checksum.ChecksumAlgorithm
 import org.pcsoft.framework.pluggiat.security.checksum.MessageDigestChecksumAlgorithm
 import org.pcsoft.framework.pluggiat.security.checksum.digestsEqual
 import org.slf4j.LoggerFactory
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -61,10 +63,13 @@ class ChecksumSecurityStrategy(
 
     private fun check(manifest: PluginManifest, result: PluginScanResult, actualBytes: ByteArray): PluginSecurityCheckResult {
         logger.debug("Checking {} checksum of candidate '{}' for plugin '{}'", algorithm.id, result.path, manifest.id)
+        // SECURITY: no stored checksum means "not yet trusted", never "accept anything" - an unknown plugin
+        // SECURITY: fails the check and needs an explicit host decision (force-load plus persist).
         val expectedDigest = persistenceStrategy.read(manifest.id, PERSISTENCE_KEY)
             ?: return PluginSecurityCheckResult.Failure("No expected ${algorithm.id} checksum known for plugin '${manifest.id}'")
 
         val actualDigest = algorithm.digest(actualBytes)
+        // SECURITY: compared via digestsEqual, i.e. in constant time - see DigestComparison.
         val checkResult = if (digestsEqual(expectedDigest, actualDigest)) {
             PluginSecurityCheckResult.Success
         } else {
@@ -77,11 +82,36 @@ class ChecksumSecurityStrategy(
     }
 
     /**
-     * Computes [result]'s actual checksum and persists it as the new expected checksum for
+     * Computes [result]'s actual checksum from its path and persists it as the new expected checksum for
      * [pluginId], so a future [check] succeeds without requiring another force-load.
      */
     override fun persist(pluginId: String, result: PluginScanResult) {
-        val digest = algorithm.digest(candidateBytes(result.path))
+        persistDigest(pluginId, algorithm.digest(candidateBytes(result.path)))
+    }
+
+    /**
+     * Computes the checksum over [pinnedContent] - the very bytes the security chain saw - instead of
+     * re-reading the candidate from disk, and persists it as the new expected checksum for [pluginId].
+     *
+     * Re-reading would mean accepting whatever is at the candidate's path *now*: a candidate swapped
+     * between the failed check a host is reacting to and this call would get its own checksum persisted
+     * as trusted, turning the host's "accept this plugin" into "accept whatever is there". Falls back to
+     * the path-based [persist] only when the candidate was never pinned.
+     */
+    override fun persist(pluginId: String, result: PluginScanResult, pinnedContent: PinnedPluginContent?) {
+        if (pinnedContent == null) {
+            logger.warn(
+                "Persisting the {} checksum of plugin '{}' from its path - the candidate was never pinned, so what is " +
+                    "accepted here is whatever is on disk right now",
+                algorithm.id, pluginId,
+            )
+            persist(pluginId, result)
+            return
+        }
+        persistDigest(pluginId, algorithm.digest(candidateBytes(pinnedContent)))
+    }
+
+    private fun persistDigest(pluginId: String, digest: String) {
         persistenceStrategy.write(pluginId, PERSISTENCE_KEY, digest)
         logger.warn("Accepted {} checksum {} persisted as the new expected checksum for plugin '{}'", algorithm.id, digest, pluginId)
     }
@@ -94,13 +124,13 @@ class ChecksumSecurityStrategy(
      * file name order.
      */
     private fun candidateBytes(path: Path): ByteArray {
-        val files = if (Files.isDirectory(path)) {
-            Files.newDirectoryStream(path, "*.jar").use { it.toList() }.sortedBy { it.fileName.toString() }
-        } else {
-            listOf(path)
+        if (!Files.isDirectory(path)) {
+            logger.trace("Computing {} checksum of single-file candidate '{}'", algorithm.id, path)
+            return Files.readAllBytes(path)
         }
+        val files = Files.newDirectoryStream(path, "*.jar").use { it.toList() }.sortedBy { it.fileName.toString() }
         logger.trace("Computing {} checksum of candidate '{}' over {} file(s): {}", algorithm.id, path, files.size, files)
-        return files.fold(ByteArray(0)) { acc, file -> acc + Files.readAllBytes(file) }
+        return concatenateWithLengthPrefixes(files.map { Files.readAllBytes(it) })
     }
 
     /**
@@ -110,7 +140,31 @@ class ChecksumSecurityStrategy(
      */
     private fun candidateBytes(content: PinnedPluginContent): ByteArray = when (content) {
         is PinnedPluginContent.Single -> content.bytes
-        is PinnedPluginContent.Multi -> content.filesByName.toSortedMap().values.fold(ByteArray(0)) { acc, bytes -> acc + bytes }
+        is PinnedPluginContent.Multi -> concatenateWithLengthPrefixes(content.filesByName.toSortedMap().values.toList())
+    }
+
+    /**
+     * Concatenates the files of a multi-file candidate, each prefixed with its own length in bytes, so
+     * exactly one set of files can produce any given digest input.
+     *
+     * A plain concatenation is ambiguous: moving bytes from the end of one JAR to the start of the next
+     * leaves the concatenation - and therefore the checksum - unchanged. A plugin shipped as a folder of
+     * JARs could exploit that to alter what its JARs contain while keeping the accepted checksum valid.
+     * Prefixing each file's length pins the split points as well as the bytes.
+     *
+     * Note that this changes the digest of multi-file candidates compared to earlier versions; their
+     * persisted checksum has to be accepted once more. Single-file candidates are unaffected - there is
+     * no boundary to be ambiguous about.
+     */
+    private fun concatenateWithLengthPrefixes(files: List<ByteArray>): ByteArray {
+        val out = ByteArrayOutputStream()
+        for (bytes in files) {
+            // SECURITY: the length prefix pins the boundary between files, so bytes cannot be moved from one
+            // SECURITY: JAR into the next while keeping the digest unchanged.
+            out.write(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
+            out.write(bytes)
+        }
+        return out.toByteArray()
     }
 
     companion object {

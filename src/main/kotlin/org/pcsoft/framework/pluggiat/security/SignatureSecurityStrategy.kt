@@ -28,6 +28,7 @@ import java.security.cert.CertificateExpiredException
 import java.security.cert.CertificateNotYetValidException
 import java.security.cert.X509Certificate
 import java.util.jar.JarInputStream
+import java.util.zip.ZipInputStream
 
 /**
  * A [PluginSecurityStrategy] that requires a candidate to be signed with a key resolved via the
@@ -92,6 +93,9 @@ class SignatureSecurityStrategy(
 
     private fun checkManifestJarFolder(folder: java.nio.file.Path, multi: PinnedPluginContent.Multi, expectedKey: PublicKey): PluginSecurityCheckResult {
         logger.trace("Found {} JAR(s) in folder '{}': {}", multi.filesByName.size, folder, multi.filesByName.keys)
+        // SECURITY: the manifest JAR is identified by its content, not by its file name - a candidate must
+        // SECURITY: not be able to point the signature check at a different JAR than the one that carries the
+        // SECURITY: manifest by naming it suggestively.
         val manifestEntry = multi.filesByName.entries.firstOrNull { (_, bytes) ->
             val entries = resolveJarEntries(PinnedPluginContent.Single(bytes))
             entries.containsKey("META-INF/plugin.yml") || entries.containsKey("META-INF/plugin.yaml")
@@ -111,8 +115,13 @@ class SignatureSecurityStrategy(
 
         for ((fileName, bytes) in multi.filesByName) {
             if (fileName == manifestFileName) continue
+            // SECURITY: every sibling JAR must be listed. An unlisted file is rejected rather than ignored -
+            // SECURITY: otherwise adding one more JAR to the folder would smuggle in unsigned, unchecked code
+            // SECURITY: next to a properly signed manifest JAR.
             val expectedDigest = checksumEntries[fileName]
                 ?: return PluginSecurityCheckResult.Failure("No checksum listed for '$fileName' in '$manifestLabel'")
+            // SECURITY: the digest is taken over the pinned bytes, so the file that was checked is the file
+            // SECURITY: that gets loaded.
             val actualDigest = checksumAlgorithm.digest(bytes)
             logger.trace("Checksum of sibling JAR '{}': expected={}, actual={}", fileName, expectedDigest, actualDigest)
             if (!digestsEqual(expectedDigest, actualDigest)) {
@@ -140,46 +149,92 @@ class SignatureSecurityStrategy(
      * matching signer's certificate currently satisfies [X509Certificate.checkValidity].
      */
     private fun verifyJarSignature(bytes: ByteArray, label: String, expectedKey: PublicKey): PluginSecurityCheckResult {
+        // Computed up front from the full entry listing: whether an entry is exempt from the signing
+        // requirement depends on the *other* entries (see consumedSigningMetadataEntries).
+        val signingMetadataEntries = consumedSigningMetadataEntries(bytes)
         var signableEntryCount = 0
+        // SECURITY: JarInputStream(..., verify = true) is what performs the actual cryptographic verification;
+        // SECURITY: reading the bytes in memory keeps it on the pinned copy instead of a second disk read.
         JarInputStream(ByteArrayInputStream(bytes), true).use { jarStream ->
             var entry = jarStream.nextJarEntry
             while (entry != null) {
-                if (!entry.isDirectory && !isSigningMetadataEntry(entry.name)) {
+                if (!entry.isDirectory && entry.name !in signingMetadataEntries) {
                     signableEntryCount++
                     jarStream.readBytes() // fully read so the entry's code signers get populated
 
+                    // SECURITY: an entry with no code signers is unsigned - present in the archive but covered
+                    // SECURITY: by no signature, which is exactly how injected content would look.
                     val codeSigners = entry.codeSigners
                         ?: return PluginSecurityCheckResult.Failure("Entry '${entry.name}' of '$label' is not signed")
+                    // SECURITY: being signed is not enough - it has to be signed with the key the host expects
+                    // SECURITY: for this plugin, otherwise any self-signed key would do.
                     val matchingSigner = codeSigners.firstOrNull { signer -> signer.signerCertPath.certificates.firstOrNull()?.publicKey == expectedKey }
                         ?: return PluginSecurityCheckResult.Failure("Entry '${entry.name}' of '$label' is not signed with the expected public key")
 
+                    // No X.509 certificate means no validity period, no issuer and no revocation
+                    // information - nothing that could be checked. Accepting such a signer (as a missing
+                    // certificate silently did before) would make "signed with an expired certificate"
+                    // avoidable by simply not presenting a certificate at all.
                     val certificate = matchingSigner.signerCertPath.certificates.firstOrNull() as? X509Certificate
-                    if (certificate != null) {
-                        try {
-                            certificate.checkValidity()
-                        } catch (e: CertificateExpiredException) {
-                            return PluginSecurityCheckResult.Failure("Signing certificate for entry '${entry.name}' of '$label' has expired: ${e.message}")
-                        } catch (e: CertificateNotYetValidException) {
-                            return PluginSecurityCheckResult.Failure("Signing certificate for entry '${entry.name}' of '$label' is not yet valid: ${e.message}")
-                        }
+                        ?: return PluginSecurityCheckResult.Failure(
+                            "Signer of entry '${entry.name}' of '$label' presents no X.509 certificate, so its validity cannot be checked",
+                        )
+                    try {
+                        certificate.checkValidity()
+                    } catch (e: CertificateExpiredException) {
+                        return PluginSecurityCheckResult.Failure("Signing certificate for entry '${entry.name}' of '$label' has expired: ${e.message}")
+                    } catch (e: CertificateNotYetValidException) {
+                        return PluginSecurityCheckResult.Failure("Signing certificate for entry '${entry.name}' of '$label' is not yet valid: ${e.message}")
                     }
                 }
                 entry = jarStream.nextJarEntry
             }
         }
         logger.trace("Verified signature of '{}': {} signable entr{} checked", label, signableEntryCount, if (signableEntryCount == 1) "y" else "ies")
+        // SECURITY: an archive consisting of nothing but signing metadata proves nothing; treating it as
+        // SECURITY: verified would accept an "empty" candidate as signed.
         if (signableEntryCount == 0) return PluginSecurityCheckResult.Failure("No signable entries found in '$label'")
         return PluginSecurityCheckResult.Success
     }
 
     /**
-     * Whether [entryName] is one of the JAR signing mechanism's own metadata entries
-     * (`META-INF/MANIFEST.MF`, a signature file directly under `META-INF` with extension `SF`, or a
-     * signature block file directly under `META-INF` with extension `RSA`, `DSA` or `EC`), which
-     * are excluded from the set of entries required to carry a matching [java.security.CodeSigner]
-     * themselves.
+     * The entry names of [bytes] that belong to the JAR signing mechanism itself and are therefore not
+     * required to carry a [java.security.CodeSigner] of their own: `META-INF/MANIFEST.MF` (it carries
+     * the signed digests, so it cannot be signed by them) and each `META-INF/<name>.SF` signature file
+     * *together with* its matching `META-INF/<name>.<RSA|DSA|EC>` signature block.
+     *
+     * The pairing is what makes this exact: the JDK's verifier only uses a signature file that has a
+     * matching block, so those are the only ones it consumes. Exempting every entry that merely *looks*
+     * like signing metadata - as a name-pattern check does - hands a candidate a way to ship an
+     * unsigned file inside a signed JAR: name it `META-INF/anything.SF`, add no block for it, and it
+     * would pass while being covered by no signature at all. Here, an unpaired `.SF` (or a stray block)
+     * is an ordinary entry and has to be signed like any other.
      */
-    private fun isSigningMetadataEntry(entryName: String): Boolean =
-        entryName == "META-INF/MANIFEST.MF" ||
-            (entryName.startsWith("META-INF/") && Regex("META-INF/[^/]+\\.(SF|RSA|DSA|EC)$").matches(entryName))
+    private fun consumedSigningMetadataEntries(bytes: ByteArray): Set<String> {
+        val names = mutableSetOf<String>()
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zipStream ->
+            var entry = zipStream.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory) names += entry.name
+                entry = zipStream.nextEntry
+            }
+        }
+
+        val consumed = mutableSetOf<String>()
+        if (JAR_MANIFEST_ENTRY_NAME in names) consumed += JAR_MANIFEST_ENTRY_NAME
+        for (signatureFile in names.filter { SIGNATURE_FILE_PATTERN.matches(it) }) {
+            val baseName = signatureFile.removeSuffix(SIGNATURE_FILE_SUFFIX)
+            val block = SIGNATURE_BLOCK_EXTENSIONS.map { "$baseName.$it" }.firstOrNull { it in names } ?: continue
+            consumed += signatureFile
+            consumed += block
+        }
+        return consumed
+    }
+
+    private companion object {
+        const val JAR_MANIFEST_ENTRY_NAME = "META-INF/MANIFEST.MF"
+        const val SIGNATURE_FILE_SUFFIX = ".SF"
+        val SIGNATURE_FILE_PATTERN = Regex("META-INF/[^/]+\\.SF$")
+        val SIGNATURE_BLOCK_EXTENSIONS = listOf("RSA", "DSA", "EC")
+    }
 }

@@ -572,7 +572,9 @@ class PluginManager(val config: PluginManagerConfiguration) {
         val result = scanResults.first { it.manifest?.id == pluginId }
         val strategy = effectiveChainFor(result).filterIsInstance<T>().firstOrNull()
             ?: error("No configured security strategy of type ${T::class.simpleName} for plugin '$pluginId'")
-        strategy.persist(pluginId, result)
+        // The pinned bytes, not the path: what a host accepts here must be what the security chain
+        // actually checked (see PersistableSecurityStrategy.persist).
+        strategy.persist(pluginId, result, result.pinnedContent)
     }
 
     /**
@@ -607,12 +609,15 @@ class PluginManager(val config: PluginManagerConfiguration) {
             },
         )
         val candidates = loadedPlugins.values.map { plugin ->
-            val path = scanResults.first { it.manifest?.id == plugin.pluginId }.path
+            val result = scanResults.first { it.manifest?.id == plugin.pluginId }
             PluginExtensionCandidate(
                 pluginId = plugin.pluginId,
-                path = path,
+                path = result.path,
                 manifest = plugin.manifest,
                 onUnload = { closeAfterRuntimeUnload(plugin.pluginId) },
+                // Passed on so a process-isolated plugin's subprocess is started from the very bytes the
+                // security chain accepted, not from its path (see ProcessIsolationStrategy).
+                pinnedContent = result.pinnedContent,
             )
         }
         lastAggregation = aggregator.aggregate(candidates)
@@ -647,6 +652,24 @@ class PluginManager(val config: PluginManagerConfiguration) {
      * [violation] to [PluginManagerConfiguration.exceptionHandlingStrategy] as a
      * [SandboxViolationException] so the host is notified - regardless of the strategy's resolved
      * action, since the unload itself is mandatory and not up to the host to decide.
+     *
+     * A violation for a [pluginId] that has no (longer any) [loadedPlugins] entry is handled just the
+     * same, minus the parts that need the loaded plugin: its scan result is still marked, its disabled
+     * reason still persisted and the host still notified, and [PluginSandbox.deactivate] is still
+     * called so the sandbox drops whatever state it still holds. A plugin thread that outlived its
+     * plugin's unload reaches exactly this path (its guard call is blocked fail-closed, see
+     * [org.pcsoft.framework.pluggiat.sandbox.agent.SandboxGuardRegistry]), and silently ignoring it
+     * would both lose the attack evidence and let a plugin escape the `POTENTIAL_ATTACK` mark by
+     * attacking only after it was disabled.
+     *
+     * The re-aggregation of the remaining plugins' extensions is deliberately *not* run on the
+     * calling thread: that thread is usually the violating plugin's own (the guard call that failed
+     * runs on it), and re-aggregation instantiates and calls back into other plugins' code, which
+     * must never happen on a thread whose sandbox registration was just revoked - every guarded call
+     * it makes would now fail. It is therefore handed to a dedicated host thread, which is joined so
+     * the handler's observable effect stays synchronous, except when this thread already holds [lock]
+     * (a violation raised from inside an ongoing aggregation): joining would then deadlock against
+     * itself, so the re-aggregation is left to run once the outer section releases the lock.
      */
     private fun handleSandboxViolation(pluginId: String, violation: SandboxViolation) {
         val reason: String
@@ -661,22 +684,40 @@ class PluginManager(val config: PluginManagerConfiguration) {
         }
 
         lock.withLock {
-            val plugin = loadedPlugins[pluginId] ?: return@withLock
+            val plugin = loadedPlugins[pluginId]
             scanResults = scanResults.map {
                 if (it.manifest?.id == pluginId) it.copy(status = PluginScanStatus.POTENTIAL_ATTACK, errorMessage = violation.reason) else it
             }
+            // SECURITY: the reason and the disabled flag are persisted before anything else can fail, so the
+            // SECURITY: plugin stays disabled across restarts even if the rest of the teardown goes wrong.
             config.persistenceStrategy.write(pluginId, ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY, reason)
             config.persistenceStrategy.write(pluginId, ExtensionAggregator.ENABLED_PERSISTENCE_KEY, "false")
-            plugin.close()
-            sandbox.deactivate(pluginId, plugin.classLoader)
+            // SECURITY: no lifecycle hooks are invoked on the way out - a plugin that just attacked the sandbox
+            // SECURITY: does not get to run more of its own code.
+            plugin?.close()
+            // SECURITY: revokes the sandbox registration, so guarded calls from any surviving plugin thread are
+            // SECURITY: blocked from here on (fail-closed).
+            sandbox.deactivate(pluginId, plugin?.classLoader)
             loadedPlugins = loadedPlugins - pluginId
             logger.error(
                 "Plugin '{}' forcibly unloaded and marked POTENTIAL_ATTACK due to a sandbox violation: {}",
                 pluginId, violation.reason,
             )
-            reaggregateExtensions()
         }
+        reaggregateOnHostThread(pluginId)
         config.exceptionHandlingStrategy.resolve(SandboxViolationException(violation))
+    }
+
+    /**
+     * Runs [reaggregateExtensions] on a fresh host thread instead of the caller's, see
+     * [handleSandboxViolation] for why. The thread is joined unless the caller already holds [lock],
+     * in which case joining it would deadlock and it is left to finish on its own afterwards.
+     */
+    private fun reaggregateOnHostThread(pluginId: String) {
+        val reaggregation = Thread({ lock.withLock { reaggregateExtensions() } }, "pluggiat-sandbox-reaggregation-$pluginId")
+        reaggregation.isDaemon = true
+        reaggregation.start()
+        if (!lock.isHeldByCurrentThread) reaggregation.join()
     }
 
     companion object {

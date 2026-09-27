@@ -26,6 +26,16 @@ import java.util.concurrent.ConcurrentHashMap
  * constant of the class being transformed, see [GuardAsmVisitorWrapper]); [check] resolves that
  * class's own [Class.getClassLoader] back to the plugin it belongs to.
  *
+ * Deactivation is *fail-closed*: [revoke] does not drop the class loader's registration but replaces
+ * it with a [State.Revoked] marker, under which [check] blocks every category unconditionally. A
+ * plugin thread that survives its plugin's unload (see
+ * [org.pcsoft.framework.pluggiat.sandbox.ThreadWatchdog]) would otherwise find no entry at all for
+ * its class loader and - under the previous fail-open behaviour - be granted every guarded API it
+ * asks for, which is precisely the state an attacking plugin wants to reach. The marker is retained
+ * deliberately: it stays as long as the revoked class loader itself does, which is exactly as long as
+ * one of its classes can still execute a guard call. [release] is the explicit way to drop it once
+ * the class loader is definitively discarded and no code of it can run any more.
+ *
  * `internal`: not part of the public API. A host (or any other part of the framework) must go
  * through [org.pcsoft.framework.pluggiat.sandbox.PluginSandbox] instead, exactly as for a
  * [org.pcsoft.framework.pluggiat.sandbox.PluginSandboxStrategy] implementation - `internal` blocks
@@ -40,50 +50,105 @@ import java.util.concurrent.ConcurrentHashMap
  * needs; `internal` only stops other *Kotlin* source from referencing this object directly.
  */
 internal object SandboxGuardRegistry {
-    private data class Entry(
-        val pluginId: String,
-        val policy: PluginSandboxPolicy,
-        val onViolation: (String, SandboxViolation) -> Unit,
-    )
 
-    private val entries = ConcurrentHashMap<ClassLoader, Entry>()
+    /** What is currently known about one plugin class loader. */
+    private sealed interface State {
+        val pluginId: String
+        val onViolation: (String, SandboxViolation) -> Unit
+
+        /** An active registration: [policy] decides which categories are allowed. */
+        data class Entry(
+            override val pluginId: String,
+            val policy: PluginSandboxPolicy,
+            override val onViolation: (String, SandboxViolation) -> Unit,
+        ) : State
+
+        /** A revoked registration: every category is blocked, no matter what the policy once allowed. */
+        data class Revoked(
+            override val pluginId: String,
+            override val onViolation: (String, SandboxViolation) -> Unit,
+        ) : State
+    }
+
+    private val states = ConcurrentHashMap<ClassLoader, State>()
 
     /**
      * Registers [policy] for [pluginId], effective for every class loaded by [classLoader].
      * [onViolation] is invoked (before [check] throws) whenever a guarded call is blocked - wired by
      * [org.pcsoft.framework.pluggiat.sandbox.AgentInstrumentationStrategy] to
      * [org.pcsoft.framework.pluggiat.sandbox.PluginSandbox.reportViolation].
+     *
+     * Re-registering the same [classLoader] overwrites a previous registration, including a
+     * [State.Revoked] marker: a class loader only ever gets re-registered by a successful
+     * (re)activation of its plugin, which is the one legitimate way out of the revoked state.
      */
     fun register(classLoader: ClassLoader, pluginId: String, policy: PluginSandboxPolicy, onViolation: (String, SandboxViolation) -> Unit) {
-        entries[classLoader] = Entry(pluginId, policy, onViolation)
+        // SECURITY: keyed by the plugin's class loader, which is the only thing a guard call can derive from
+        // SECURITY: its caller - a plugin cannot present a different identity than the loader that defined it.
+        states[classLoader] = State.Entry(pluginId, policy, onViolation)
     }
 
     /**
-     * Removes any registration for [classLoader], called when its plugin is deactivated/unloaded.
+     * Marks [classLoader] revoked, called when its plugin is deactivated/unloaded: from now on
+     * [check] blocks every guarded call made from one of its classes, instead of falling back to
+     * "not a plugin class, nothing to enforce". A class loader that was never registered stays
+     * unknown - there is no policy to enforce for it, and inventing an entry would retain a class
+     * loader the framework does not manage.
      */
-    fun unregister(classLoader: ClassLoader) {
-        entries.remove(classLoader)
+    fun revoke(classLoader: ClassLoader) {
+        // SECURITY: replaced, not removed: the marker is what makes a later guard call from a surviving plugin
+        // SECURITY: thread fail instead of finding no policy and being waved through (fail-closed).
+        // SECURITY: computeIfPresent, so an unknown loader is not invented into the map - only loaders the
+        // SECURITY: framework itself registered are tracked.
+        states.computeIfPresent(classLoader) { _, state -> State.Revoked(state.pluginId, state.onViolation) }
+    }
+
+    /**
+     * Removes any registration for [classLoader] for good, giving up the fail-closed guarantee for
+     * it. Only legitimate once the class loader is definitively discarded and none of its classes can
+     * execute another guard call.
+     */
+    fun release(classLoader: ClassLoader) {
+        // SECURITY: gives up the fail-closed guarantee for this loader - only ever correct once none of its
+        // SECURITY: classes can run again.
+        states.remove(classLoader)
     }
 
     /**
      * Called by instrumented plugin bytecode right before a guarded call. A no-op if [callerType]'s
-     * class loader has no registered policy (not a plugin class, or its plugin was already
-     * deactivated) or if [category] is allowed by the registered policy.
+     * class loader has no registration at all (not a plugin class) or if [category] is allowed by its
+     * registered policy.
      *
-     * @throws SandboxViolationException if [category] is not allowed by the registered policy -
-     * aborts the guarded call before it executes
+     * @throws SandboxViolationException if [category] is not allowed by the registered policy, or if
+     * the class loader's registration was [revoke]d - aborts the guarded call before it executes
      */
     @JvmStatic
     fun check(callerType: Class<*>, category: SandboxApiCategory) {
-        val entry = entries[callerType.classLoader] ?: return
-        if (category in entry.policy.allowedApiCategories) return
+        // SECURITY: the caller's own class loader decides which policy applies; a class of an unregistered
+        // SECURITY: loader is not a plugin class and has nothing to enforce.
+        val state = states[callerType.classLoader] ?: return
+        val reason = when (state) {
+            is State.Entry -> {
+                // SECURITY: allow-list semantics - a category has to be listed explicitly to pass, so a new,
+                // SECURITY: unclassified category is denied rather than permitted by default.
+                if (category in state.policy.allowedApiCategories) return
+                "Blocked $category access attempted from ${callerType.name}"
+            }
+
+            // SECURITY: revoked means every category is blocked, whatever the policy once allowed.
+            is State.Revoked ->
+                "Blocked $category access attempted from ${callerType.name} after its plugin was deactivated"
+        }
 
         val violation = SandboxViolation(
-            pluginId = entry.pluginId,
+            pluginId = state.pluginId,
             category = category,
-            reason = "Blocked $category access attempted from ${callerType.name}",
+            reason = reason,
         )
-        entry.onViolation(entry.pluginId, violation)
+        // SECURITY: the host is notified first, then the call is aborted - the notification must not depend
+        // SECURITY: on anyone catching the exception.
+        state.onViolation(state.pluginId, violation)
+        // SECURITY: thrown *before* the guarded instruction executes, so the blocked call never happens.
         throw SandboxViolationException(violation)
     }
 }

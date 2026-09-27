@@ -16,6 +16,13 @@ package org.pcsoft.framework.pluggiat.classloader
  * A single package of the host application's SDK, exposed to plugins through their isolated
  * class loader.
  *
+ * A whitelist entry only ever *adds* host packages a plugin may see; it can neither widen nor
+ * narrow the two steps [PluginClassLoader] applies before it. Platform classes (`java.*`/`javax.*`)
+ * always come from the JDK platform class loader, and pluggiat's own classes
+ * ([PluginClassLoader.FRAMEWORK_PACKAGE_PREFIX]) always come from the host class loader - listing
+ * either here changes nothing, and a plugin shipping a class of such a name in its own JAR never
+ * gets that copy loaded.
+ *
  * @property packageName the package to expose, e.g. `"org.pcsoft.framework.myapp.sdk"`
  * @property recursive whether sub-packages of [packageName] are exposed as well (`true`, default),
  * or only classes directly inside [packageName] (`false`)

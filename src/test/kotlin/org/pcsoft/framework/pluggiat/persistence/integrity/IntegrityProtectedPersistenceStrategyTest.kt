@@ -53,6 +53,62 @@ class IntegrityProtectedPersistenceStrategyTest {
     }
 
     /**
+     * Use case: an HMAC moved from one plugin id to another - together with the value it belongs to -
+     * does not verify there. The MAC covers the plugin id as a length-prefixed field, so it is valid for
+     * exactly one `(pluginId, key, value)` triple and cannot be replayed under a different plugin's name
+     * to inherit its accepted state.
+     */
+    @Test
+    fun `detects an HMAC moved to another plugin id`(@TempDir tempDir: Path) {
+        val delegate = FilePersistenceStrategy(tempDir.resolve("state.properties"))
+        val strategy = IntegrityProtectedPersistenceStrategy(delegate, tempDir.resolve("state.properties.key"))
+        strategy.write("plugin-a", "enabled", "true")
+        val hmacOfPluginA = requireNotNull(delegate.read("plugin-a", "enabled_hmac"))
+
+        delegate.write("plugin-b", "enabled", "true")
+        delegate.write("plugin-b", "enabled_hmac", hmacOfPluginA)
+
+        assertEquals("true", strategy.read("plugin-a", "enabled"))
+        assertNull(strategy.read("plugin-b", "enabled"))
+    }
+
+    /**
+     * Use case: an HMAC moved from one key to another of the *same* plugin does not verify either - the
+     * key is part of the MAC input as well, so an accepted `checksum` cannot be turned into an accepted
+     * `enabled` flag.
+     */
+    @Test
+    fun `detects an HMAC moved to another key of the same plugin`(@TempDir tempDir: Path) {
+        val delegate = FilePersistenceStrategy(tempDir.resolve("state.properties"))
+        val strategy = IntegrityProtectedPersistenceStrategy(delegate, tempDir.resolve("state.properties.key"))
+        strategy.write("plugin-a", "checksum", "same-value")
+        val hmacOfChecksum = requireNotNull(delegate.read("plugin-a", "checksum_hmac"))
+
+        delegate.write("plugin-a", "enabled", "same-value")
+        delegate.write("plugin-a", "enabled_hmac", hmacOfChecksum)
+
+        assertNull(strategy.read("plugin-a", "enabled"))
+    }
+
+    /**
+     * Use case: a deleted HMAC entry makes its value read back as unset rather than as unprotected -
+     * removing the MAC must not be a way to get a forged value accepted.
+     */
+    @Test
+    fun `treats a value whose HMAC entry was deleted as unset`(@TempDir tempDir: Path) {
+        val statePath = tempDir.resolve("state.properties")
+        val delegate = FilePersistenceStrategy(statePath)
+        val strategy = IntegrityProtectedPersistenceStrategy(delegate, tempDir.resolve("state.properties.key"))
+        strategy.write("plugin-a", "enabled", "true")
+
+        val withoutHmac = Files.readAllLines(statePath).filterNot { it.startsWith("plugin-a|enabled_hmac") }
+        Files.write(statePath, withoutHmac)
+
+        val reloaded = IntegrityProtectedPersistenceStrategy(FilePersistenceStrategy(statePath), tempDir.resolve("state.properties.key"))
+        assertNull(reloaded.read("plugin-a", "enabled"))
+    }
+
+    /**
      * Use case: on first access, no key file exists yet - one is generated so that a subsequently
      * written value can be verified again.
      */

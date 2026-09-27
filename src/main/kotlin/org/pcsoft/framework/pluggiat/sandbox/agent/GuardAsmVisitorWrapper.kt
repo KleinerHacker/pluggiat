@@ -19,6 +19,7 @@ import net.bytebuddy.description.method.MethodList
 import net.bytebuddy.description.type.TypeDescription
 import net.bytebuddy.implementation.Implementation
 import net.bytebuddy.jar.asm.ClassVisitor
+import net.bytebuddy.jar.asm.ClassWriter
 import net.bytebuddy.jar.asm.Handle
 import net.bytebuddy.jar.asm.MethodVisitor
 import net.bytebuddy.jar.asm.Opcodes
@@ -91,9 +92,12 @@ internal fun guardedCategoryFor(owner: String, name: String, descriptor: String 
     owner in THREAD_POOL_TYPES && name == "<init>" -> SandboxApiCategory.THREAD_CREATION
     owner == "java/util/concurrent/ForkJoinPool" && name == "commonPool" -> SandboxApiCategory.THREAD_CREATION
     owner == "java/util/concurrent/CompletableFuture" && name.endsWith("Async") -> SandboxApiCategory.THREAD_CREATION
+    owner.startsWith("java/util/stream/") && name == "parallel" -> SandboxApiCategory.THREAD_CREATION
+    owner.startsWith("java/util/") && name == "parallelStream" -> SandboxApiCategory.THREAD_CREATION
     //endregion
 
-    // Checked last so that the member-level curation above always wins over a package prefix.
+    // SECURITY: checked last so the member-level curation above always wins over a package prefix -
+    // SECURITY: a prefix must never turn a deliberately unguarded member into a violation.
     else -> GUARDED_PACKAGE_PREFIXES.entries.firstOrNull { owner.startsWith(it.key) }?.value
 }
 
@@ -126,7 +130,11 @@ internal fun guardedCategoryForSubtype(
     descriptor: String,
     typePool: TypePool,
 ): SandboxApiCategory? {
+    // SECURITY: array owners and JDK namespaces are already covered by the tables above; resolving them
+    // SECURITY: again would only cost transform time, never catch anything new.
     if (owner.startsWith("[") || JDK_NAMESPACE_PREFIXES.any { owner.startsWith(it) }) return null
+    // SECURITY: this is the subclass bypass: `class MyFile : File()` compiles to an owner of MyFile, which
+    // SECURITY: no name-based table can match - the call is classified by the guarded base type instead.
     val baseType = resolveGuardedBaseType(owner, typePool) ?: return null
     return guardedCategoryFor(Type.getInternalName(baseType), name, descriptor)
 }
@@ -135,6 +143,8 @@ private fun resolveGuardedBaseType(owner: String, typePool: TypePool): Class<*>?
     val resolution = runCatching { typePool.describe(owner.replace('/', '.')) }.getOrNull() ?: return null
     if (!resolution.isResolved) return null
     val type = runCatching { resolution.resolve() }.getOrNull() ?: return null
+    // SECURITY: first match wins, so the list's order decides which guard a subtype inherits (see the
+    // SECURITY: URLClassLoader-before-ClassLoader note in HIERARCHY_BASE_TYPES).
     return HIERARCHY_BASE_TYPES.firstOrNull { base ->
         runCatching { type.isAssignableTo(base) }.getOrDefault(false)
     }
@@ -155,6 +165,10 @@ private val HIERARCHY_BASE_TYPES: List<Class<*>> = listOf(
     java.net.DatagramSocket::class.java,
     java.net.URLConnection::class.java,
     Thread::class.java,
+    java.util.concurrent.ForkJoinTask::class.java,
+    // Before ClassLoader on purpose: the first match wins, and a subclass of URLClassLoader must
+    // inherit URLClassLoader's whole-type guard instead of ClassLoader's member-level curation.
+    java.net.URLClassLoader::class.java,
     ClassLoader::class.java,
 )
 
@@ -283,13 +297,29 @@ private val SYSTEM_PROCESS_METHODS = setOf("exit", "load", "loadLibrary")
 //region REFLECTION
 
 /**
- * Types guarded as [SandboxApiCategory.REFLECTION] on every member: `MethodHandles.Lookup` (a pure
- * reflection gateway, so enumerating its `find*`/`unreflect*` members would only risk missing one),
- * and `ObjectInputStream`, whose `readObject` instantiates and invokes arbitrary types.
+ * Types guarded as [SandboxApiCategory.REFLECTION] on every member:
+ *
+ * * `MethodHandles.Lookup` - a pure reflection gateway, so enumerating its `find*`/`unreflect*`
+ *   members would only risk missing one.
+ * * `ObjectInputStream` - its `readObject` instantiates and invokes arbitrary types.
+ * * `URLClassLoader` - defines classes from arbitrary URLs, i.e. loads code that was never scanned,
+ *   never security-checked and (being loaded by a loader the framework does not know) never
+ *   instrumented. Unlike [java.lang.ClassLoader], which is curated member by member because a plugin
+ *   legitimately reads its own resources through it, no member of `URLClassLoader` is needed for that -
+ *   so the whole type is guarded, constructor included.
+ * * `ServiceLoader` - instantiates every provider named in a `META-INF/services` file, which is
+ *   reflective instantiation driven by data rather than by code, and is the standard way to have
+ *   somebody else's class constructed for you.
+ * * `ModuleLayer` - defines and reads modules at runtime (`defineModulesWithOneLoader`, `addReads`,
+ *   `addOpens`), which both loads code outside the plugin's own loader and re-opens encapsulated JDK
+ *   internals that reflection alone could not reach.
  */
 private val REFLECTION_TYPES = setOf(
     "java/lang/invoke/MethodHandles\$Lookup",
     "java/io/ObjectInputStream",
+    "java/net/URLClassLoader",
+    "java/util/ServiceLoader",
+    "java/lang/ModuleLayer",
 )
 
 /**
@@ -318,10 +348,15 @@ private val CLASS_LOADER_REFLECTION_METHODS = setOf(
 
 //region THREAD_CREATION
 
-/** Types guarded as [SandboxApiCategory.THREAD_CREATION] on every member. */
+/**
+ * Types guarded as [SandboxApiCategory.THREAD_CREATION] on every member. `ForkJoinTask` is listed
+ * because `fork`/`invoke`/`invokeAll` hand work to the common `ForkJoinPool` - threads the plugin
+ * never constructs itself, and which keep running after its own call returns.
+ */
 private val THREAD_CREATION_TYPES = setOf(
     "java/util/concurrent/Executors",
     "java/lang/ThreadGroup",
+    "java/util/concurrent/ForkJoinTask",
 )
 
 /**
@@ -360,6 +395,9 @@ private val THREAD_POOL_TYPES = setOf(
  *   plugin ever calling a `Socket` constructor.
  * * `java/rmi/` and `javax/naming/` - remote invocation and JNDI lookups (the latter being the
  *   remote-class-loading vector behind Log4Shell) are network access plus remote code loading.
+ * * `com/sun/net/httpserver/` - the JDK's built-in HTTP *server*: every type in it exists to open a
+ *   listening socket and serve requests on it, which is inbound network access without ever touching
+ *   [java.net.ServerSocket] in the plugin's own bytecode.
  *
  * Checked after the explicit tables so that member-level curation always wins over a prefix.
  */
@@ -373,6 +411,7 @@ private val GUARDED_PACKAGE_PREFIXES: Map<String, SandboxApiCategory> = mapOf(
     "javax/net/" to SandboxApiCategory.NETWORK,
     "java/rmi/" to SandboxApiCategory.NETWORK,
     "javax/naming/" to SandboxApiCategory.NETWORK,
+    "com/sun/net/httpserver/" to SandboxApiCategory.NETWORK,
 )
 
 private val SANDBOX_GUARD_REGISTRY_NAME = SandboxGuardRegistry::class.java.name.replace('.', '/')
@@ -387,11 +426,22 @@ private val SANDBOX_API_CATEGORY_DESCRIPTOR = "L$SANDBOX_API_CATEGORY_NAME;"
  *
  * [SandboxGuardRegistry.check] either returns normally (call allowed) or throws
  * [SandboxViolationException] (call blocked) - in both cases the original instruction is emitted
- * unchanged right after the guard call, so a permitted call behaves exactly as before. The injected
- * sequence is stack-neutral (it pushes two operands and consumes both), so no frame or max-stack
- * recomputation beyond ASM's own is required.
+ * unchanged right after the guard call, so a permitted call behaves exactly as before.
+ *
+ * The injected sequence is stack-*neutral* in its net effect (it pushes two operands and consumes
+ * both), but it still needs two additional slots at the moment it runs - and a guarded call site can
+ * sit right at the method's original maximum stack depth. `new File("x").exists()` is exactly such a
+ * case: at the point the guard is injected, the operand stack already holds the uninitialized
+ * reference twice plus the constructor's argument, which is the whole `max_stack` the compiler
+ * recorded. The class would then fail verification with "Operand stack overflow" - which is why
+ * [mergeWriter] requests [ClassWriter.COMPUTE_MAXS]: the written class gets its `max_stack`
+ * recomputed from the rewritten instructions instead of inheriting the original value. Stack map
+ * frames need no recomputation, since the injected sequence adds no branches and leaves the stack as
+ * it found it at every frame boundary.
  */
 internal object GuardAsmVisitorWrapper : AsmVisitorWrapper.AbstractBase() {
+    override fun mergeWriter(flags: Int): Int = flags or ClassWriter.COMPUTE_MAXS
+
     override fun wrap(
         instrumentedType: TypeDescription,
         classVisitor: ClassVisitor,
@@ -434,6 +484,8 @@ private class GuardMethodVisitor(
         descriptor: String,
         isInterface: Boolean,
     ) {
+        // SECURITY: the guard is emitted *before* the original instruction, so a blocked call is aborted
+        // SECURITY: by the thrown SandboxViolationException before it can take effect.
         emitGuard(categoryFor(owner, name, descriptor))
         super.visitMethodInsn(opcode, owner, name, descriptor, isInterface)
     }
@@ -457,6 +509,8 @@ private class GuardMethodVisitor(
         bootstrapMethodHandle: Handle,
         vararg bootstrapMethodArguments: Any,
     ) {
+        // SECURITY: covers `Files::readAllBytes`-style method references, which produce no INVOKE* in the
+        // SECURITY: plugin's own bytecode and would otherwise never be seen by visitMethodInsn.
         val category = bootstrapMethodArguments
             .filterIsInstance<Handle>()
             .firstNotNullOfOrNull { categoryFor(it.owner, it.name, it.desc) }
@@ -464,12 +518,16 @@ private class GuardMethodVisitor(
         super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, *bootstrapMethodArguments)
     }
 
+    // SECURITY: both tables are consulted for every call site: the static one for the written owner, the
+    // SECURITY: hierarchy one for a subtype that would otherwise slip past it.
     private fun categoryFor(owner: String, name: String, descriptor: String): SandboxApiCategory? =
         guardedCategoryFor(owner, name, descriptor)
             ?: guardedCategoryForSubtype(owner, name, descriptor, typePool)
 
     private fun emitGuard(category: SandboxApiCategory?) {
         if (category == null) return
+        // SECURITY: the *instrumented* class is baked in as a constant, not read from the call stack: a
+        // SECURITY: plugin cannot forge it, and SandboxGuardRegistry resolves the policy from exactly this.
         super.visitLdcInsn(Type.getObjectType(ownerInternalName))
         super.visitFieldInsn(Opcodes.GETSTATIC, SANDBOX_API_CATEGORY_NAME, category.name, SANDBOX_API_CATEGORY_DESCRIPTOR)
         super.visitMethodInsn(

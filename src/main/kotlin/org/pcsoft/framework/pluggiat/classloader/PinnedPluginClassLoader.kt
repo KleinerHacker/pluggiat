@@ -35,9 +35,14 @@ import java.util.Collections
  * `org.pcsoft.framework.pluggiat.security.SignatureSecurityStrategy` uses to verify a candidate, so
  * both sides agree on which entry among duplicate ZIP entry names is authoritative.
  *
- * Inherits [PluginClassLoader]'s `loadClass` precedence (platform classes, then SDK whitelist via
- * the host class loader, then this class loader's own [findClass]/[findResource], then dependency
- * class loaders) unchanged - only where classes/resources ultimately come from differs.
+ * Inherits [PluginClassLoader]'s `loadClass` precedence (platform classes, then framework classes
+ * from the host, then the SDK whitelist via the host class loader, then this class loader's own
+ * [findClass]/[findResource], then dependency class loaders) unchanged - only where
+ * classes/resources ultimately come from differs. Resource lookup additionally refuses to serve
+ * anything below [PluginClassLoader.FRAMEWORK_RESOURCE_PREFIX]: a plugin must not be able to
+ * shadow one of pluggiat's own resources (a `META-INF/services` provider file, the manifest schema,
+ * ...) from its own pinned bytes, which would be a way to influence framework behaviour without
+ * ever loading a framework class.
  */
 class PinnedPluginClassLoader(
     private val content: PinnedPluginContent,
@@ -55,15 +60,21 @@ class PinnedPluginClassLoader(
      */
     override fun findClass(name: String): Class<*> {
         val entryName = name.replace('.', '/') + ".class"
+        // SECURITY: resolved out of the pinned entry map, never re-read from disk - these are the exact bytes
+        // SECURITY: the security chain verified, so check-time and load-time content cannot differ.
         val bytes = entries[entryName] ?: throw ClassNotFoundException(name)
         return defineClass(name, bytes, 0, bytes.size)
     }
 
     /**
      * Resolves [name] to an in-memory [URL] over its pinned bytes, or `null` if no such entry was
-     * pinned.
+     * pinned or if [name] is a framework resource the plugin must not shadow.
      */
     override fun findResource(name: String): URL? {
+        // SECURITY: a plugin must not be able to serve one of pluggiat's own resources (a services file, the
+        // SECURITY: manifest schema) from its own bytes - that would steer framework behaviour without ever
+        // SECURITY: loading a framework class.
+        if (isFrameworkResource(name)) return null
         val bytes = entries[name] ?: return null
         return URL("pluggiat-pinned", null, -1, name, PinnedResourceUrlStreamHandler(bytes))
     }
@@ -75,6 +86,18 @@ class PinnedPluginClassLoader(
      */
     override fun findResources(name: String): java.util.Enumeration<URL> =
         Collections.enumeration(listOfNotNull(findResource(name)))
+
+    /**
+     * Whether [name] addresses one of pluggiat's own resources, which are served by the host's class
+     * loader only and are never taken from a plugin's pinned bytes. Both separator spellings are
+     * rejected, since a resource name reaches a class loader unnormalized.
+     */
+    private fun isFrameworkResource(name: String): Boolean {
+        // SECURITY: normalized first: a resource name arrives exactly as the caller wrote it, so "/org/..."
+        // SECURITY: and a backslash-separated spelling must be recognized as the same protected prefix.
+        val normalized = name.removePrefix("/").replace('\\', '/')
+        return normalized.startsWith(FRAMEWORK_RESOURCE_PREFIX)
+    }
 
     /**
      * Serves the fixed [bytes] of a single pinned resource as the content of an otherwise

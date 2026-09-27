@@ -20,5 +20,9 @@ import org.pcsoft.framework.pluggiat.extension.ExtensionClassResolver
  * loading.
  */
 class PluginExtensionClassResolver(private val classLoader: PluginClassLoader) : ExtensionClassResolver {
+    // SECURITY: resolution goes through the plugin's own PluginClassLoader, never through the host's
+    // SECURITY: loader: the manifest's `implementation` is plugin-controlled text, and resolving it against
+    // SECURITY: the host would let a manifest name an arbitrary host class to be instantiated. Going through
+    // SECURITY: the plugin loader also keeps the resulting class subject to that plugin's sandbox policy.
     override fun resolve(fqcn: String): Class<*> = classLoader.loadClass(fqcn)
 }

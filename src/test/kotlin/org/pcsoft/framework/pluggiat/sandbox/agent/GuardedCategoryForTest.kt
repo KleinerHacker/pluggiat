@@ -32,6 +32,9 @@ class GuardedCategoryForTest {
     /** A plugin-defined `Thread` subclass, standing in for the subclass-bypass attempt. */
     private class DerivedThread : Thread()
 
+    /** A plugin-defined `URLClassLoader` subclass, standing in for the subclass-bypass attempt. */
+    private class DerivedUrlClassLoader : java.net.URLClassLoader(emptyArray())
+
     private fun internalName(type: Class<*>): String = type.name.replace('.', '/')
 
     //region FILESYSTEM
@@ -430,6 +433,63 @@ class GuardedCategoryForTest {
     }
 
     //endregion
+
+    /**
+     * Use case: the class-loading and service-lookup entry points a plugin could otherwise use to pull in
+     * code that was never scanned, checked or instrumented are guarded as [SandboxApiCategory.REFLECTION]
+     * on every member - `URLClassLoader` (defines classes from arbitrary URLs), `ServiceLoader`
+     * (instantiates providers named by data) and `ModuleLayer` (defines modules and re-opens JDK
+     * internals).
+     */
+    @Test
+    fun `class loading and service lookup entry points are guarded as REFLECTION`() {
+        assertEquals(SandboxApiCategory.REFLECTION, guardedCategoryFor("java/net/URLClassLoader", "<init>"))
+        assertEquals(SandboxApiCategory.REFLECTION, guardedCategoryFor("java/net/URLClassLoader", "newInstance"))
+        assertEquals(SandboxApiCategory.REFLECTION, guardedCategoryFor("java/util/ServiceLoader", "load"))
+        assertEquals(SandboxApiCategory.REFLECTION, guardedCategoryFor("java/util/ServiceLoader", "iterator"))
+        assertEquals(SandboxApiCategory.REFLECTION, guardedCategoryFor("java/lang/ModuleLayer", "defineModulesWithOneLoader"))
+    }
+
+    /**
+     * Use case: a plugin-defined subclass of `URLClassLoader` inherits `URLClassLoader`'s whole-type
+     * guard rather than [ClassLoader]'s member-level curation - it is listed before `ClassLoader` in the
+     * hierarchy base types precisely so that a subclass cannot escape into the narrower rule set.
+     */
+    @Test
+    fun `URLClassLoader subclasses inherit the whole-type guard`() {
+        val typePool = TypePool.Default.ofSystemLoader()
+
+        assertEquals(
+            SandboxApiCategory.REFLECTION,
+            guardedCategoryForSubtype(internalName(DerivedUrlClassLoader::class.java), "findClass", "(Ljava/lang/String;)Ljava/lang/Class;", typePool),
+        )
+    }
+
+    /**
+     * Use case: the two ways into implicit parallelism - `Stream.parallel()` and
+     * `Collection.parallelStream()` - are guarded as [SandboxApiCategory.THREAD_CREATION], since both
+     * hand work to the common `ForkJoinPool` without the plugin ever constructing a thread; so is
+     * `ForkJoinTask`, which submits to that same pool.
+     */
+    @Test
+    fun `implicit parallelism entry points are guarded as THREAD_CREATION`() {
+        assertEquals(SandboxApiCategory.THREAD_CREATION, guardedCategoryFor("java/util/stream/Stream", "parallel"))
+        assertEquals(SandboxApiCategory.THREAD_CREATION, guardedCategoryFor("java/util/stream/IntStream", "parallel"))
+        assertEquals(SandboxApiCategory.THREAD_CREATION, guardedCategoryFor("java/util/Collection", "parallelStream"))
+        assertEquals(SandboxApiCategory.THREAD_CREATION, guardedCategoryFor("java/util/List", "parallelStream"))
+        assertEquals(SandboxApiCategory.THREAD_CREATION, guardedCategoryFor("java/util/concurrent/ForkJoinTask", "fork"))
+    }
+
+    /**
+     * Use case: the JDK's built-in HTTP server package is guarded wholesale as
+     * [SandboxApiCategory.NETWORK] - every type in it opens a listening socket without the plugin ever
+     * touching [java.net.ServerSocket] in its own bytecode.
+     */
+    @Test
+    fun `the JDK http server package is guarded as NETWORK`() {
+        assertEquals(SandboxApiCategory.NETWORK, guardedCategoryFor("com/sun/net/httpserver/HttpServer", "create"))
+        assertEquals(SandboxApiCategory.NETWORK, guardedCategoryFor("com/sun/net/httpserver/HttpsServer", "bind"))
+    }
 
     /**
      * Use case: an unrelated call site (e.g. a plain `String` method) is not guarded at all.

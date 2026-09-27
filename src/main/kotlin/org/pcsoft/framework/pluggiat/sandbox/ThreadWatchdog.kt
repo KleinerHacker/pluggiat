@@ -93,7 +93,11 @@ class ThreadWatchdog {
      * @throws SandboxDeactivatedException if [pluginId] was [deactivate]d and not [activate]d since
      */
     fun <T> runGoverned(pluginId: String, policy: PluginSandboxPolicy, block: () -> T): T {
+        // SECURITY: without a configured timeout there is nothing to govern - the call runs on the caller's
+        // SECURITY: thread rather than silently gaining an extra thread.
         val timeout = policy.callTimeout ?: return block()
+        // SECURITY: a re-entrant call of the same plugin runs inline: handing it to the same single-threaded
+        // SECURITY: executor would deadlock, and a plugin able to deadlock its watchdog could stall the host.
         if (currentPluginId.get() == pluginId) return block()
 
         val slot = slots.compute(pluginId) { _, existing ->
@@ -103,6 +107,8 @@ class ThreadWatchdog {
                 null -> Slot.Ready(newExecutorFor(pluginId))
             }
         }
+        // SECURITY: a deactivated plugin gets no executor back - its calls are refused instead of resurrecting
+        // SECURITY: a plugin that was just unloaded.
         if (slot !is Slot.Ready) throw SandboxDeactivatedException(pluginId)
         val executor = slot.executor
 
@@ -120,7 +126,11 @@ class ThreadWatchdog {
         return try {
             future.get(timeoutMillis(timeout), TimeUnit.MILLISECONDS)
         } catch (_: TimeoutException) {
+            // SECURITY: interrupt the overrunning call and abandon its thread - a plugin that ignores the
+            // SECURITY: interrupt keeps its own thread busy, never the host's.
             future.cancel(true)
+            // SECURITY: the executor is replaced, not reused: its single thread may still be occupied by the
+            // SECURITY: call that timed out, and reusing it would let one hanging call block every later one.
             replaceExecutor(pluginId, executor)
             onViolation(pluginId, SandboxViolation(pluginId, category = null, reason = "Call exceeded sandbox timeout of $timeout"))
             throw SandboxTimeoutException(pluginId, timeout)
@@ -139,6 +149,8 @@ class ThreadWatchdog {
      * plugin.
      */
     fun deactivate(pluginId: String) {
+        // SECURITY: the marker is written *before* the executor is shut down, so a call arriving during the
+        // SECURITY: shutdown is rejected rather than starting on a dying executor.
         val previous = slots.put(pluginId, Slot.Deactivated)
         if (previous is Slot.Ready) shutdownNow(pluginId, previous.executor)
     }
@@ -171,6 +183,7 @@ class ThreadWatchdog {
         val group = ThreadGroup(rootGroup, "pluggiat-plugin-$safeId")
         val threadFactory = ThreadFactory { runnable ->
             Thread(group, runnable, "pluggiat-watchdog-$safeId").apply {
+                // SECURITY: daemon threads, so an abandoned plugin call can never keep the host JVM alive.
                 isDaemon = true
                 setUncaughtExceptionHandler { thread, throwable ->
                     logger.warn("Uncaught exception on sandbox watchdog thread '{}'", thread.name, throwable)
@@ -189,6 +202,8 @@ class ThreadWatchdog {
          * newlines or be arbitrarily long; sanitized before use in a thread/`ThreadGroup` name so it
          * cannot corrupt thread-dump or monitoring output.
          */
+        // SECURITY: the plugin id reaches a thread name here, so it is reduced to harmless characters and a
+        // SECURITY: bounded length - keeps a crafted id out of log lines and diagnostics.
         private fun sanitizeForThreadName(pluginId: String): String =
             UNSAFE_THREAD_NAME_CHARS.replace(pluginId, "_").take(MAX_THREAD_NAME_ID_LENGTH)
     }

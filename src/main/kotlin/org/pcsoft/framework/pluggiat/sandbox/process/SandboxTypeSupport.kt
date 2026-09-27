@@ -34,6 +34,9 @@ object SandboxTypeSupport {
      * @throws UnsupportedSandboxTypeException if [method]'s return type or any parameter type is not
      * one of the supported cases
      */
+    // SECURITY: an allow-list of types, checked before the subprocess is even started. Only a closed,
+    // SECURITY: primitive-plus-String-plus-List vocabulary crosses the process boundary, which is what keeps
+    // SECURITY: the IPC free of arbitrary object graphs - i.e. free of Java deserialization as an attack path.
     fun requireSupported(method: Method) {
         unsupportedReason(method.genericReturnType)?.let {
             throw UnsupportedSandboxTypeException(method, "return type ${method.genericReturnType} is unsupported ($it)")
@@ -62,6 +65,8 @@ object SandboxTypeSupport {
             }
         }
 
+        // SECURITY: anything not explicitly listed above is unsupported - new types have to be added
+        // SECURITY: deliberately, they never become transferable by accident.
         else -> "not part of the IP-04 supported type set"
     }
 
@@ -74,6 +79,8 @@ object SandboxTypeSupport {
         is ByteArray -> SandboxValue.BytesValue(value)
         is String -> SandboxValue.StringValue(value)
         is List<*> -> SandboxValue.ListValue(value.map(::encode))
+        // SECURITY: refuses to encode anything outside the vocabulary instead of falling back to a generic
+        // SECURITY: representation.
         else -> throw IllegalArgumentException("Value of type ${value::class.java} is not encodable as a SandboxValue")
     }
 

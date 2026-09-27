@@ -53,6 +53,80 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Plugin id collision resolution no longer lets a candidate that failed its security chain displace
   an already successfully verified candidate of the same id by declaring a higher manifest version;
   only candidates that passed their security chain now compete on version.
+- A plugin can no longer supply its own copy of a pluggiat class or resource: everything under
+  `org.pcsoft.framework.pluggiat` is now always resolved from the host, before the SDK whitelist and
+  before the plugin's own JARs, and a pinned candidate can no longer serve a resource below that
+  prefix either. Previously a plugin shipping its own `SandboxGuardRegistry` had that copy loaded
+  (the class loader is parent-last), which let its sandbox guard calls resolve into a registry it
+  controlled - and therefore allowed everything. A class that exists but cannot be linked now fails
+  the load loudly instead of being silently skipped in favour of a less trusted copy of the same name.
+- Deactivating a plugin now *revokes* its sandbox registration instead of removing it: a plugin
+  thread that survives its plugin's unload has every guarded call blocked from then on. Previously
+  such a thread found no policy for its class loader and was granted every guarded API - the state an
+  attacking plugin would aim for. A sandbox violation reported for an already-unloaded plugin is now
+  handled (marked, persisted, reported) instead of being dropped.
+- The sandbox now also mediates `URLClassLoader`, `ServiceLoader` and `ModuleLayer` (as `REFLECTION`),
+  `ForkJoinTask` as well as `Stream.parallel()`/`Collection.parallelStream()` (as `THREAD_CREATION`),
+  and the JDK's built-in `com.sun.net.httpserver` HTTP server (as `NETWORK`). A plugin-defined
+  subclass of `URLClassLoader` inherits the whole-type guard rather than `ClassLoader`'s narrower
+  member-level rules.
+- A process-isolated plugin is now sandboxed inside its own subprocess as well: the subprocess is
+  started with pluggiat's own JAR as its `-javaagent`, loads the plugin through a `PluginClassLoader`
+  and registers the plugin's effective policy, so a guarded call is blocked there by the same rules as
+  in the host. Previously the subprocess ran the plugin entirely unmediated, making process isolation a
+  *weaker* sandbox than in-VM mediation. Activating a restricted process-isolated policy now fails with
+  `SandboxAgentNotActiveException` when no agent JAR is available to hand to the subprocess. The
+  subprocess is additionally started from the candidate's security-checked bytes instead of re-reading
+  its path.
+- The process-isolation IPC is now authenticated: every call carries a per-subprocess token generated
+  with `SecureRandom` and compared in constant time, so another local process that finds the
+  subprocess's loopback port can no longer drive a plugin's extension methods through it. Accepted
+  connections have a read timeout, and one decoded message is bounded to 16 MiB so a forged length
+  header cannot exhaust memory.
+- `OpenPgpKeyserverPublicKeyProviderStrategy` now binds a keyserver's answer to the key id that was
+  requested: it searches every key ring of the response and rejects it - resolving to `null` - unless a
+  key's fingerprint or 64-bit key id matches. Previously the first key of the first ring was accepted,
+  so a keyserver could hand out any key for any plugin. The base URL must now use `https://` (a
+  loopback host may still use plain HTTP), otherwise construction fails with
+  `IllegalArgumentException`.
+- Reading a plugin candidate is now bounded (candidate file and total candidate size, unpacked size per
+  entry and per candidate, archive nesting depth, manifest size). A candidate exceeding a bound is
+  reported as `PluginScanStatus.SECURITY_PROBLEM` instead of taking the host JVM down with an
+  `OutOfMemoryError` while being read - which previously needed neither a signature nor a successful
+  load.
+- `SignatureSecurityStrategy` now rejects a signer that presents no X.509 certificate (its validity
+  could not be checked at all), and only exempts the signature files the JAR verifier actually consumes
+  from the signing requirement. An entry merely *named* like signing metadata (`META-INF/<name>.SF`
+  without a matching signature block) now has to be signed like any other, closing a way to ship
+  unsigned content inside a signed JAR.
+- Persisted plugin state is now written atomically and readable by its owner only, as is the integrity
+  key file; `DatabasePersistenceStrategy` writes each value in one transaction. `PluginManager.write`
+  and `ChecksumSecurityStrategy.persist` now derive the accepted state from the candidate's
+  security-checked bytes rather than re-reading its path.
+- A plugin manifest's `id` (and each `dependencies[].id`) is now restricted to letters, digits, `.`,
+  `_` and `-`, starting and ending with a letter or digit, and to 128 characters. Among duplicate
+  manifest entries in one JAR, the *last* one now wins - the same rule the signature check and the
+  class loader already applied, so a candidate can no longer present one manifest for inspection and
+  another for loading.
+
+### Changed
+
+- **Breaking for existing persisted state.** The HMAC of `IntegrityProtectedPersistenceStrategy` is now
+  computed over length-prefixed fields (so a stored MAC cannot be moved to another plugin id or key)
+  and compared in constant time. Values stored by an earlier version therefore read back as unset and
+  have to be written again - for pluggiat's own state that means a plugin's enabled flag or accepted
+  checksum is re-confirmed once.
+- **Breaking for existing persisted state.** `FilePersistenceStrategy` now separates plugin id and key
+  with `|` instead of `.` in the `PROPERTIES`/`XML` formats, because `.` is legal inside a plugin id and
+  made the flattening ambiguous. Entries written by an earlier version are ignored with a warning; the
+  `JSON`/`YAML` formats are unaffected.
+- **Breaking for existing accepted checksums of folder candidates.** `ChecksumSecurityStrategy` now
+  length-prefixes each file of a multi-JAR candidate before digesting, so bytes can no longer be moved
+  across file boundaries without changing the checksum. Such a candidate's accepted checksum has to be
+  accepted once more; single-file candidates are unaffected.
+- `PluginSecurity.reevaluate`/`reevaluateAndPin` no longer throw `NoSuchElementException` when a
+  candidate has disappeared since it was first scanned - that is now an ordinary failed re-check, and
+  the candidate is read only once instead of twice.
 
 ## [0.1.0]
 

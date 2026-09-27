@@ -51,6 +51,26 @@ unabhängig von der Whitelist - Plugin-Bytecode referenziert unbedingt zentrale 
 bei `java.lang.Object`), sodass diese bedingungslos an den eigenen Plattform-Classloader der JDK
 delegiert werden, noch bevor die Whitelist überhaupt konsultiert wird.
 
+## Was nicht auf die Whitelist gesetzt werden kann - und nicht überschrieben werden kann
+
+Zwei Gruppen von Klassen werden aufgelöst, *bevor* die Whitelist konsultiert wird; sie dort
+aufzuführen ändert nichts:
+
+* **JDK-Plattformklassen** (`java.*`, `javax.*`) kommen immer vom eigenen Plattform-Classloader der
+  JDK.
+* **Die eigenen Klassen von pluggiat** (`org.pcsoft.framework.pluggiat.*`) kommen immer vom Host. Das
+  ist eine Sicherheitsgrenze, keine Bequemlichkeit: Die Guard-Aufrufe der Sandbox, die in den eigenen
+  Bytecode eines Plugins eingefügt werden, lösen die Guard-Registry des Frameworks über den Namen auf,
+  und ein Plugin, das eine Klasse dieses Namens in seiner eigenen JAR mitbringt, bekäme sonst *seine*
+  Kopie geladen (der Classloader ist Parent-Last) - eine Registry, die einfach alles erlaubt. Die
+  Delegation dieser Klassen hat keinen Rückfallweg: Schlägt sie fehl, schlägt das Laden mit einer
+  `ClassNotFoundException` fehl, statt mit der Version des Plugins fortzufahren. Dasselbe gilt für
+  *Ressourcen* unterhalb von `org/pcsoft/framework/pluggiat/`, die ein Plugin ebenfalls nicht
+  bereitstellen kann.
+
+Ein Host sollte sein eigenes SDK daher nicht im Namensraum `org.pcsoft.framework.pluggiat` ablegen -
+diese Klassen würden immer von dort genommen, wo das Framework selbst geladen wurde.
+
 ## Abgleich
 
 * `recursive = true` (der Standard): `packageName` und alle seine Unterpakete, in beliebiger Tiefe,

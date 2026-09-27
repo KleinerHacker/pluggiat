@@ -337,6 +337,33 @@ Verzeichnis verwendet:
   haben (`PluginScanStatus.LOADED`); ein Kandidat, dessen Prüfung fehlgeschlagen ist, behält seinen
   eigenen Status und kann eine kollidierende ID nicht mehr einem bereits verifizierten Kandidaten
   abnehmen, indem er einfach eine höhere Manifest-`version` angibt.
+* **Das Lesen eines Kandidaten ist begrenzt.** Bevor irgendeine Strategie läuft, werden die eigenen
+  Bytes des Kandidaten unter festen Grenzen gelesen: Dateigröße des Kandidaten und Gesamtgröße des
+  Kandidaten, entpackte Größe je Archiveintrag und je Kandidat, Verschachtelungstiefe von Archiven
+  sowie Manifestgröße. Ein Kandidat, der eine davon überschreitet, wird zum `SECURITY_PROBLEM` mit der
+  benannten Grenze in seiner `errorMessage`, statt die Host-JVM allein beim Lesen mit einem
+  `OutOfMemoryError` mitzunehmen - ein Angriff, der sonst weder eine Signatur noch ein erfolgreiches
+  Laden benötigen würde. Die Grenzen sind bewusst nicht konfigurierbar.
+* **Jeder Eintrag einer signierten JAR muss wirklich signiert sein.** `SignatureSecurityStrategy`
+  nimmt nur die Signaturdateien aus, die der JAR-Verifizierer tatsächlich auswertet
+  (`META-INF/MANIFEST.MF` sowie jede `.SF` *mit* dem passenden Signaturblock). Ein Eintrag, der nach
+  dem Signieren hinzugefügt wurde, oder einer, der lediglich wie Signatur-Metadaten benannt ist, muss
+  wie jeder andere einen passenden Signierenden tragen - eine signierte JAR kann also nicht als
+  Umschlag für unsignierte Inhalte genutzt werden. Ein Signierender, der kein X.509-Zertifikat
+  vorlegt, wird ebenfalls abgelehnt, da seine Gültigkeit überhaupt nicht geprüft werden könnte.
+* **Die Antwort eines Keyservers ist an die angefragte Key-ID gebunden.**
+  `OpenPgpKeyserverPublicKeyProviderStrategy` durchsucht jeden Key-Ring der Antwort und akzeptiert nur
+  einen Schlüssel, dessen Fingerprint oder 64-Bit-Key-ID zur angefragten passt; alles andere löst auf
+  `null` auf. Ihre Basis-URL muss `https://` verwenden (ein Loopback-Host darf einfaches HTTP nutzen),
+  damit die Antwort nicht während der Übertragung ersetzt werden kann.
+* **Einen Kandidaten zu akzeptieren heißt, seine geprüften Bytes zu akzeptieren.**
+  `PluginManager.write` und `ChecksumSecurityStrategy.persist` leiten den Zustand, den sie
+  persistieren, aus den gepinnten Bytes des Kandidaten ab, nicht aus einem erneuten Lesen seines Pfads
+  - für einen Kandidaten, der zwischen der fehlgeschlagenen Prüfung und der Entscheidung des Hosts
+  ausgetauscht wurde, kann nicht seine eigene Prüfsumme als vertrauenswürdig persistiert werden. Bei
+  einem Multi-JAR-Kandidaten werden die Bytes jeder Datei vor dem Digest mit einem Längenpräfix
+  versehen, sodass Bytes nicht über Dateigrenzen hinweg verschoben werden können, während die
+  Prüfsumme gültig bleibt.
 
 ### Einschränkungen
 

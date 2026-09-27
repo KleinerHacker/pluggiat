@@ -51,6 +51,29 @@ jobs:
       - name: Run tests
         run: ./gradlew test --stacktrace --info
 
+  # Part of the [Build] lane, in parallel with `test`: the sandbox tests that only pass with the
+  # pluggiat Java agent installed. The task builds the JAR first and runs with '-javaagent' on it.
+  sandbox-agent-test:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run sandbox agent tests
+        run: ./gradlew sandboxAgentTest --stacktrace --info
+
   # [Verify] Licences / Build and verify MkDocs, run in parallel with each other and with [Build].
   check-licences:
     runs-on: ubuntu-latest

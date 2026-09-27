@@ -16,9 +16,12 @@ import org.pcsoft.framework.pluggiat.classloader.LoadedPlugin
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxStrategy
 import org.pcsoft.framework.pluggiat.sandbox.SandboxCheckResult
+import org.pcsoft.framework.pluggiat.sandbox.SandboxIsolationLevel
 import org.pcsoft.framework.pluggiat.sandbox.SandboxViolation
+import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxAgentNotActiveException
 import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessCall
 import org.pcsoft.framework.pluggiat.sandbox.process.ber.ProcessResponse
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
@@ -63,11 +66,27 @@ class ProcessIsolationStrategy(
     }
 
     /**
-     * No-op success: process isolation's actual enforcement (subprocess start) happens lazily, from
-     * [createExtensionProxy], once the plugin's own JAR path (not available to [PluginSandboxStrategy.activate])
-     * is known - see this class's KDoc.
+     * Verifies that a restricted process-isolated plugin can actually be mediated, then returns
+     * success: process isolation's own enforcement (subprocess start) happens lazily, from
+     * [createExtensionProxy], once the plugin's own JAR path (not available to
+     * [PluginSandboxStrategy.activate]) is known - see this class's KDoc.
+     *
+     * A [policy] that restricts at least one API category needs the sandbox agent inside the
+     * subprocess (it is what instruments the plugin's classes there, see [PluginProcessManager]), and
+     * the agent can only be handed to the subprocess when the framework itself runs from its own JAR.
+     * Without it, the subprocess would start and run the plugin *unmediated* - so activation fails here
+     * instead, exactly as [org.pcsoft.framework.pluggiat.sandbox.AgentInstrumentationStrategy] fails for
+     * an in-VM plugin whose JVM was started without `-javaagent`.
      */
-    override fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult = SandboxCheckResult.Success
+    override fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult {
+        if (policy.isolationLevel == SandboxIsolationLevel.PROCESS &&
+            policy.requiresApiMediation &&
+            PluginProcessManager.sandboxAgentJar() == null
+        ) {
+            throw SandboxAgentNotActiveException(loadedPlugin.pluginId)
+        }
+        return SandboxCheckResult.Success
+    }
 
     /**
      * Creates (starting the subprocess on first use for [pluginId]) a `java.lang.reflect.Proxy` of
@@ -77,11 +96,15 @@ class ProcessIsolationStrategy(
      * A method whose signature [SandboxTypeSupport] rejects throws [UnsupportedSandboxTypeException]
      * immediately, without ever starting the subprocess or sending anything - see [SandboxTypeSupport.requireSupported].
      *
+     * @param pinnedContent the plugin's security-checked bytes, handed to [PluginProcessManager] so the
+     * subprocess is started from exactly those bytes instead of from whatever is at [pluginPath] by
+     * then; `null` only for a candidate that was never pinned
      * @throws ProcessIsolationStartupException if the subprocess for [pluginId] could not be started
      */
     fun createExtensionProxy(
         pluginId: String,
         pluginPath: Path,
+        pinnedContent: PinnedPluginContent?,
         apiType: Class<*>,
         implementationClassName: String,
         policy: PluginSandboxPolicy,
@@ -93,27 +116,30 @@ class ProcessIsolationStrategy(
                 "equals" -> proxy === args?.getOrNull(0)
                 "hashCode" -> System.identityHashCode(proxy)
                 "toString" -> "ProcessIsolatedProxy($implementationClassName@$pluginId)"
-                else -> invokeRemote(pluginId, pluginPath, implementationClassName, method, args, policy)
+                else -> invokeRemote(pluginId, pluginPath, pinnedContent, implementationClassName, method, args, policy)
             }
         }
         return Proxy.newProxyInstance(apiType.classLoader, arrayOf(apiType), handler)
     }
 
-    private fun ensureStarted(pluginId: String, pluginPath: Path, policy: PluginSandboxPolicy): ProcessIpcClient {
-        val jars = PluginProcessClasspath.jarsFor(pluginPath)
-        return processManager.start(pluginId, jars, startupTimeout, policy.callTimeout)
-    }
+    private fun ensureStarted(
+        pluginId: String,
+        pluginPath: Path,
+        pinnedContent: PinnedPluginContent?,
+        policy: PluginSandboxPolicy,
+    ): ProcessIpcClient = processManager.start(pluginId, pluginPath, pinnedContent, policy, startupTimeout)
 
     private fun invokeRemote(
         pluginId: String,
         pluginPath: Path,
+        pinnedContent: PinnedPluginContent?,
         implementationClassName: String,
         method: Method,
         args: Array<out Any?>?,
         policy: PluginSandboxPolicy,
     ): Any? {
         SandboxTypeSupport.requireSupported(method)
-        val ipcClient = ensureStarted(pluginId, pluginPath, policy)
+        val ipcClient = ensureStarted(pluginId, pluginPath, pinnedContent, policy)
 
         val call = ProcessCall(
             implementationClassName = implementationClassName,

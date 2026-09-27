@@ -47,7 +47,7 @@ class AgentInstrumentationStrategyTest {
         val result = strategy.activate(plugin, PluginSandboxPolicy.UNRESTRICTED)
 
         assertEquals(SandboxCheckResult.Success, result)
-        SandboxGuardRegistry.unregister(plugin.classLoader)
+        SandboxGuardRegistry.release(plugin.classLoader)
     }
 
     /**
@@ -68,7 +68,7 @@ class AgentInstrumentationStrategyTest {
 
     /**
      * Use case: [AgentInstrumentationStrategy.activate] registers the activated plugin's policy in
-     * [SandboxGuardRegistry] (verified indirectly here via [SandboxGuardRegistry.unregister] being
+     * [SandboxGuardRegistry] (verified indirectly here via [SandboxGuardRegistry.release] being
      * safe to call afterward without error) - the registry's own `register`/`check`/`onViolation`
      * contract is fully covered by `SandboxGuardRegistryTest`.
      */
@@ -79,6 +79,6 @@ class AgentInstrumentationStrategyTest {
 
         strategy.activate(plugin, PluginSandboxPolicy.UNRESTRICTED)
 
-        SandboxGuardRegistry.unregister(plugin.classLoader)
+        SandboxGuardRegistry.release(plugin.classLoader)
     }
 }

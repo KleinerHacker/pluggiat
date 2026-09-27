@@ -19,5 +19,7 @@ import java.security.PublicKey
  * regardless of the plugin id - useful when a single signing key is used for every plugin.
  */
 class DirectPublicKeyProviderStrategy(private val publicKey: PublicKey) : PublicKeyProviderStrategy {
+    // SECURITY: the key is fixed at construction by the host, independent of the plugin id - the strongest
+    // SECURITY: binding of the three providers, since nothing about the candidate can influence it.
     override fun resolve(pluginId: String): PublicKey = publicKey
 }

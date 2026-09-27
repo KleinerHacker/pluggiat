@@ -68,6 +68,8 @@ class PluginLoader(
         manifest: PluginManifest,
         dependencies: Map<String, LoadedPlugin> = emptyMap(),
     ): PluginLoadResult = load(manifest, dependencies) { dependencyClassLoaders ->
+        // SECURITY: the pinned overload is the one to prefer: a PinnedPluginClassLoader serves classes from
+        // SECURITY: the verified bytes, so no disk read happens between the security check and the load.
         PinnedPluginClassLoader(pinnedContent, hostClassLoader, sdkWhitelist, dependencyClassLoaders) to null
     }
 
@@ -78,6 +80,8 @@ class PluginLoader(
     ): PluginLoadResult {
         val dependencyClassLoaders = mutableListOf<PluginClassLoader>()
         for (dependency in manifest.dependencies) {
+            // SECURITY: only plugins the caller actually loaded (and therefore security-checked) can become
+            // SECURITY: dependencies - a manifest cannot name its way to an arbitrary class loader.
             val loaded = dependencies[dependency.id]
             if (loaded == null) {
                 if (dependency.required) {
@@ -85,6 +89,8 @@ class PluginLoader(
                 }
                 continue
             }
+            // SECURITY: adds exactly one declared dependency's loader, so cross-plugin visibility stays
+            // SECURITY: limited to what the manifest declares and the host approved.
             dependencyClassLoaders.add(loaded.classLoader)
         }
 
@@ -96,6 +102,9 @@ class PluginLoader(
         when {
             Files.isDirectory(path) -> classLoaderFromJars(jarsIn(path), dependencyClassLoaders) to null
             path.toString().endsWith(".zip") -> {
+                // SECURITY: the mounted file system is returned to the caller, which hands it to LoadedPlugin
+                // SECURITY: so closing the plugin also closes this mount - an open mount would keep the
+                // SECURITY: plugin's content readable (and its classes loadable) after it was unloaded.
                 val fileSystem = FileSystems.newFileSystem(path)
                 val root = fileSystem.rootDirectories.first()
                 classLoaderFromJars(jarsIn(root), dependencyClassLoaders) to fileSystem
