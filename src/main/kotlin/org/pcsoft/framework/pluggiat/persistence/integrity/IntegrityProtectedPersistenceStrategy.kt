@@ -1,0 +1,189 @@
+/*
+ * Copyright (c) KleinerHacker alias Pfeiffer C Soft 2026.
+ * This work is licensed under the Apache License, Version 2.0.
+ * You may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, this software is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and limitations.
+ */
+
+package org.pcsoft.framework.pluggiat.persistence.integrity
+
+import org.pcsoft.framework.pluggiat.persistence.OwnerOnlyFiles
+import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
+import org.slf4j.LoggerFactory
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.file.Files
+import java.nio.file.Path
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
+import java.util.concurrent.locks.ReentrantLock
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import kotlin.concurrent.withLock
+
+/**
+ * A [PluginPersistenceStrategy] decorator that protects every value stored in [delegate] with an
+ * HMAC, so that a plugin (or a third party with file system access) editing the underlying storage
+ * directly - without knowing the key at [keyPath] - can no longer make a forged value (e.g. a
+ * `checksum` or `enabled` flag) come back as if it were legitimately written.
+ *
+ * The key at [keyPath] is generated once via [SecureRandom] on first access and reused afterwards;
+ * it is never part of a JAR or hardcoded, and the file is created readable/writable by its owner
+ * only. This is a same-process, same-OS-user hardening/detection measure, not a guarantee against
+ * code running in that same process and under that same user - see the feature plan for the full
+ * threat model.
+ *
+ * The MAC covers `(pluginId, key, value)` in a length-prefixed encoding, and stored MACs are compared
+ * in constant time (see [computeHmac] and [matchesStoredHmac] for why each of those matters).
+ *
+ * **Storage written by an earlier version is not accepted.** The MAC input encoding changed, so every
+ * previously stored HMAC now reads as a mismatch and its value is treated as unset (logged as a
+ * warning), exactly like a tampered value. That is deliberate: a migration path would have to keep
+ * verifying the old, forgeable encoding to recognize old entries, which would keep the weakness alive
+ * for as long as the migration exists. Values recorded by pluggiat are re-derivable state (enabled
+ * flags, accepted checksums, disabled reasons), so losing them costs a host one re-confirmation, not
+ * data.
+ *
+ * @property delegate the underlying [PluginPersistenceStrategy] that actually stores values and
+ * their HMACs; from its point of view, an HMAC is just another value under a derived key
+ * @property keyPath path of the file the integrity key is read from or generated into; callers
+ * typically place it next to the storage [delegate] uses (e.g. `<file>.key` for a file-based
+ * delegate)
+ */
+class IntegrityProtectedPersistenceStrategy(
+    private val delegate: PluginPersistenceStrategy,
+    private val keyPath: Path,
+) : PluginPersistenceStrategy {
+    private val logger = LoggerFactory.getLogger(IntegrityProtectedPersistenceStrategy::class.java)
+    private val lock = ReentrantLock()
+    private val macKey: ByteArray by lazy { lock.withLock { loadOrCreateKey() } }
+
+    override fun read(pluginId: String, key: String): String? {
+        val value = delegate.read(pluginId, key) ?: return null
+        val storedHmac = delegate.read(pluginId, hmacKey(key))
+        // SECURITY: a missing MAC counts as a mismatch, not as "unprotected": deleting the MAC entry must not
+        // SECURITY: turn a forged value into an accepted one.
+        if (storedHmac == null || !matchesStoredHmac(storedHmac, computeHmac(pluginId, key, value))) {
+            logger.warn(
+                "Integrity check failed for plugin '{}' key '{}': stored value does not match its HMAC, treating it as unset",
+                pluginId, key,
+            )
+            // SECURITY: a value that fails its MAC is reported as unset, so the caller falls back to its
+            // SECURITY: default instead of acting on content somebody edited into the store.
+            return null
+        }
+        return value
+    }
+
+    override fun write(pluginId: String, key: String, value: String) {
+        delegate.write(pluginId, key, value)
+        // SECURITY: the MAC is written for every value, immediately - a value stored without one would read back
+        // SECURITY: as tampered (see read), which is the safe direction but only works if writes never skip it.
+        delegate.write(pluginId, hmacKey(key), computeHmac(pluginId, key, value))
+    }
+
+    private fun hmacKey(key: String): String = "$key$HMAC_KEY_SUFFIX"
+
+    /**
+     * Whether [stored] is the [expected] MAC, compared over the decoded bytes with
+     * [MessageDigest.isEqual].
+     *
+     * A plain `==` on the Base64 strings short-circuits at the first differing character, and how long
+     * that takes is measurable. An attacker who can write values and observe reads could use that
+     * timing to build a matching MAC character by character - a few hundred attempts per position
+     * instead of the 2^256 the MAC is supposed to cost. [MessageDigest.isEqual] compares without
+     * short-circuiting, so a wrong MAC takes the same time no matter *where* it is wrong. Undecodable
+     * stored content is a mismatch, not an error: it cannot have been written by [write].
+     */
+    private fun matchesStoredHmac(stored: String, expected: String): Boolean {
+        // SECURITY: undecodable stored content is a mismatch, not an error - it cannot have come from write().
+        val storedBytes = runCatching { Base64.getDecoder().decode(stored) }.getOrNull() ?: return false
+        val expectedBytes = Base64.getDecoder().decode(expected)
+        return MessageDigest.isEqual(storedBytes, expectedBytes)
+    }
+
+    /**
+     * The MAC over `(pluginId, key, value)`, each field prefixed with its own length in bytes.
+     *
+     * Concatenating the fields with a separator (`"$pluginId $key $value"`) makes the encoding
+     * ambiguous: `("plugin a", "enabled", "true")` and `("plugin", "a enabled", "true")` produce the
+     * exact same MAC input, and any character used as a separator can appear inside a plugin id or key.
+     * An attacker who can pick one of them could therefore have a MAC computed that is *also* valid for
+     * a different, more useful combination, and then move the stored MAC there - for instance making
+     * another plugin's `enabled` flag verify. Length prefixing makes the encoding injective: exactly one
+     * field triple produces any given MAC input.
+     */
+    private fun computeHmac(pluginId: String, key: String, value: String): String {
+        val mac = Mac.getInstance(HMAC_ALGORITHM)
+        mac.init(SecretKeySpec(macKey, HMAC_ALGORITHM))
+        val data = ByteArrayOutputStream()
+        for (field in listOf(pluginId, key, value)) {
+            // SECURITY: length-prefixed, so exactly one (pluginId, key, value) triple can produce this MAC input
+            // SECURITY: and a MAC can never be moved to a different plugin or key.
+            val bytes = field.toByteArray(Charsets.UTF_8)
+            data.write(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
+            data.write(bytes)
+        }
+        val digest = mac.doFinal(data.toByteArray())
+        return Base64.getEncoder().encodeToString(digest)
+    }
+
+    private fun loadOrCreateKey(): ByteArray {
+        if (Files.exists(keyPath)) {
+            warnIfKeyFileIsReadableByOthers()
+            logger.debug("Loaded existing integrity key from '{}'", keyPath)
+            return Base64.getDecoder().decode(Files.readString(keyPath).trim())
+        }
+
+        val key = ByteArray(KEY_SIZE_BYTES)
+        // SECURITY: SecureRandom - the MAC key is the one secret that makes the stored HMACs unforgeable, so it
+        // SECURITY: must not come from a predictable generator.
+        SecureRandom().nextBytes(key)
+        keyPath.parent?.let { Files.createDirectories(it) }
+        // Created empty and owner-only *before* the key goes in, so the secret is never briefly readable
+        // by others (see OwnerOnlyFiles).
+        if (!OwnerOnlyFiles.createEmpty(keyPath)) {
+            logger.warn(
+                "File system of '{}' supports neither POSIX permissions nor ACLs - the integrity key file " +
+                    "is created with this platform's default access rights",
+                keyPath,
+            )
+        }
+        Files.writeString(keyPath, Base64.getEncoder().encodeToString(key))
+        logger.info("Generated new integrity key at '{}'", keyPath)
+        return key
+    }
+
+    /**
+     * Warns when an existing key file is readable beyond its owner - it is not silently narrowed, since
+     * the host may have placed and shared it on purpose, but a readable integrity key means any stored
+     * HMAC can be forged and that is worth saying out loud.
+     */
+    private fun warnIfKeyFileIsReadableByOthers() {
+        val shared = OwnerOnlyFiles.accessBeyondOwner(keyPath)
+        if (shared.isNotEmpty()) {
+            logger.warn(
+                "Integrity key file '{}' is accessible beyond its owner ({}) - anyone with read access can forge " +
+                    "every stored HMAC",
+                keyPath, shared,
+            )
+        }
+    }
+
+    private companion object {
+        const val HMAC_ALGORITHM: String = "HmacSHA256"
+
+        // No "." in the suffix: some PluginPersistenceStrategy implementations (e.g.
+        // FilePersistenceStrategy with PersistenceFileFormat.PROPERTIES/XML) flatten
+        // "(pluginId, key)" into a single separated string; a derived key containing the
+        // separator would be split apart wrongly when such a strategy reloads its state from disk.
+        const val HMAC_KEY_SUFFIX: String = "_hmac"
+        const val KEY_SIZE_BYTES: Int = 32
+    }
+}

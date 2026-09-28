@@ -14,6 +14,8 @@ package org.pcsoft.framework.pluggiat.security.publickey
 
 import com.sun.net.httpserver.HttpServer
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import java.net.InetSocketAddress
@@ -103,6 +105,51 @@ class OpenPgpKeyserverPublicKeyProviderStrategyTest {
 
             assertEquals(1, requestCount)
         }
+    }
+
+    /**
+     * Use case: a keyserver that answers the lookup for one key id with a *different* key resolves to
+     * `null` instead of returning that key - the response is bound back to the id that was asked for, so
+     * a keyserver (or anything answering in its place) cannot substitute the key a plugin's signature is
+     * verified against.
+     */
+    @Test
+    fun `rejects a keyserver response whose key id differs from the requested one`() {
+        val requestedKey = OpenPgpTestFixtures.generateKey()
+        val foreignKey = OpenPgpTestFixtures.generateKey()
+        withKeyserver({ exchange ->
+            exchange.sendResponseHeaders(200, foreignKey.armoredPublicKey.size.toLong())
+            exchange.responseBody.use { it.write(foreignKey.armoredPublicKey) }
+        }) { baseUrl ->
+            val strategy = OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { requestedKey.keyId }, keyserverBaseUrl = baseUrl)
+
+            assertNull(strategy.resolve("plugin-a"))
+        }
+    }
+
+    /**
+     * Use case: a keyserver base URL that uses plain HTTP to a non-loopback host is rejected when the
+     * strategy is constructed - over plaintext, the key material is replaceable in transit, which would
+     * make every signature check built on it meaningless.
+     */
+    @Test
+    fun `rejects a plaintext keyserver base url`() {
+        val exception = assertThrows(IllegalArgumentException::class.java) {
+            OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { "DEADBEEFDEADBEEF" }, keyserverBaseUrl = "http://keys.example.com")
+        }
+
+        assertTrue(exception.message?.contains("https") == true)
+    }
+
+    /**
+     * Use case: an `https` base URL is accepted, and so is plain HTTP to a loopback host - the latter is
+     * the one case where there is no transit to intercept (and what makes a local test keyserver usable).
+     */
+    @Test
+    fun `accepts an https base url and a loopback plaintext url`() {
+        OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { null }, keyserverBaseUrl = "https://keys.openpgp.org")
+        OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { null }, keyserverBaseUrl = "http://127.0.0.1:11371")
+        OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { null }, keyserverBaseUrl = "http://localhost:11371")
     }
 
     private fun withKeyserver(handler: (com.sun.net.httpserver.HttpExchange) -> Unit, block: (baseUrl: String) -> Unit) {

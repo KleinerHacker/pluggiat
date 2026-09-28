@@ -34,13 +34,19 @@ class TrustStorePublicKeyProviderStrategy(
     override fun resolve(pluginId: String): PublicKey? {
         val alias = aliasResolver(pluginId)
         val key = try {
+            // SECURITY: the truststore is the host's own trust anchor - the expected key comes from a store the
+            // SECURITY: host controls, never from the candidate being checked.
             keyStore.getCertificate(alias)?.publicKey
         } catch (e: Exception) {
             logger.warn("Could not resolve public key for plugin '{}' from truststore alias '{}': {}", pluginId, alias, e.message)
             return null
         }
         if (key == null) {
+            // SECURITY: an unknown alias resolves to null, which fails the signature check - it is never taken
+            // SECURITY: as permission to accept any other key.
             logger.warn("No truststore entry found for plugin '{}' under alias '{}'", pluginId, alias)
+        } else {
+            logger.trace("Resolved public key for plugin '{}' from truststore alias '{}' via TrustStorePublicKeyProviderStrategy", pluginId, alias)
         }
         return key
     }

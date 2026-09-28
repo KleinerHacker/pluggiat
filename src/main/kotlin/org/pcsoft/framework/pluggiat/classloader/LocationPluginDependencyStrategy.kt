@@ -12,6 +12,7 @@
 
 package org.pcsoft.framework.pluggiat.classloader
 
+import org.slf4j.LoggerFactory
 import java.nio.file.Path
 
 /**
@@ -23,5 +24,11 @@ import java.nio.file.Path
 class LocationPluginDependencyStrategy(
     private val allowedLocations: Set<Path>,
 ) : PluginDependencyStrategy {
-    override fun isVisible(from: Path, to: Path): Boolean = from == to || to in allowedLocations
+    private val logger = LoggerFactory.getLogger(LocationPluginDependencyStrategy::class.java)
+
+    override fun isVisible(from: Path, to: Path): Boolean {
+        val visible = from == to || to in allowedLocations
+        logger.trace("LocationPluginDependencyStrategy: visibility from '{}' to '{}' = {}", from, to, visible)
+        return visible
+    }
 }

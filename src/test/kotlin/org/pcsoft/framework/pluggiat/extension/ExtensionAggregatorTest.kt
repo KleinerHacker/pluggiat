@@ -18,7 +18,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.pcsoft.framework.pluggiat.manifest.ManifestParser
 import org.pcsoft.framework.pluggiat.manifest.PluginManifest
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandbox
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
 import java.nio.file.Path
+import java.time.Duration
 
 class ExtensionAggregatorTest {
 
@@ -351,5 +354,50 @@ class ExtensionAggregatorTest {
 
         assertEquals("false", store["plugin-a.${ExtensionAggregator.ENABLED_PERSISTENCE_KEY}"])
         assertEquals(null, store["plugin-b.${ExtensionAggregator.ENABLED_PERSISTENCE_KEY}"])
+    }
+
+    /**
+     * Use case: an `onEnable` hook that blocks past the plugin's configured sandbox timeout (IP-03)
+     * excludes only that plugin from the result (persisted as disabled, reported as `DISABLED`) -
+     * [ExtensionAggregator.aggregate] itself completes normally instead of failing for every plugin.
+     */
+    @Test
+    fun `onEnable exceeding the sandbox timeout excludes only that plugin`() {
+        val store = mutableMapOf<String, String>()
+        val persistence = org.pcsoft.framework.pluggiat.persistence.CustomPersistenceStrategy(
+            readCallback = { pluginId, key -> store["$pluginId.$key"] },
+            writeCallback = { pluginId, key, value -> store["$pluginId.$key"] = value },
+        )
+        val registry = ExtensionPointRegistry(listOf(ExporterTestConfig::class))
+        val aggregator = ExtensionAggregator(
+            registry,
+            persistenceStrategy = persistence,
+            sandbox = PluginSandbox(),
+            policyResolver = { PluginSandboxPolicy(callTimeout = Duration.ofMillis(50)) },
+        )
+        val slowCandidate = PluginExtensionCandidate(
+            "plugin-a", Path.of("plugin-a.jar"),
+            manifestWithSingleExtensionEntry(
+                "plugin-a", "exporters",
+                "org.pcsoft.framework.pluggiat.extension.SlowOnEnableTestExporter",
+                "fileExtension" to "csv",
+            ),
+        )
+        val healthyCandidate = PluginExtensionCandidate(
+            "plugin-b", Path.of("plugin-b.jar"),
+            manifestWithSingleExtensionEntry(
+                "plugin-b", "exporters",
+                "org.pcsoft.framework.pluggiat.extension.JsonTestExporter",
+                "fileExtension" to "json",
+            ),
+        )
+
+        val result = aggregator.aggregate(listOf(slowCandidate, healthyCandidate))
+
+        val statusByPlugin = result.pluginResults.associate { it.pluginId to it.status }
+        assertEquals(PluginExtensionStatus.DISABLED, statusByPlugin.getValue("plugin-a"))
+        assertEquals(PluginExtensionStatus.LOADED, statusByPlugin.getValue("plugin-b"))
+        assertTrue(result.extensionsByKey.getValue("exporters").none { it.pluginId == "plugin-a" })
+        assertEquals("false", store["plugin-a.${ExtensionAggregator.ENABLED_PERSISTENCE_KEY}"])
     }
 }

@@ -5,6 +5,26 @@ und verwaltet Plugins für eine Host-Anwendung, sodass der Host selbst weder Plu
 Isolation oder Lifecycle-Handling implementieren muss. Es ist so konzipiert, dass es sich in jede
 JVM-Anwendung einbetten lässt.
 
+## Keine Garantie für absolute Sicherheit
+
+!!! danger "pluggiat kann keine 100-prozentige Sicherheit garantieren"
+
+    Die Sicherheitsmechanismen von pluggiat (Signaturprüfungen, Checksummen-Freigabe, die
+    Laufzeit-Sandbox und die API-Whitelist) verringern das Risiko, können vollständige Sicherheit
+    aber nicht garantieren. Insbesondere:
+
+    * Der `SecurityManager` der JVM wurde vom JDK zur Entfernung als veraltet markiert und steht
+      nicht mehr als durchsetzender Mechanismus zur Verfügung; die Laufzeit-Sandbox von pluggiat
+      vermittelt Zugriffe über Bytecode-Instrumentierung, was aber nicht gleichwertig zu einer von
+      der JVM durchgesetzten Sicherheits-Sandbox ist.
+    * Wie jede Software können pluggiat und seine Sicherheitsmechanismen unentdeckte Fehler oder
+      Umgehungsmöglichkeiten enthalten.
+
+    Eine Host-Anwendung, die nicht vertrauenswürdige oder fremde Plugins lädt, darf sich nicht
+    allein auf pluggiat als Verteidigungslinie verlassen. Für jeden sicherheitskritischen Einsatz
+    werden zusätzliche Maßnahmen (Prozessisolation, Containerisierung, Sandboxing auf
+    Betriebssystemebene, Code-Review von Plugins vor der Freigabe) nachdrücklich empfohlen.
+
 ## Hinweis zur KI-Transparenz
 
 !!! note "Teile dieser Software wurden mit KI erstellt"
@@ -17,7 +37,52 @@ JVM-Anwendung einbetten lässt.
     Dieser Hinweis wird im Sinne der Transparenzanforderungen des KI-Gesetzes der Europäischen
     Union (Verordnung (EU) 2024/1689) veröffentlicht.
 
+!!! warning "Laufzeit-Sandbox benötigt den JVM-Start-Parameter `-javaagent`"
+
+    Sobald ein Host eine `PluginSandboxPolicy` konfiguriert, die mindestens eine API-Kategorie
+    einschränkt, muss die Host-JVM mit dem eigenen JAR dieses Moduls als Java-Agent gestartet werden
+    (`java -javaagent:pluggiat-<version>.jar ...`), sonst bricht der Host beim Start ab. Details siehe
+    [Laufzeit-Sandbox](host-integration/sandbox.de.md).
+
 ## Kernkonzepte
+
+```mermaid
+flowchart LR
+    subgraph Host["Host-Anwendung"]
+        App["Ihr Anwendungscode"]
+        EP["Erweiterungspunkt-Schnittstellen<br/>(@ExtensionPoint-Konfigurationen)"]
+        SDK["Ihre eigenen SDK-Pakete"]
+    end
+
+    subgraph Framework["pluggiat"]
+        Mgr["PluginManager<br/>(zentraler Einstiegspunkt)"]
+        Scan["PluginScanner<br/>+ Scan-Strategien"]
+        Sec["PluginSecurity<br/>(Strategie-Kette)"]
+        Load["PluginLoader<br/>(Parent-Last-Classloader)"]
+        Box["PluginSandbox<br/>(Laufzeit-Vermittlung)"]
+        Reg["ExtensionPointRegistry<br/>+ ExtensionAggregator"]
+        Pers["PluginPersistenceStrategy<br/>(Aktivierungsstatus, Prüfsummen)"]
+    end
+
+    subgraph Disk["Plugin-Verzeichnisse auf der Platte"]
+        P1["plugin-a.zip<br/>META-INF/plugin.yml"]
+        P2["plugin-b.jar<br/>META-INF/plugin.yml"]
+    end
+
+    App -->|konfiguriert| Mgr
+    EP -->|registriert in| Reg
+    SDK -.->|freigegeben für| Load
+    Mgr --> Scan
+    Mgr --> Sec
+    Mgr --> Load
+    Mgr --> Box
+    Mgr --> Reg
+    Mgr --> Pers
+    Scan --> Disk
+    Sec --> Disk
+    Load --> Box
+    Reg -->|typisierte Erweiterungen| App
+```
 
 * **Plugin-Manifest** - jedes Plugin liefert eine Datei `META-INF/plugin.yml` (oder `.yaml`) mit,
   die seine Identität, Version, seinen Autor und die von ihm bereitgestellten Erweiterungspunkte
@@ -93,8 +158,8 @@ Die Zugangsdaten des Servers `github` (Benutzername plus Personal Access Token m
 <servers>
     <server>
         <id>github</id>
-        <username>DEIN_GITHUB_BENUTZERNAME</username>
-        <password>DEIN_GITHUB_TOKEN</password>
+        <username>IHR_GITHUB_BENUTZERNAME</username>
+        <password>IHR_GITHUB_TOKEN</password>
     </server>
 </servers>
 ```
@@ -109,13 +174,16 @@ Diese Dokumentation ist nach Zielgruppe aufgeteilt:
 * **Host-Integration** - für Entwickler, die pluggiat in ihre eigene Anwendung einbetten:
   Plugin-Verzeichnisse und Lademodi, Sicherheitskonfiguration, SDK-Whitelist und
   Plugin-Lifecycle-Verwaltung aus Sicht des Hosts.
-* **[Fehlersuche](host-integration/troubleshooting.md)** - Übersicht der Log-Level und Erklärungen
+* **[Fehlersuche](host-integration/troubleshooting.de.md)** - Übersicht der Log-Level und Erklärungen
   zu den Fehler- und Konfliktfällen, die das Framework melden kann.
 
 ## Wie geht es weiter
 
-* [Host-Integration: PluginManager](host-integration/plugin-manager.md) - der zentrale
+* [Schnellstart](quick-start.de.md) - der kleinstmögliche Host, Ende zu Ende
+* [Host-Integration: PluginManager](host-integration/plugin-manager.de.md) - der zentrale
   Einstiegspunkt zum Einbetten von pluggiat in Ihre Anwendung
-* [Fehlersuche](host-integration/troubleshooting.md) - Log-Level, Fehler- und Konfliktfälle
+* [Laufzeit-Sandbox](host-integration/sandbox.de.md) - API-Zugriffskontrolle für ein geladenes Plugin
+  und der benötigte JVM-Start-Parameter `-javaagent`
+* [Fehlersuche](host-integration/troubleshooting.de.md) - Log-Level, Fehler- und Konfliktfälle
 * [API-Dokumentation](dokka/html/index.html) - die generierte Dokka-API-Dokumentation
 * [Lizenzen](licences/index.html) - der Lizenzbericht der Abhängigkeiten

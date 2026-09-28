@@ -55,8 +55,14 @@ dependencies {
     // bcpg-jdk18on references ASN.1 object identifiers (e.g. CryptlibObjectIdentifiers) that live
     // here, but does not declare it as a dependency itself.
     implementation("org.bouncycastle:bcutil-jdk18on:${bouncyCastleVersion}")
+    // Pure ASN.1/DER encoding (ASN1Integer, ASN1Boolean, DEROctetString, DERUTF8String, DERSequence,
+    // DERSet, ASN1InputStream/ASN1OutputStream) for IP-04's process-isolation IPC wire format - no
+    // bcpkix/TLS functionality is used, see org.pcsoft.framework.pluggiat.sandbox.process.der.DerCodec.
+    implementation("org.bouncycastle:bcprov-jdk18on:${bouncyCastleVersion}")
+    // Reflective mapping of Kotlin data classes onto SandboxValue.ObjectValue for IP-04's complex-object
+    // support, see org.pcsoft.framework.pluggiat.sandbox.process.SandboxTypeSupport.
+    implementation(kotlin("reflect"))
 
-    testImplementation(kotlin("reflect"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
     testImplementation("org.junit.jupiter:junit-jupiter-params:${junitVersion}")
     // In-memory JDBC driver used only to test DatabasePersistenceStrategy against a real database.
@@ -79,6 +85,83 @@ tasks.test {
     useJUnitPlatform()
     // Needed by ZipJarScanStrategyTest to verify deleteOnExit registration via java.io.DeleteOnExitHook.
     jvmArgs("--add-opens", "java.base/java.io=ALL-UNNAMED")
+}
+
+//region Sandbox agent tests
+// A second test source set for the tests that can only pass with the sandbox Java agent actually
+// installed: instrumentation of plugin classes, the guard calls it injects, and a process-isolated
+// subprocess (which is started with '-javaagent:<this module's JAR>' only when that JAR exists).
+// They cannot live in `test`, because the regular test JVM deliberately runs *without* the agent -
+// several tests there assert the un-instrumented behaviour.
+val sandboxAgentTest: SourceSet = sourceSets.create("sandboxAgentTest") {
+    compileClasspath += sourceSets["main"].output + sourceSets["test"].output
+    runtimeClasspath += output + compileClasspath
+}
+
+configurations["sandboxAgentTestImplementation"].extendsFrom(configurations["testImplementation"])
+configurations["sandboxAgentTestRuntimeOnly"].extendsFrom(configurations["testRuntimeOnly"])
+
+val sandboxAgentTestTask = tasks.register<Test>("sandboxAgentTest") {
+    group = "verification"
+    description = "Runs the sandbox tests that require the pluggiat Java agent, with -javaagent set to this module's own JAR."
+    testClassesDirs = sandboxAgentTest.output.classesDirs
+    // The module's own JAR replaces main's classes directory on the runtime classpath: PluginSandboxAgent
+    // has to resolve *from the agent JAR*, because PluginProcessManager derives the '-javaagent' path it
+    // hands to a process-isolated subprocess from that class's own code source. With the classes
+    // directory there instead, there would be no agent JAR to pass - and two copies of every framework
+    // class in the same JVM.
+    classpath = files(tasks.jar) + sandboxAgentTest.runtimeClasspath.minus(sourceSets["main"].output)
+    useJUnitPlatform()
+    // The agent is this module's own JAR, so the JAR has to exist before these tests run.
+    val agentJar = tasks.jar.flatMap { it.archiveFile }
+    dependsOn(tasks.jar)
+    jvmArgs("--add-opens", "java.base/java.io=ALL-UNNAMED")
+    jvmArgumentProviders.add(
+        CommandLineArgumentProvider { listOf("-javaagent:${agentJar.get().asFile.absolutePath}") },
+    )
+}
+
+tasks.check {
+    dependsOn(sandboxAgentTestTask)
+}
+//endregion
+
+// Minimum coverage for the two packages that carry the security-relevant behaviour. A rule rather
+// than a report: a change that drops coverage in `sandbox` or `security` fails the build instead of
+// being noticed later, because an untested branch is exactly where an enforcement gap hides.
+kover {
+    reports {
+        // Kover applies filters per report set, not per rule, so scoping the verification to the
+        // security-relevant packages also scopes the coverage reports to them. That is the intended
+        // focus here: this project's coverage gate exists for `sandbox` and `security`, and a report
+        // that mixes in every other package would only dilute the number the rule below guards.
+        filters {
+            includes {
+                packages("org.pcsoft.framework.pluggiat.sandbox", "org.pcsoft.framework.pluggiat.security")
+            }
+        }
+        verify {
+            rule("Line coverage of the sandbox and security packages") {
+                bound {
+                    minValue = 80
+                    coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE
+                }
+            }
+        }
+    }
+}
+
+// This module's own JAR doubles as the pluggiat sandbox Java agent (IP-02): a host that configures a
+// restrictive PluginSandboxPolicy starts its JVM with '-javaagent:<path-to-this-jar>' (dynamic
+// attachment is deliberately not supported, see PluginSandboxAgent's KDoc).
+tasks.jar {
+    manifest {
+        attributes(
+            "Premain-Class" to "org.pcsoft.framework.pluggiat.sandbox.agent.PluginSandboxAgent",
+            "Agent-Class" to "org.pcsoft.framework.pluggiat.sandbox.agent.PluginSandboxAgent",
+            "Can-Retransform-Classes" to "true",
+        )
+    }
 }
 
 licenseReport {

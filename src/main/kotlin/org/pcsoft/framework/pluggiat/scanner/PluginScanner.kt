@@ -50,19 +50,37 @@ class PluginScanner(
     }
 
     private fun applySecurityCheck(result: PluginScanResult): PluginScanResult {
+        // SECURITY: only a structurally valid candidate is security-checked at all; an invalid one keeps its
+        // SECURITY: status and is never loaded, so no check result can accidentally apply to it.
         if (result.status != PluginScanStatus.LOADED) {
             logger.warn("Invalid plugin candidate at '{}': {} ({})", result.path, result.errorMessage, result.status)
             return result
         }
 
-        return when (val checkResult = security.evaluate(result, defaultSecurityChains)) {
-            is PluginSecurityCheckResult.Success -> result
-            is PluginSecurityCheckResult.Failure -> {
-                logger.warn("Security problem for plugin candidate at '{}': {}", result.path, checkResult.reason)
-                // the manifest is kept (unlike MANIFEST_NOT_FOUND/MANIFEST_INVALID) so a host can
-                // still force-load this candidate via org.pcsoft.framework.pluggiat.PluginManager.forceLoad
-                result.copy(status = PluginScanStatus.SECURITY_PROBLEM, errorMessage = checkResult.reason)
+        // Read the candidate's bytes exactly once here and check the security chain against them, so
+        // the same bytes can be loaded later without a second, potentially divergent disk read
+        // (closes the check-to-load TOCTOU window, see PinnedPluginContent).
+        return try {
+            // SECURITY: read once, here - everything downstream works on these bytes.
+            val pinnedContent = PinnedPluginContentReader.read(result.path)
+            // SECURITY: the chain is evaluated against the pinned bytes, not against the path.
+            when (val checkResult = security.evaluate(result, pinnedContent, defaultSecurityChains)) {
+                // SECURITY: the accepted bytes travel with the result, so the loader uses what was checked.
+                is PluginSecurityCheckResult.Success -> result.copy(pinnedContent = pinnedContent)
+                is PluginSecurityCheckResult.Failure -> {
+                    logger.warn("Security problem for plugin candidate at '{}': {}", result.path, checkResult.reason)
+                    // the manifest is kept (unlike MANIFEST_NOT_FOUND/MANIFEST_INVALID) so a host can
+                    // still force-load this candidate via org.pcsoft.framework.pluggiat.PluginManager.forceLoad
+                    result.copy(status = PluginScanStatus.SECURITY_PROBLEM, errorMessage = checkResult.reason)
+                }
             }
+        } catch (e: PluginContentLimitExceededException) {
+            // A candidate that breaks a resource limit is a finding about the candidate, not an error of
+            // the scan: it is reported like any other security problem (and is not force-loadable either,
+            // since force-loading it would run into the very same limit), and the scan of every other
+            // candidate continues unaffected.
+            logger.warn("Resource limit exceeded by plugin candidate at '{}': {}", result.path, e.message)
+            result.copy(status = PluginScanStatus.SECURITY_PROBLEM, errorMessage = e.message)
         }
     }
 }

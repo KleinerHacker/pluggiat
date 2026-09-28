@@ -21,6 +21,8 @@ import org.pcsoft.framework.pluggiat.classloader.DisallowPluginDependencyStrateg
 import org.pcsoft.framework.pluggiat.classloader.SdkWhitelistEntry
 import org.pcsoft.framework.pluggiat.extension.ExporterTestConfig
 import org.pcsoft.framework.pluggiat.pluginManager
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
+import org.pcsoft.framework.pluggiat.sandbox.SandboxIsolationLevel
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.SingleJarScanStrategy
 import org.pcsoft.framework.pluggiat.security.InsecureSecurityStrategy
@@ -30,7 +32,8 @@ import java.nio.file.Path
 /**
  * Verifies the `pluginManager { ... }` builder DSL's nested blocks not already exercised by other
  * tests: `sdkWhitelistEntry`, `extensionPoint`, a location's `securityOverride`/
- * `dependencyStrategyOverride`, and [SdkWhitelistEntryBuilder] in isolation.
+ * `dependencyStrategyOverride`/`sandboxOverride`, `defaultSandboxPolicy`, and
+ * [SdkWhitelistEntryBuilder] in isolation.
  */
 class PluginManagerBuilderTest {
 
@@ -93,5 +96,45 @@ class PluginManagerBuilderTest {
         assertEquals(listOf(ownStrategy), location.securityOverride)
         assertSame(dependencyStrategy, location.dependencyStrategyOverride)
         assertTrue(location.scanStrategy is SingleJarScanStrategy)
+    }
+
+    /**
+     * Use case: a location's own `sandboxOverride` property is reflected on the built
+     * [org.pcsoft.framework.pluggiat.scanner.PluginLocation], analogous to `securityOverride`.
+     */
+    @Test
+    fun `location sandboxOverride is applied`() {
+        val ownPolicy = PluginSandboxPolicy(isolationLevel = SandboxIsolationLevel.PROCESS)
+
+        val manager = pluginManager {
+            location {
+                path = Path.of(".")
+                type = PluginLocationType.EXTERNAL
+                sandboxOverride = ownPolicy
+            }
+        }
+
+        val location = manager.config.pluginLocations.single()
+        assertSame(ownPolicy, location.sandboxOverride)
+    }
+
+    /**
+     * Use case: `defaultSandboxPolicy { ... }` on the builder DSL sets the default sandbox policy for
+     * the given [org.pcsoft.framework.pluggiat.scanner.PluginLocationType] in
+     * [org.pcsoft.framework.pluggiat.PluginManagerConfiguration.sandboxPolicies], analogous to
+     * `defaultSecurityChain`.
+     */
+    @Test
+    fun `defaultSandboxPolicy populates sandboxPolicies`() {
+        val defaultPolicy = PluginSandboxPolicy(isolationLevel = SandboxIsolationLevel.PROCESS)
+
+        val manager = pluginManager {
+            defaultSandboxPolicy {
+                type = PluginLocationType.BUILTIN
+                policy = defaultPolicy
+            }
+        }
+
+        assertSame(defaultPolicy, manager.config.sandboxPolicies[PluginLocationType.BUILTIN])
     }
 }

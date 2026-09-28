@@ -20,6 +20,8 @@ import org.pcsoft.framework.pluggiat.exception.ExceptionHandlingAction
 import org.pcsoft.framework.pluggiat.exception.ExceptionHandlingStrategy
 import org.pcsoft.framework.pluggiat.exception.PluginExecutionException
 import org.pcsoft.framework.pluggiat.exception.PluginFatalException
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandbox
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
 import org.slf4j.LoggerFactory
 import java.lang.reflect.Array as ReflectArray
 import java.lang.reflect.InvocationHandler
@@ -65,7 +67,12 @@ private fun isNativeType(type: Class<*>): Boolean =
  * Every call into the real instance is intercepted: any `Throwable` it throws is caught and
  * resolved via [ExceptionHandlingStrategy], and only [PluginExecutionException]/[PluginFatalException]
  * ever escape to the host. Eligible return values (see [isProxyEligible]) are recursively wrapped
- * the same way, including array elements, `Collection` elements and `Map` values.
+ * the same way, including array elements, `Collection` elements and `Map` values. Since IP-03, the
+ * delegated call itself runs under [PluginSandbox.runGoverned] whenever a [sandbox] and [pluginId]
+ * are supplied - a `SandboxTimeoutException` escaping it is handled exactly like any other
+ * `Throwable` from the delegated call. [pluginId]/[sandbox]/[policy] are also threaded through into
+ * every recursively wrapped nested return value (see [wrapReturnValue]), so a call on a returned
+ * factory/collection/map element is governed exactly like the call that produced it.
  */
 object ExtensionProxyFactory {
     private val logger = LoggerFactory.getLogger(ExtensionProxyFactory::class.java)
@@ -79,6 +86,11 @@ object ExtensionProxyFactory {
      * @param target the real instance every proxy call is delegated to
      * @param exceptionHandlingStrategy resolves the [ExceptionHandlingAction] for a `Throwable`
      * caught from a delegated call
+     * @param pluginId id of the plugin [target] belongs to, required together with [sandbox] for the
+     * delegated call to run under [PluginSandbox.runGoverned]; `null` (the default) skips governance
+     * @param sandbox the [PluginSandbox] to govern the delegated call under, together with [pluginId];
+     * `null` (the default) skips governance
+     * @param policy the [PluginSandboxPolicy] passed to [PluginSandbox.runGoverned] when governed
      * @param onUnload invoked synchronously, before a [PluginFatalException] escapes, whenever
      * [exceptionHandlingStrategy] resolves a thrown `Throwable` to [ExceptionHandlingAction.UNLOAD]
      * @throws IllegalArgumentException if [type] is not [isProxyEligible]
@@ -88,10 +100,13 @@ object ExtensionProxyFactory {
         type: Class<T>,
         target: T,
         exceptionHandlingStrategy: ExceptionHandlingStrategy,
+        pluginId: String? = null,
+        sandbox: PluginSandbox? = null,
+        policy: PluginSandboxPolicy = PluginSandboxPolicy.UNRESTRICTED,
         onUnload: () -> Unit,
     ): T {
         require(isProxyEligible(type)) { "Type ${type.name} is not proxy-eligible (must be an interface or a non-final class)" }
-        val handler = Interceptor(target, exceptionHandlingStrategy, onUnload)
+        val handler = Interceptor(target, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload)
         return if (type.isInterface) {
             Proxy.newProxyInstance(type.classLoader, arrayOf(type), handler) as T
         } else {
@@ -109,18 +124,32 @@ object ExtensionProxyFactory {
     private class Interceptor(
         private val target: Any,
         private val exceptionHandlingStrategy: ExceptionHandlingStrategy,
+        private val pluginId: String?,
+        private val sandbox: PluginSandbox?,
+        private val policy: PluginSandboxPolicy,
         private val onUnload: () -> Unit,
     ) : InvocationHandler {
 
         override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
             val result = try {
-                method.invoke(target, *(args ?: emptyArray()))
+                invokeGoverned(method, args)
             } catch (invocationTarget: InvocationTargetException) {
                 throw handle(invocationTarget.targetException ?: invocationTarget)
             } catch (throwable: Throwable) {
                 throw handle(throwable)
             }
-            return wrapReturnValue(result, method.genericReturnType, exceptionHandlingStrategy, onUnload)
+            return wrapReturnValue(result, method.genericReturnType, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload)
+        }
+
+        private fun invokeGoverned(method: Method, args: Array<out Any?>?): Any? {
+            val call = { method.invoke(target, *(args ?: emptyArray())) }
+            val governingSandbox = sandbox
+            val governingPluginId = pluginId
+            return if (governingSandbox != null && governingPluginId != null) {
+                governingSandbox.runGoverned(governingPluginId, policy, call)
+            } else {
+                call()
+            }
         }
 
         private fun handle(throwable: Throwable): Throwable {
@@ -155,12 +184,19 @@ object ExtensionProxyFactory {
  * @param declaredType the method's declared (generic) return type, used to decide proxy
  * eligibility and to descend into arrays/`Collection`/`Map`
  * @param exceptionHandlingStrategy forwarded to any proxy created for an eligible [value]
+ * @param pluginId forwarded to any proxy created for an eligible [value], together with [sandbox] -
+ * `null` (the default) skips governance for calls on the wrapped value, same as [ExtensionProxyFactory.create]
+ * @param sandbox forwarded to any proxy created for an eligible [value], together with [pluginId]
+ * @param policy forwarded to any proxy created for an eligible [value]
  * @param onUnload forwarded to any proxy created for an eligible [value]
  */
 fun wrapReturnValue(
     value: Any?,
     declaredType: Type,
     exceptionHandlingStrategy: ExceptionHandlingStrategy,
+    pluginId: String? = null,
+    sandbox: PluginSandbox? = null,
+    policy: PluginSandboxPolicy = PluginSandboxPolicy.UNRESTRICTED,
     onUnload: () -> Unit,
 ): Any? {
     if (value == null) return value
@@ -169,12 +205,15 @@ fun wrapReturnValue(
     return when (declaredType) {
         is Class<*> -> when {
             isNativeType(declaredType) -> value
-            declaredType.isArray -> wrapArray(value, declaredType.componentType, exceptionHandlingStrategy, onUnload)
+            declaredType.isArray -> wrapArray(value, declaredType.componentType, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload)
             isProxyEligible(declaredType) -> ExtensionProxyFactory.create(
                 @Suppress("UNCHECKED_CAST") (declaredType as Class<Any>),
                 value,
                 exceptionHandlingStrategy,
-                onUnload,
+                pluginId,
+                sandbox,
+                policy,
+                onUnload = onUnload,
             )
 
             else -> {
@@ -187,7 +226,7 @@ fun wrapReturnValue(
             }
         }
 
-        is ParameterizedType -> wrapParameterized(value, declaredType, exceptionHandlingStrategy, onUnload, logger)
+        is ParameterizedType -> wrapParameterized(value, declaredType, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload, logger)
         else -> {
             logger.warn("Return type {} is a raw/wildcard generic type, element eligibility cannot be determined; passed through unchanged", declaredType)
             value
@@ -195,13 +234,21 @@ fun wrapReturnValue(
     }
 }
 
-private fun wrapArray(value: Any, componentType: Class<*>, exceptionHandlingStrategy: ExceptionHandlingStrategy, onUnload: () -> Unit): Any {
+private fun wrapArray(
+    value: Any,
+    componentType: Class<*>,
+    exceptionHandlingStrategy: ExceptionHandlingStrategy,
+    pluginId: String?,
+    sandbox: PluginSandbox?,
+    policy: PluginSandboxPolicy,
+    onUnload: () -> Unit,
+): Any {
     if (!isProxyEligible(componentType) || isNativeType(componentType)) return value
     val length = ReflectArray.getLength(value)
     val result = ReflectArray.newInstance(componentType, length)
     for (i in 0 until length) {
         val element = ReflectArray.get(value, i)
-        ReflectArray.set(result, i, wrapReturnValue(element, componentType, exceptionHandlingStrategy, onUnload))
+        ReflectArray.set(result, i, wrapReturnValue(element, componentType, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload))
     }
     return result
 }
@@ -211,6 +258,9 @@ private fun wrapParameterized(
     value: Any,
     type: ParameterizedType,
     exceptionHandlingStrategy: ExceptionHandlingStrategy,
+    pluginId: String?,
+    sandbox: PluginSandbox?,
+    policy: PluginSandboxPolicy,
     onUnload: () -> Unit,
     logger: org.slf4j.Logger,
 ): Any {
@@ -222,7 +272,7 @@ private fun wrapParameterized(
                 logger.warn("Collection element type of {} is a raw/wildcard generic type; elements are passed through unchanged", rawType.name)
                 value
             } else {
-                value.map { element -> wrapReturnValue(element, elementType, exceptionHandlingStrategy, onUnload) }
+                value.map { element -> wrapReturnValue(element, elementType, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload) }
             }
         }
 
@@ -232,7 +282,7 @@ private fun wrapParameterized(
                 logger.warn("Map value type of {} is a raw/wildcard generic type; values are passed through unchanged", rawType.name)
                 value
             } else {
-                value.mapValues { (_, v) -> wrapReturnValue(v, valueType, exceptionHandlingStrategy, onUnload) }
+                value.mapValues { (_, v) -> wrapReturnValue(v, valueType, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload) }
             }
         }
 

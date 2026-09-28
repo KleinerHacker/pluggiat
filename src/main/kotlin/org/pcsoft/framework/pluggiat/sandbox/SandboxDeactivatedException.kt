@@ -10,10 +10,13 @@
  * See the License for the specific language governing permissions and limitations.
  */
 
-package org.pcsoft.framework.pluggiat.classloader.fixtures.whitelisted.sub
+package org.pcsoft.framework.pluggiat.sandbox
 
 /**
- * Stand-in for a class inside a sub-package of a whitelisted host SDK package, used by
- * [PluginClassLoaderTest] to verify non-recursive [org.pcsoft.framework.pluggiat.classloader.SdkWhitelistEntry]s.
+ * Thrown by [PluginSandbox.runGoverned] when [pluginId] was deactivated (see
+ * [PluginSandbox.deactivate]) and not re-activated since - a governed call racing against a
+ * concurrent unload of the same plugin fails fast instead of silently creating a fresh executor for
+ * code that should no longer be running.
  */
-class SubPackageMarker
+class SandboxDeactivatedException(pluginId: String) :
+    RuntimeException("Plugin '$pluginId' is deactivated and cannot run a governed call right now")

@@ -19,6 +19,17 @@ val loader = PluginLoader(
 )
 ```
 
+!!! tip "Security recommendations"
+
+    * Whitelist only what plugins actually need to call - the smallest useful surface, not a whole
+      package tree "just in case".
+    * Never whitelist a package that itself exposes reflection-capable escape hatches (e.g. one that
+      hands back the host's own class loader or an internal collection by reference).
+    * Prefer `recursive = false` for a package that mixes plugin-facing API with internal helpers, so
+      a new internal class added later does not accidentally become reachable.
+    * Review the whitelist whenever the host's own SDK package gains new classes - nothing in the
+      framework enforces that only intended types end up on it.
+
 ## What belongs on the whitelist
 
 Only the host's own plugin-facing API - typically the interface(s) plugin implementations must
@@ -36,6 +47,23 @@ JDK platform classes (`java.*`, `javax.*`) are always resolvable through a plugi
 independent of the whitelist - plugin bytecode unconditionally references core JDK types (starting
 with `java.lang.Object`), so these are delegated to the JDK's own platform class loader
 unconditionally, before the whitelist is even consulted.
+
+## What cannot be whitelisted - and cannot be overridden
+
+Two groups of classes are resolved *before* the whitelist is consulted, and listing them changes
+nothing:
+
+* **JDK platform classes** (`java.*`, `javax.*`) always come from the JDK's own platform class loader.
+* **pluggiat's own classes** (`org.pcsoft.framework.pluggiat.*`) always come from the host. This is a
+  security boundary, not a convenience: the sandbox's guard calls, injected into a plugin's own
+  bytecode, resolve the framework's guard registry by name, and a plugin shipping a class of that name
+  in its own JAR would otherwise get *its* copy loaded (the class loader is parent-last) - a registry
+  that simply allows everything. Delegation for these classes has no fall-back: if it fails, the load
+  fails with a `ClassNotFoundException` rather than continuing with the plugin's version. The same
+  applies to *resources* below `org/pcsoft/framework/pluggiat/`, which a plugin cannot serve either.
+
+A host should therefore not place its own SDK inside the `org.pcsoft.framework.pluggiat` namespace -
+those classes would always be taken from wherever the framework itself was loaded.
 
 ## Matching
 

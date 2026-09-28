@@ -33,7 +33,7 @@ passiert. Sofern der Host nichts Eigenes konfiguriert hat, gilt die Standardmatr
 
 * `IGNORE` - Ihr Plugin bleibt aktiv; der Vorfall wird nur protokolliert.
 * `UNLOAD` - Ihr Plugin wird zwangsweise deaktiviert: `onDisable`/`onUnload` werden aufgerufen,
-  sofern Sie [`PluginLifecycle`](lifecycle.md) implementieren, der Classloader Ihres Plugins wird
+  sofern Sie [`PluginLifecycle`](lifecycle.de.md) implementieren, der Classloader Ihres Plugins wird
   verworfen, und es wird als deaktiviert persistiert. Eine spätere Reaktivierung erfordert einen
   vollständigen Reload und eine erneute Sicherheitsprüfung.
 * `CRASH` - ein Host kann dies für bestimmte Ausnahmetypen konfigurieren; es hält die gesamte
@@ -61,8 +61,8 @@ Da jeder Aufruf über den Proxy läuft, sieht einiges anders aus als ein direkte
 
 Ist ein Wert, den Ihre Implementierung von einer auf dem Host-API-Typ des Erweiterungspunkts
 deklarierten Methode zurückgibt, selbst proxy-fähig (ein Interface oder eine nicht finale Klasse),
-wird er auf dieselbe Weise rekursiv umschlossen - einschließlich Array-Elementen, `Collection`-
-Elementen und `Map`-Werten. Ein Host, der einen Erweiterungspunkt-API entwirft, sollte daher für
+wird er auf dieselbe Weise rekursiv umschlossen - einschließlich Array-Elementen,
+`Collection`-Elementen und `Map`-Werten. Ein Host, der eine Erweiterungspunkt-API entwirft, sollte daher für
 jeden Typ, der die Plugin-/Host-Grenze überschreitet, proxy-fähige Typen (Interfaces oder explizit
 `open` deklarierte Klassen) bevorzugen; eine `final`-Klasse, die diese Grenze überschreitet, verliert
 die Durchsetzungsgarantie für auf ihr getätigte Aufrufe (sie wird unverändert durchgereicht, wobei

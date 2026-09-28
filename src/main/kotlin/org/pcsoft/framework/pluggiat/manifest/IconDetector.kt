@@ -35,6 +35,8 @@ internal object IconDetector {
      * @throws IconFormatException if the content is not valid Base64 or its image format is not recognised
      */
     fun detectFormat(base64Icon: String): String {
+        // SECURITY: the icon is plugin-controlled text; a decode failure is reported as an invalid manifest
+        // SECURITY: rather than propagating a raw decoder exception out of the scan.
         val bytes = try {
             Base64.getDecoder().decode(base64Icon)
         } catch (_: IllegalArgumentException) {
@@ -45,6 +47,8 @@ internal object IconDetector {
             return "SVG"
         }
 
+        // SECURITY: only the format is detected here - the image is never decoded into pixels, so a crafted
+        // SECURITY: image cannot reach an image codec's parsing code during the scan.
         ImageIO.createImageInputStream(ByteArrayInputStream(bytes)).use { imageInputStream ->
             val readers = ImageIO.getImageReaders(imageInputStream)
             if (readers.hasNext()) {

@@ -2,7 +2,7 @@
 
 Ein Plugin trägt Funktionalität zur Host-Anwendung über Erweiterungspunkte bei. Jeder
 Erweiterungspunkt wird durch einen Schlüssel identifiziert (deklariert unter `extensions.<key>[]`
-im Manifest, siehe [Plugin-Manifest](manifest.md)) und vom Host - nicht vom Plugin - definiert.
+im Manifest, siehe [Plugin-Manifest](manifest.de.md)) und vom Host - nicht vom Plugin - definiert.
 
 Als Plugin-Entwickler müssen Sie nur das Plugin-API-Interface des Hosts für den Erweiterungspunkt
 kennen, zu dem Sie beitragen möchten; Sie implementieren oder referenzieren niemals selbst einen
@@ -45,6 +45,24 @@ extensions:
 Implementierungsklasse. Alle anderen Felder hängen vom Erweiterungspunkt ab, zu dem Sie beitragen.
 
 ## Exklusive Erweiterungspunkte
+
+```mermaid
+flowchart LR
+    subgraph NonExclusive["exclusive = false"]
+        direction TB
+        K1["Schlüssel &quot;exporters&quot;"]
+        PA1["Ihr Plugin<br/>CsvExporter"] -->|akzeptiert| K1
+        PB1["Anderes Plugin<br/>XlsExporter"] -->|akzeptiert| K1
+    end
+
+    subgraph Exclusive["exclusive = true"]
+        direction TB
+        K2["Schlüssel &quot;renderer&quot;"]
+        PA2["Ihr Plugin<br/>MyRenderer"] -->|abgelehnt| K2
+        PB2["Anderes Plugin<br/>TheirRenderer"] -->|abgelehnt| K2
+        K2 --> Warn["Beide Plugins vollständig abgelehnt,<br/>Warnung nennt beide Ids und den Schlüssel"]
+    end
+```
 
 Manche Erweiterungspunkte erlauben nur eine einzige aktive Implementierung über alle installierten
 Plugins hinweg. Wenn Ihr Plugin und ein anderes installiertes Plugin beide zum selben exklusiven

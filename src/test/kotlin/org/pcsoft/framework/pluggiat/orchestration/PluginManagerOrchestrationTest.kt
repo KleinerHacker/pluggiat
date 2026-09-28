@@ -123,7 +123,7 @@ class PluginManagerOrchestrationTest {
         manager.scan()
         val exporter: TestExporter = manager.getFirstExtension("exporters")!!
 
-        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException::class.java) {
+        assertThrows(RuntimeException::class.java) {
             exporter.name()
         }
 
@@ -271,6 +271,83 @@ class PluginManagerOrchestrationTest {
 
         assertFalse(manager.loadedPlugins.containsKey("plugin-a"))
         assertTrue(manager.getExtensions<TestExporter>("exporters").isEmpty())
+    }
+
+    /**
+     * Use case: `unload` does not hang indefinitely when the real extension instance's `onDisable`
+     * blocks past the plugin's configured sandbox timeout (IP-03) - the timeout is logged internally,
+     * but `unload` itself still completes fully (persistence, class loader close, sandbox
+     * deactivation, removal) instead of leaving the plugin half-unloaded or propagating the timeout to
+     * the caller.
+     */
+    @Test
+    fun `unload completes fully even when onDisable exceeds the sandbox timeout`(@TempDir tempDir: Path) {
+        PluginScannerTestFixtures.writeJar(
+            tempDir.resolve("plugin.jar"),
+            mapOf("META-INF/plugin.yml" to extensionManifestYaml("plugin-a", "org.pcsoft.framework.pluggiat.extension.SlowOnDisableTestExporter")),
+        )
+        val manager = pluginManager {
+            defaultSecurityChain {
+                type = PluginLocationType.EXTERNAL
+                addStrategy(InsecureSecurityStrategy())
+            }
+            defaultSandboxPolicy {
+                type = PluginLocationType.EXTERNAL
+                policy = org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy(callTimeout = java.time.Duration.ofMillis(50))
+            }
+            sdkWhitelistEntry {
+                packageName = "org.pcsoft.framework.pluggiat"
+            }
+            extensionPoint(ExporterTestConfig::class)
+            location {
+                path = tempDir
+                type = PluginLocationType.EXTERNAL
+                scanStrategy = SingleJarScanStrategy()
+            }
+        }
+        manager.scan()
+
+        manager.unload("plugin-a")
+
+        assertFalse(manager.loadedPlugins.containsKey("plugin-a"))
+        assertTrue(manager.getExtensions<TestExporter>("exporters").isEmpty())
+    }
+
+    /**
+     * Use case: repeated category-less (timeout) sandbox violations for the same plugin id escalate
+     * to a forced unload, marked `POTENTIAL_ATTACK`, exactly like a category-attributed violation -
+     * a single timeout alone is not evidence of an attack, but a plugin that keeps timing out cannot
+     * be allowed to accumulate an unbounded number of abandoned watchdog threads forever.
+     */
+    @Test
+    fun `repeated category-less sandbox violations for the same plugin escalate to a forced unload`(@TempDir tempDir: Path) {
+        PluginScannerTestFixtures.writeJar(
+            tempDir.resolve("plugin.jar"),
+            mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")),
+        )
+        val manager = pluginManager {
+            defaultSecurityChain {
+                type = PluginLocationType.EXTERNAL
+                addStrategy(InsecureSecurityStrategy())
+            }
+            location {
+                path = tempDir
+                type = PluginLocationType.EXTERNAL
+                scanStrategy = SingleJarScanStrategy()
+            }
+        }
+        manager.scan()
+        assertTrue(manager.loadedPlugins.containsKey("plugin-a"))
+
+        repeat(org.pcsoft.framework.pluggiat.PluginManager.MAX_TIMEOUT_VIOLATIONS) {
+            manager.sandbox.reportViolation(
+                "plugin-a",
+                org.pcsoft.framework.pluggiat.sandbox.SandboxViolation("plugin-a", category = null, reason = "Call exceeded sandbox timeout"),
+            )
+        }
+
+        assertFalse(manager.loadedPlugins.containsKey("plugin-a"))
+        assertEquals(PluginScanStatus.POTENTIAL_ATTACK, manager.scanResults.single().status)
     }
 
     /**

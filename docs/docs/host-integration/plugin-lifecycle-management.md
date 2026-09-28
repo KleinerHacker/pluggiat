@@ -4,6 +4,35 @@ This page covers the host's side of a plugin's lifecycle: enabling/disabling it,
 when a plugin misbehaves at runtime. For the plugin developer's side, see
 [Lifecycle hooks](../plugin-development/lifecycle.md) and [Error handling](../plugin-development/error-handling.md).
 
+```mermaid
+stateDiagram-v2
+    [*] --> Enabled: scan() / reload() / forceLoad() succeeded
+    Enabled --> DisabledByUser: unload()
+    Enabled --> DisabledByError: escaping exception resolves to UNLOAD
+    Enabled --> PotentialAttack: sandbox violation, or 3 consecutive call timeouts
+
+    DisabledByUser --> Enabled: reactivate() / reload(), security re-check passes
+    DisabledByUser --> RecheckFailed: reactivate(), security re-check fails
+    DisabledByError --> Enabled: reactivate() / reload(), security re-check passes
+    DisabledByError --> RecheckFailed: reactivate(), security re-check fails
+    RecheckFailed --> Enabled: reactivate(), security re-check passes
+
+    PotentialAttack --> [*]: no host override, force-load refused
+
+    note right of DisabledByUser
+        disabledReason = USER
+    end note
+    note right of DisabledByError
+        disabledReason = RUNTIME_ERROR
+    end note
+    note right of RecheckFailed
+        disabledReason = SECURITY_RECHECK_FAILED
+    end note
+```
+
+Every transition out of `Enabled` discards the plugin's isolated class loader, so every transition
+back into it is a full reload, never just a flag being flipped.
+
 ## Enabled/disabled status
 
 A plugin's enabled/disabled status is stored via the configured `PluginPersistenceStrategy`, under
@@ -46,6 +75,19 @@ resolves escaping exceptions via the configured `ExceptionHandlingStrategy` into
 actions - `IGNORE`, `UNLOAD`, `CRASH`. See [Error handling](../plugin-development/error-handling.md)
 for the plugin-facing view of this mechanism (recommended exception types, the standard resolution
 matrix, and what you see when debugging).
+
+```mermaid
+flowchart TD
+    Call["Host calls an extension method<br/>through the enforcement proxy"] --> Throw{"Exception<br/>escapes?"}
+    Throw -->|no| Ok["Return value handed to the host"]
+    Throw -->|yes| Resolve["ExceptionHandlingStrategy<br/>resolves the exception class"]
+    Resolve -->|IGNORE| Ignore["Log the incident;<br/>plugin stays active"]
+    Resolve -->|UNLOAD| Unload["onDisable() / onUnload()<br/>class loader discarded<br/>persisted as disabled (RUNTIME_ERROR)"]
+    Resolve -->|CRASH| Crash["Print stack trace,<br/>halt the host JVM"]
+    Unload --> Fatal["PluginFatalException reaches the host"]
+    Ignore --> Siblings["Sibling plugins unaffected"]
+    Fatal --> Siblings
+```
 
 Configuring the strategy:
 

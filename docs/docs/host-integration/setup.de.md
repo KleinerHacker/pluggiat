@@ -9,20 +9,54 @@ Als Host-Anwendung konfigurieren Sie ein oder mehrere `PluginLocation`s und übe
 val location = PluginLocation(
     path = Paths.get("/opt/myapp/plugins"),
     type = PluginLocationType.EXTERNAL,
-    scanStrategy = ZipJarScanStrategy(), // Standard, falls nicht angegeben
+    scanStrategy = ZipJarScanStrategy(), // default if omitted
 )
 ```
 
-* `path` - zu scannendes Verzeichnis nach Plugin-Kandidaten.
+* `path` - Verzeichnis, das nach Plugin-Kandidaten durchsucht wird.
 * `type` - `BUILTIN` für mit der Host-Anwendung ausgelieferte Verzeichnisse, `EXTERNAL` für von
   Dritten beigetragene Verzeichnisse (z. B. den Plugin-Ordner eines Benutzers).
 * `scanStrategy` - welcher der drei unten stehenden Lademodi für dieses Verzeichnis gilt; Standard
   ist `ZipJarScanStrategy`.
 
+!!! tip "Sicherheitsempfehlung"
+
+    `type = PluginLocationType.BUILTIN` ist nur ein Vertrauenssignal - der Scanner prüft selbst
+    nicht, ob ein Verzeichnis tatsächlich frei von Drittinhalten ist. Nur für ein Verzeichnis
+    verwenden, das der eigene Build bzw. Installer vollständig kontrolliert; alles vom Benutzer
+    Beschreibbare muss `EXTERNAL` sein, auch wenn dort in der Praxis nur geprüfte Plugins erwartet
+    werden.
+
 ## Lademodi
 
 Der Lademodus eines Verzeichnisses wird direkt durch die als `scanStrategy` übergebene
 `PluginScanStrategy`-Implementierung ausgedrückt - es gibt keine separate Lademodus-Einstellung.
+
+```mermaid
+flowchart TD
+    subgraph Single["SingleJarScanStrategy"]
+        direction TB
+        SDir["plugins/"] --> SA["plugin-a.jar<br/><i>Kandidat</i><br/>META-INF/plugin.yml"]
+        SDir --> SB["plugin-b.jar<br/><i>Kandidat</i><br/>META-INF/plugin.yml"]
+    end
+
+    subgraph Multi["MultiJarWithOwnFolderScanStrategy"]
+        direction TB
+        MDir["plugins/"] --> MF["plugin-a/<br/><i>Kandidat</i>"]
+        MF --> MA["plugin-a.jar<br/>META-INF/plugin.yml"]
+        MF --> ML["plugin-a-lib.jar"]
+    end
+
+    subgraph Zip["ZipJarScanStrategy (Standard)"]
+        direction TB
+        ZDir["plugins/"] --> ZZ["plugin-a.zip<br/><i>Kandidat</i><br/>als FileSystem eingebunden,<br/>nie entpackt"]
+        ZZ --> ZA["plugin-a.jar<br/>META-INF/plugin.yml"]
+        ZZ --> ZL["plugin-a-lib.jar"]
+    end
+```
+
+Der gemeldete Kandidat ist der als *Kandidat* markierte Knoten: das JAR selbst, der Ordner oder die
+ZIP-Datei.
 
 ### `SingleJarScanStrategy`
 
@@ -71,15 +105,15 @@ eingehängten Dateisystems.
 val scanner = PluginScanner(
     defaultSecurityChains = mapOf(
         PluginLocationType.BUILTIN to listOf(InsecureSecurityStrategy()),
-        // siehe host-integration/security.md für eine realistische EXTERNAL-Kette
+        // see host-integration/security.md for a realistic EXTERNAL chain
     ),
 )
-val results = scanner.scan(listOf(location /* , ... Ihre weiteren Verzeichnisse */))
+val results = scanner.scan(listOf(location /* , ... your other locations */))
 
 for (result in results) {
     when (result.status) {
-        PluginScanStatus.LOADED -> println("Plugin ${result.manifest?.id} gefunden unter ${result.path}")
-        else -> println("Ungültiger Kandidat unter ${result.path}: ${result.errorMessage}")
+        PluginScanStatus.LOADED -> println("Found plugin ${result.manifest?.id} at ${result.path}")
+        else -> println("Invalid candidate at ${result.path}: ${result.errorMessage}")
     }
 }
 ```
@@ -91,7 +125,7 @@ ungültige (`errorMessage` beschreibt den Grund; `manifest` ist nur bei `MANIFES
 Manifest, damit ein Host ihn weiterhin per Force-Load laden kann, siehe unten). Jedes Verzeichnis
 muss auf eine nicht leere Sicherheitskette auflösen - entweder seinen eigenen `securityOverride`
 oder einen `defaultSecurityChains`-Eintrag für seinen `type` - andernfalls wirft das Scannen einen
-Konfigurationsfehler; siehe [Sicherheit](security.md) für Details.
+Konfigurationsfehler; siehe [Sicherheit](security.de.md) für Details.
 
 ## Orchestrierung über `PluginManager`
 
@@ -100,5 +134,5 @@ hinweg auf, erzwingt kein `minVersion`, erstellt keine Classloader und aktiviert
 Erweiterungen. Für den vollständigen, host-seitigen Orchestrierungsablauf
 (`scan()`/`reload()`/`unload()`/`forceLoad()`, typisierten Erweiterungszugriff über
 `getExtensions<T>`/`getFirstExtension<T>` und die oben gezeigten verschachtelten Builder-Blöcke)
-konfigurieren Sie stattdessen einen [`PluginManager`](plugin-manager.md), statt `PluginScanner`
+konfigurieren Sie stattdessen einen [`PluginManager`](plugin-manager.de.md), statt `PluginScanner`
 direkt zu verwenden - er verdrahtet intern einen `PluginScanner` und baut darauf auf.

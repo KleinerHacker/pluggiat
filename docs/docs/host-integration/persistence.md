@@ -14,6 +14,18 @@ interface PluginPersistenceStrategy {
 Exactly one instance is configured for the whole framework, via `PluginManagerConfiguration.persistenceStrategy`
 (see [PluginManager](plugin-manager.md)).
 
+!!! tip "Security recommendations"
+
+    * Never use `NoPersistenceStrategy` in production for an `EXTERNAL` location - every approved
+      checksum and every security override resets on restart, which effectively re-opens the door to
+      previously rejected plugins without anyone deciding that on purpose.
+    * Wrap your chosen strategy in [`IntegrityProtectedPersistenceStrategy`](#integrity-protection)
+      whenever plugins can run with any filesystem access (an `UNRESTRICTED` sandbox policy, or one
+      that permits `FILESYSTEM`) - otherwise the persisted checksum/enabled state is trivially
+      forgeable by the very code it is meant to police.
+    * Keep the HMAC key file (`keyPath`) outside any directory a plugin can write to; once combined
+      with the [runtime sandbox](sandbox.md), block `FILESYSTEM` access to its directory entirely.
+
 ## Shipped implementations
 
 ### `NoPersistenceStrategy` (default)
@@ -72,6 +84,73 @@ val strategy = ObjectPersistenceStrategy(
 Unlike `CustomPersistenceStrategy`, which delegates to host-provided function interfaces,
 `ObjectPersistenceStrategy` takes plain Kotlin lambdas - useful when the host already has a small,
 inline read/write pair rather than a dedicated function interface implementation.
+
+## Integrity protection
+
+```mermaid
+flowchart LR
+    subgraph Callers["Framework callers"]
+        Chk["ChecksumSecurityStrategy<br/>key: checksum"]
+        Life["Lifecycle management<br/>keys: enabled, disabledReason"]
+        Exc["Security exception<br/>key: securityException"]
+    end
+
+    Wrap["IntegrityProtectedPersistenceStrategy<br/>write: value + HMAC<br/>read: HMAC mismatch returns null (WARN)"]
+    Key[("HMAC key file<br/>SecureRandom, created once")]
+
+    subgraph Backends["Backing strategy (exactly one)"]
+        NoP["NoPersistenceStrategy"]
+        FileP["FilePersistenceStrategy"]
+        DbP["DatabasePersistenceStrategy"]
+        CustP["CustomPersistenceStrategy /<br/>ObjectPersistenceStrategy"]
+    end
+
+    Chk --> Wrap
+    Life --> Wrap
+    Exc --> Wrap
+    Wrap --> Key
+    Wrap --> Backends
+```
+
+`IntegrityProtectedPersistenceStrategy` wraps any `PluginPersistenceStrategy` and protects every
+stored value with an HMAC, so a plugin (or a third party) editing the underlying storage directly -
+e.g. its own `checksum` or `enabled` entry - can no longer make a forged value come back as if it
+were legitimately written:
+
+```kotlin
+val strategy = IntegrityProtectedPersistenceStrategy(
+    delegate = FilePersistenceStrategy(Paths.get("/var/lib/myapp/plugin-state.properties")),
+    keyPath = Paths.get("/var/lib/myapp/plugin-state.properties.key"),
+)
+```
+
+The key at `keyPath` is generated once via `SecureRandom` on first access (never part of a JAR or
+hardcoded) and reused on every subsequent start. The key file is created readable and writable by its
+owner only (POSIX `600`, or an owner-only ACL on Windows), and an existing key file that is accessible
+beyond its owner is reported as a `WARN` - anyone able to read it can forge every stored HMAC. A stored
+value whose HMAC no longer matches is returned as `null` on `read`, as if it had never been set, with a
+`WARN` log entry - this is a same-process, same-OS-user hardening/detection measure, not a guarantee
+against code running in that same process and under that same user.
+
+The MAC covers `(pluginId, key, value)` with each field length-prefixed, so a stored MAC is valid for
+exactly that triple: moving it to another plugin id or another key does not verify there. Stored MACs
+are compared in constant time, and a missing MAC entry counts as a mismatch rather than as "unprotected"
+- deleting it does not get a forged value accepted.
+
+!!! warning "State written by an earlier version is not accepted"
+
+    The MAC input encoding changed with this hardening, so values stored by an earlier pluggiat version
+    read back as unset (logged as a `WARN`, exactly like a tampered value). For pluggiat's own state
+    that means an enabled flag or an accepted checksum is confirmed once more; no data is lost that
+    cannot be re-derived.
+
+`FilePersistenceStrategy` additionally writes its file atomically (a temporary file in the same
+directory plus a rename) and owner-only, so a reader never sees a half-written state and another local
+user cannot edit which plugin is enabled or which checksum was accepted. In the `PROPERTIES`/`XML`
+formats, plugin id and key are joined by `|` instead of `.`, because `.` is legal inside a plugin id and
+made the flattening ambiguous - entries written by an earlier version are ignored with a `WARN`
+(`JSON`/`YAML` are unaffected). `DatabasePersistenceStrategy` writes each value in a single
+transaction.
 
 ## Writing your own
 

@@ -145,8 +145,22 @@ class ChecksumSecurityStrategyTest {
     }
 
     /**
+     * The digest input [ChecksumSecurityStrategy] builds for a multi-file candidate: every file's bytes
+     * preceded by its length as a four-byte big-endian integer.
+     */
+    private fun lengthPrefixed(vararg files: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        for (bytes in files) {
+            out.write(java.nio.ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
+            out.write(bytes)
+        }
+        return out.toByteArray()
+    }
+
+    /**
      * Use case: for a `MULTI_JAR_WITH_OWN_FOLDER`-style candidate (`path` is a folder), the checksum
-     * covers the concatenated bytes of every `*.jar` directly inside it, in sorted file name order.
+     * covers the bytes of every `*.jar` directly inside it, in sorted file name order, each prefixed
+     * with its own length - so no rearrangement of bytes across file boundaries keeps the digest valid.
      */
     @Test
     fun `computes the checksum over every jar in a folder candidate`(@TempDir tempDir: Path) {
@@ -156,12 +170,74 @@ class ChecksumSecurityStrategyTest {
         val manifest = PluginManifest(id = "plugin-a", name = "plugin-a", version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==")
         val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
         val result = PluginScanResult(location, folder, manifest, PluginScanStatus.LOADED)
-        val expectedBytes = folder.resolve("plugin-a-lib.jar").toFile().readBytes() + folder.resolve("plugin-a-manifest.jar").toFile().readBytes()
+        val expectedBytes = lengthPrefixed(
+            folder.resolve("plugin-a-lib.jar").toFile().readBytes(),
+            folder.resolve("plugin-a-manifest.jar").toFile().readBytes(),
+        )
         val expected = MessageDigestChecksumAlgorithm("SHA-512").digest(expectedBytes)
 
         val checkResult = ChecksumSecurityStrategy(persistenceOf(expected)).check(result)
 
         assertEquals(PluginSecurityCheckResult.Success, checkResult)
+    }
+
+    /**
+     * Use case: [ChecksumSecurityStrategy.persist]'s pinned-content overload falls back to the
+     * path-based [ChecksumSecurityStrategy.persist] when called with a `null` [PinnedPluginContent] (the
+     * candidate was never pinned), and still writes the correct digest computed from the candidate's
+     * actual path.
+     */
+    @Test
+    fun `persist with a null pinned content falls back to the path-based persist`(@TempDir tempDir: Path) {
+        val store = mutableMapOf<String, String>()
+        val persistence = object : PluginPersistenceStrategy {
+            override fun read(pluginId: String, key: String): String? = store["$pluginId.$key"]
+            override fun write(pluginId: String, key: String, value: String) {
+                store["$pluginId.$key"] = value
+            }
+        }
+        val strategy = ChecksumSecurityStrategy(persistence)
+        val result = candidate(tempDir)
+        val expected = MessageDigestChecksumAlgorithm("SHA-512").digest(result.path.toFile().readBytes())
+
+        strategy.persist("plugin-a", result, pinnedContent = null)
+
+        assertEquals(expected, store["plugin-a.${ChecksumSecurityStrategy.PERSISTENCE_KEY}"])
+        assertEquals(PluginSecurityCheckResult.Success, strategy.check(result))
+    }
+
+    /**
+     * Use case: [ChecksumSecurityStrategy.persist]'s plain-path overload, called with a folder
+     * candidate (a [org.pcsoft.framework.pluggiat.scanner.MultiJarWithOwnFolderScanStrategy] result),
+     * computes the digest via the private path-based `candidateBytes(Path)` over every `*.jar` file
+     * directly inside the folder, in sorted file name order, each prefixed with its own length - the
+     * same code path `persist(pluginId, result)` uses without any pinned content.
+     */
+    @Test
+    fun `persist over a folder candidate digests every jar in sorted order via the path-based candidateBytes`(@TempDir tempDir: Path) {
+        val folder = tempDir.resolve("plugin-a").also { java.nio.file.Files.createDirectories(it) }
+        PluginScannerTestFixtures.writeJar(folder.resolve("plugin-a-manifest.jar"), mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")))
+        PluginScannerTestFixtures.writeJar(folder.resolve("plugin-a-lib.jar"), mapOf("dummy.txt" to "content"))
+        val manifest = PluginManifest(id = "plugin-a", name = "plugin-a", version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==")
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, folder, manifest, PluginScanStatus.LOADED)
+        val expectedBytes = lengthPrefixed(
+            folder.resolve("plugin-a-lib.jar").toFile().readBytes(),
+            folder.resolve("plugin-a-manifest.jar").toFile().readBytes(),
+        )
+        val expected = MessageDigestChecksumAlgorithm("SHA-512").digest(expectedBytes)
+        val store = mutableMapOf<String, String>()
+        val persistence = object : PluginPersistenceStrategy {
+            override fun read(pluginId: String, key: String): String? = store["$pluginId.$key"]
+            override fun write(pluginId: String, key: String, value: String) {
+                store["$pluginId.$key"] = value
+            }
+        }
+        val strategy = ChecksumSecurityStrategy(persistence)
+
+        strategy.persist("plugin-a", result)
+
+        assertEquals(expected, store["plugin-a.${ChecksumSecurityStrategy.PERSISTENCE_KEY}"])
     }
 
     /**

@@ -17,6 +17,19 @@ All four methods have an empty default implementation - implement only the ones 
 
 ## Call order
 
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Scanned: candidate found
+    Scanned --> Loaded: onLoad()
+    Loaded --> Enabled: onEnable()
+    Enabled --> Disabling: host disables /<br/>runtime error resolves to UNLOAD
+    Disabling --> Unloaded: onDisable() then onUnload()
+    Unloaded --> Discarded: class loader discarded
+    Discarded --> Scanned: reactivate / reload<br/>(full reload, security re-checked)
+    Discarded --> [*]
+```
+
 * `onLoad` always runs before `onEnable`.
 * `onDisable` always runs before `onUnload`.
 * `onUnload` is immediately followed by the host discarding your plugin's isolated class loader -

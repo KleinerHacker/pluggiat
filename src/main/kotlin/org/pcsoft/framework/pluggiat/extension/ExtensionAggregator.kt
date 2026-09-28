@@ -19,6 +19,11 @@ import org.pcsoft.framework.pluggiat.manifest.PluginManifest
 import org.pcsoft.framework.pluggiat.persistence.NoPersistenceStrategy
 import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
 import org.pcsoft.framework.pluggiat.proxy.ExtensionProxyFactory
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandbox
+import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
+import org.pcsoft.framework.pluggiat.sandbox.SandboxIsolationLevel
+import org.pcsoft.framework.pluggiat.sandbox.SandboxTimeoutException
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 
@@ -50,12 +55,18 @@ enum class PluginExtensionStatus {
  * `org.pcsoft.framework.pluggiat.exception.ExceptionHandlingAction.UNLOAD` for this plugin; a
  * caller that has the plugin's `org.pcsoft.framework.pluggiat.classloader.LoadedPlugin` wires this
  * to `LoadedPlugin.close()` so the class loader is actually discarded
+ * @property pinnedContent the candidate's security-checked bytes, as pinned by
+ * `org.pcsoft.framework.pluggiat.scanner.PluginScanner`; only used for a process-isolated plugin, whose
+ * subprocess is started from these bytes rather than from [path] (see
+ * [org.pcsoft.framework.pluggiat.sandbox.process.ProcessIsolationStrategy.createExtensionProxy]). `null`
+ * for a candidate that was never pinned - the subprocess then falls back to reading [path] from disk.
  */
 data class PluginExtensionCandidate(
     val pluginId: String,
     val path: Path,
     val manifest: PluginManifest,
     val onUnload: () -> Unit = {},
+    val pinnedContent: PinnedPluginContent? = null,
 )
 
 /**
@@ -103,20 +114,28 @@ data class ExtensionAggregationResult(
  * `"disabledReason"`)
  * @property exceptionHandlingStrategy resolves the action for a `Throwable` escaping a proxied
  * extension call
+ * @property sandbox the [PluginSandbox] every [PluginLifecycle] hook call and proxied extension call
+ * runs under via [PluginSandbox.runGoverned] (IP-03); defaults to an unwired [PluginSandbox] whose
+ * [PluginSandboxPolicy.UNRESTRICTED] default [policyResolver] makes governance a no-op
+ * @property policyResolver resolves the effective [PluginSandboxPolicy] for a plugin id, passed to
+ * [sandbox]; defaults to always [PluginSandboxPolicy.UNRESTRICTED]
  */
 class ExtensionAggregator(
     private val registry: ExtensionPointRegistry,
     private val classResolverFor: (pluginId: String) -> ExtensionClassResolver = { DefaultExtensionClassResolver },
     private val persistenceStrategy: PluginPersistenceStrategy = NoPersistenceStrategy(),
     private val exceptionHandlingStrategy: ExceptionHandlingStrategy = DefaultExceptionHandlingStrategy(),
+    private val sandbox: PluginSandbox = PluginSandbox(),
+    private val policyResolver: (pluginId: String) -> PluginSandboxPolicy = { PluginSandboxPolicy.UNRESTRICTED },
 ) {
     private val logger = LoggerFactory.getLogger(ExtensionAggregator::class.java)
 
     /**
      * Resolves the extensions of all enabled [candidates], groups non-exclusive keys into lists,
      * rejects both plugins involved whenever an exclusive key is contributed by more than one
-     * plugin, and skips disabled plugins entirely (no class resolution/instantiation at all for
-     * them).
+     * plugin, skips disabled plugins entirely (no class resolution/instantiation at all for them),
+     * and excludes any single plugin whose `onLoad`/`onEnable` exceeded its sandbox timeout (see
+     * [resolveAndEnforce]) without affecting resolution of any other candidate.
      *
      * @throws ExtensionMappingException if any enabled candidate's extension entries cannot be mapped, see [ExtensionDecorator.decorate]
      */
@@ -124,10 +143,11 @@ class ExtensionAggregator(
         val enabledIds = candidates.map { it.pluginId }.filter { isEnabled(it) }.toSet()
         val enabledCandidates = candidates.filter { it.pluginId in enabledIds }
         val realInstances = mutableMapOf<String, MutableList<Any>>()
+        val timedOutPluginIds = mutableSetOf<String>()
 
         val resolvedByPlugin: Map<String, List<ResolvedExtension>> = enabledCandidates.associate { candidate ->
             candidate.pluginId to candidate.manifest.extensions.flatMap { (key, entries) ->
-                entries.map { entry -> resolveAndEnforce(candidate, key, entry, realInstances) }
+                entries.mapNotNull { entry -> resolveAndEnforce(candidate, key, entry, realInstances, timedOutPluginIds) }
             }
         }
 
@@ -150,6 +170,7 @@ class ExtensionAggregator(
                 path = candidate.path,
                 status = when {
                     candidate.pluginId !in enabledIds -> PluginExtensionStatus.DISABLED
+                    candidate.pluginId in timedOutPluginIds -> PluginExtensionStatus.DISABLED
                     candidate.pluginId in rejectedPluginIds -> PluginExtensionStatus.REJECTED_EXCLUSIVE_CONFLICT
                     else -> PluginExtensionStatus.LOADED
                 },
@@ -170,27 +191,66 @@ class ExtensionAggregator(
     private fun isEnabled(pluginId: String): Boolean =
         persistenceStrategy.read(pluginId, ENABLED_PERSISTENCE_KEY) != "false"
 
+    /**
+     * Resolves and instantiates one extension [entry] of [candidate], invokes its `onLoad`/`onEnable`
+     * hooks (if any) under [sandbox]'s governance, and wraps it in the runtime enforcement proxy.
+     *
+     * A [SandboxTimeoutException] from `onLoad`/`onEnable` is caught here rather than left to escape
+     * [aggregate] - it would otherwise abort resolution of *every* candidate in that call, letting one
+     * hanging plugin take down every other, unrelated plugin's extensions with it. Instead, [candidate]
+     * is persisted as disabled, added to [timedOutPluginIds] (so [aggregate] reports it as
+     * [PluginExtensionStatus.DISABLED] instead of `LOADED`), and `null` is returned so this entry is
+     * simply excluded from the result.
+     */
     private fun resolveAndEnforce(
         candidate: PluginExtensionCandidate,
         key: String,
         entry: org.pcsoft.framework.pluggiat.manifest.ExtensionEntry,
         realInstances: MutableMap<String, MutableList<Any>>,
-    ): ResolvedExtension {
+        timedOutPluginIds: MutableSet<String>,
+    ): ResolvedExtension? {
+        val policy = policyResolver(candidate.pluginId)
+        val isProcessIsolated = policy.isolationLevel == SandboxIsolationLevel.PROCESS
         val decorator = ExtensionDecorator(registry, classResolverFor(candidate.pluginId))
-        val resolved = decorator.decorate(candidate.pluginId, key, entry)
-        val realInstance = resolved.instance
+        val resolved = decorator.decorate(candidate.pluginId, key, entry, instantiate = !isProcessIsolated)
+        val apiType = registry.registrationFor(key)?.apiType
+
+        val realInstance = if (isProcessIsolated) {
+            requireNotNull(apiType) {
+                "Extension point '$key' has no resolvable host plugin API type; process isolation " +
+                    "(IP-04) requires one to build the cross-process proxy for plugin '${candidate.pluginId}'"
+            }
+            // candidate.pinnedContent, not candidate.path: the subprocess must run the bytes that passed
+            // the security chain, not whatever the path holds by the time it starts.
+            sandbox.processIsolation.createExtensionProxy(
+                candidate.pluginId, candidate.path, candidate.pinnedContent, apiType, entry.implementation, policy,
+            )
+        } else {
+            resolved.instance
+        }
         realInstances.getOrPut(candidate.pluginId) { mutableListOf() }.add(realInstance)
         if (realInstance is PluginLifecycle) {
-            logger.debug("Invoking onLoad on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
-            realInstance.onLoad()
-            logger.debug("Invoking onEnable on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
-            realInstance.onEnable()
+            try {
+                logger.debug("Invoking onLoad on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
+                sandbox.runGoverned(candidate.pluginId, policy) { realInstance.onLoad() }
+                logger.debug("Invoking onEnable on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
+                sandbox.runGoverned(candidate.pluginId, policy) { realInstance.onEnable() }
+            } catch (e: SandboxTimeoutException) {
+                logger.error(
+                    "Plugin '{}' timed out invoking onLoad/onEnable on extension implementation {}; excluding it " +
+                        "from this aggregation, other plugins are unaffected",
+                    candidate.pluginId, realInstance::class.java.name, e,
+                )
+                timedOutPluginIds += candidate.pluginId
+                persistenceStrategy.write(candidate.pluginId, DISABLED_REASON_PERSISTENCE_KEY, RUNTIME_ERROR_REASON)
+                persistenceStrategy.write(candidate.pluginId, ENABLED_PERSISTENCE_KEY, "false")
+                return null
+            }
         }
 
-        val apiType = registry.registrationFor(key)?.apiType
         val proxied = if (apiType != null) {
             @Suppress("UNCHECKED_CAST")
-            ExtensionProxyFactory.create(apiType as Class<Any>, realInstance, exceptionHandlingStrategy) {
+            ExtensionProxyFactory.create(apiType as Class<Any>, realInstance, exceptionHandlingStrategy, candidate.pluginId, sandbox, policy) {
                 forceDisable(candidate, realInstance)
             }
         } else {
@@ -202,10 +262,11 @@ class ExtensionAggregator(
     private fun forceDisable(candidate: PluginExtensionCandidate, realInstance: Any) {
         logger.error("Forcibly disabling plugin '{}' due to a runtime UNLOAD action", candidate.pluginId)
         if (realInstance is PluginLifecycle) {
+            val policy = policyResolver(candidate.pluginId)
             logger.debug("Invoking onDisable on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
-            runCatching { realInstance.onDisable() }
+            runCatching { sandbox.runGoverned(candidate.pluginId, policy) { realInstance.onDisable() } }
             logger.debug("Invoking onUnload on extension implementation {} of plugin '{}'", realInstance::class.java.name, candidate.pluginId)
-            runCatching { realInstance.onUnload() }
+            runCatching { sandbox.runGoverned(candidate.pluginId, policy) { realInstance.onUnload() } }
         }
         persistenceStrategy.write(candidate.pluginId, DISABLED_REASON_PERSISTENCE_KEY, RUNTIME_ERROR_REASON)
         persistenceStrategy.write(candidate.pluginId, ENABLED_PERSISTENCE_KEY, "false")

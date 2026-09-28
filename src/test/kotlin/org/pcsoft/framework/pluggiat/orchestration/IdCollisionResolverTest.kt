@@ -39,6 +39,22 @@ class IdCollisionResolverTest {
         status = PluginScanStatus.LOADED,
     )
 
+    private fun securityProblemResult(path: Path, id: String, version: String): PluginScanResult = PluginScanResult(
+        location = locationAt(path),
+        path = path,
+        manifest = PluginManifest(id = id, name = id, version = version, minVersion = "1.0.0", icon = "aWNvbg=="),
+        status = PluginScanStatus.SECURITY_PROBLEM,
+        errorMessage = "always fails",
+    )
+
+    private fun potentialAttackResult(path: Path, id: String, version: String): PluginScanResult = PluginScanResult(
+        location = locationAt(path),
+        path = path,
+        manifest = PluginManifest(id = id, name = id, version = version, minVersion = "1.0.0", icon = "aWNvbg=="),
+        status = PluginScanStatus.POTENTIAL_ATTACK,
+        errorMessage = "sandbox violation",
+    )
+
     /**
      * Use case: two candidates with the same plugin id from different locations, one with a
      * strictly higher version - the higher version is kept as `LOADED`, the other is rejected with
@@ -88,5 +104,42 @@ class IdCollisionResolverTest {
         val resolved = IdCollisionResolver().resolve(listOf(single, invalid))
 
         assertEquals(setOf(single, invalid), resolved.toSet())
+    }
+
+    /**
+     * Use case: a candidate that failed the security chain (`SECURITY_PROBLEM`) declares a higher
+     * `manifest.version` than a candidate of the same plugin id that already passed the security
+     * chain (`LOADED`) - the `LOADED` candidate must not be displaced by version-spoofing, and the
+     * `SECURITY_PROBLEM` candidate must not have its status overwritten with `ID_COLLISION`.
+     */
+    @Test
+    fun `a security-failed candidate cannot outrank a loaded candidate by declaring a higher version`(@TempDir tempDir: Path) {
+        val loaded = loadedResult(tempDir.resolve("a"), "plugin-a", "1.0.0")
+        val securityProblem = securityProblemResult(tempDir.resolve("b"), "plugin-a", "9.0.0")
+
+        val resolved = IdCollisionResolver().resolve(listOf(loaded, securityProblem))
+
+        val resolvedByPath = resolved.associateBy { it.path }
+        assertEquals(PluginScanStatus.LOADED, resolvedByPath.getValue(loaded.path).status)
+        assertEquals(securityProblem, resolvedByPath.getValue(securityProblem.path))
+    }
+
+    /**
+     * Use case: a candidate marked `POTENTIAL_ATTACK` (a loaded plugin forcibly unloaded after a
+     * runtime sandbox violation, see `org.pcsoft.framework.pluggiat.PluginManager.handleSandboxViolation`)
+     * declares a higher `manifest.version` than a `LOADED` candidate of the same plugin id - exactly
+     * like `SECURITY_PROBLEM`, it must not displace the `LOADED` candidate by version-spoofing, and
+     * its own status must not be overwritten with `ID_COLLISION`.
+     */
+    @Test
+    fun `a POTENTIAL_ATTACK candidate cannot outrank a loaded candidate by declaring a higher version`(@TempDir tempDir: Path) {
+        val loaded = loadedResult(tempDir.resolve("a"), "plugin-a", "1.0.0")
+        val potentialAttack = potentialAttackResult(tempDir.resolve("b"), "plugin-a", "9.0.0")
+
+        val resolved = IdCollisionResolver().resolve(listOf(loaded, potentialAttack))
+
+        val resolvedByPath = resolved.associateBy { it.path }
+        assertEquals(PluginScanStatus.LOADED, resolvedByPath.getValue(loaded.path).status)
+        assertEquals(potentialAttack, resolvedByPath.getValue(potentialAttack.path))
     }
 }

@@ -58,20 +58,47 @@ class DatabasePersistenceStrategy(private val dataSource: DataSource) : PluginPe
         dataSource.connection.use { connection -> upsert(connection, pluginId, key, value) }
     }
 
+    /**
+     * Writes `(pluginId, key, value)` as one transaction: an `UPDATE` and, only if it matched nothing, an
+     * `INSERT`.
+     *
+     * The two statements have to commit or fail together. On auto-commit they are two independent
+     * transactions, and a concurrent writer that inserts the same primary key in between makes the
+     * `INSERT` fail with a constraint violation *after* the `UPDATE` already went through - leaving the
+     * caller with an exception and the row in a state neither writer intended. Since these rows hold
+     * accepted checksums and enabled flags, "half applied" is a state a plugin could aim for. The
+     * connection's previous auto-commit mode is restored afterwards, because the [DataSource] may hand
+     * out pooled connections that are reused by someone else.
+     */
     private fun upsert(connection: Connection, pluginId: String, key: String, value: String) {
-        val updated = connection.prepareStatement("UPDATE plugin_state SET plugin_value = ? WHERE plugin_id = ? AND plugin_key = ?").use { statement ->
-            statement.setString(1, value)
-            statement.setString(2, pluginId)
-            statement.setString(3, key)
-            statement.executeUpdate()
-        }
-        if (updated == 0) {
-            connection.prepareStatement("INSERT INTO plugin_state (plugin_id, plugin_key, plugin_value) VALUES (?, ?, ?)").use { statement ->
-                statement.setString(1, pluginId)
-                statement.setString(2, key)
-                statement.setString(3, value)
+        val previousAutoCommit = connection.autoCommit
+        // SECURITY: UPDATE and INSERT have to commit or fail together - a concurrent writer must not be able to
+        // SECURITY: leave this row half applied.
+        connection.autoCommit = false
+        try {
+            // SECURITY: parameterized statements throughout - plugin ids and keys are never concatenated into
+            // SECURITY: SQL, so no id can carry SQL along with it.
+            val updated = connection.prepareStatement("UPDATE plugin_state SET plugin_value = ? WHERE plugin_id = ? AND plugin_key = ?").use { statement ->
+                statement.setString(1, value)
+                statement.setString(2, pluginId)
+                statement.setString(3, key)
                 statement.executeUpdate()
             }
+            if (updated == 0) {
+                connection.prepareStatement("INSERT INTO plugin_state (plugin_id, plugin_key, plugin_value) VALUES (?, ?, ?)").use { statement ->
+                    statement.setString(1, pluginId)
+                    statement.setString(2, key)
+                    statement.setString(3, value)
+                    statement.executeUpdate()
+                }
+            }
+            connection.commit()
+        } catch (e: Exception) {
+            // SECURITY: rolled back so a failed write leaves the previous, verified state in place.
+            runCatching { connection.rollback() }
+            throw e
+        } finally {
+            runCatching { connection.autoCommit = previousAutoCommit }
         }
     }
 }

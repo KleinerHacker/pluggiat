@@ -13,8 +13,15 @@
 package org.pcsoft.framework.pluggiat.classloader
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
+import org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures
+import java.nio.file.Files
+import java.nio.file.Path
 
 /**
  * Developer tests for [PluginClassLoader]'s class resolution order: platform classes, SDK
@@ -28,6 +35,63 @@ class PluginClassLoaderTest {
         PluginClassLoader(emptyArray(), hostClassLoader, sdkWhitelist, emptyList())
 
     /**
+     * Use case: a plugin shipping its own class under the framework's own package prefix does not get that
+     * class loaded - the host's copy wins, even though the loader is parent-last and searches the plugin's
+     * own JAR before its dependencies. The forged entry is deliberately invalid bytecode, so a loader that
+     * did use it would fail with a `ClassFormatError` instead of quietly succeeding.
+     */
+    @Test
+    fun `cannot override a framework class with its own entry`(@TempDir tempDir: Path) {
+        val jar = tempDir.resolve("forging-plugin.jar")
+        PluginScannerTestFixtures.writeJar(
+            jar,
+            mapOf(
+                "org/pcsoft/framework/pluggiat/sandbox/agent/SandboxGuardRegistry.class" to "not valid bytecode",
+                "org/pcsoft/framework/pluggiat/forged-marker.txt" to "forged",
+            ),
+        )
+        val classLoader = PluginClassLoader(arrayOf(jar.toUri().toURL()), hostClassLoader, emptyList(), emptyList())
+
+        try {
+            val loaded = classLoader.loadClass("org.pcsoft.framework.pluggiat.sandbox.agent.SandboxGuardRegistry")
+
+            assertEquals(hostClassLoader, loaded.classLoader)
+        } finally {
+            classLoader.close()
+        }
+    }
+
+    /**
+     * Use case: a pinned plugin candidate cannot serve a resource below the framework's own resource
+     * prefix, while its own resources stay reachable - shadowing a framework resource would be a way to
+     * influence framework behaviour without ever loading a framework class.
+     */
+    @Test
+    fun `pinned plugin cannot serve a framework resource`(@TempDir tempDir: Path) {
+        val jar = tempDir.resolve("forging-resources.jar")
+        PluginScannerTestFixtures.writeJar(
+            jar,
+            mapOf(
+                "org/pcsoft/framework/pluggiat/forged-marker.txt" to "forged",
+                "plugin-marker.txt" to "own resource",
+            ),
+        )
+        val classLoader = PinnedPluginClassLoader(
+            PinnedPluginContent.Single(Files.readAllBytes(jar)),
+            hostClassLoader,
+            emptyList(),
+            emptyList(),
+        )
+
+        try {
+            assertNull(classLoader.getResource("org/pcsoft/framework/pluggiat/forged-marker.txt"))
+            assertNotNull(classLoader.getResource("plugin-marker.txt"))
+        } finally {
+            classLoader.close()
+        }
+    }
+
+    /**
      * A plugin class loader without a matching [SdkWhitelistEntry] must not be able to resolve a
      * host-internal class, even though that class is reachable from [hostClassLoader] itself.
      */
@@ -36,7 +100,7 @@ class PluginClassLoaderTest {
         val classLoader = classLoader(sdkWhitelist = emptyList())
 
         assertThrows(ClassNotFoundException::class.java) {
-            classLoader.loadClass("org.pcsoft.framework.pluggiat.classloader.fixtures.internal.HostInternalMarker")
+            classLoader.loadClass("com.example.hostapp.internal.HostInternalMarker")
         }
     }
 
@@ -48,12 +112,12 @@ class PluginClassLoaderTest {
     @Test
     fun `can load whitelisted host class as identical Class instance`() {
         val classLoader = classLoader(
-            sdkWhitelist = listOf(SdkWhitelistEntry("org.pcsoft.framework.pluggiat.classloader.fixtures.whitelisted")),
+            sdkWhitelist = listOf(SdkWhitelistEntry("com.example.hostapp.sdk")),
         )
 
-        val loaded = classLoader.loadClass("org.pcsoft.framework.pluggiat.classloader.fixtures.whitelisted.WhitelistedMarker")
+        val loaded = classLoader.loadClass("com.example.hostapp.sdk.WhitelistedMarker")
 
-        assertEquals(org.pcsoft.framework.pluggiat.classloader.fixtures.whitelisted.WhitelistedMarker::class.java, loaded)
+        assertEquals(com.example.hostapp.sdk.WhitelistedMarker::class.java, loaded)
     }
 
     /**
@@ -78,15 +142,15 @@ class PluginClassLoaderTest {
     fun `non-recursive whitelist entry exposes only direct package classes`() {
         val classLoader = classLoader(
             sdkWhitelist = listOf(
-                SdkWhitelistEntry("org.pcsoft.framework.pluggiat.classloader.fixtures.whitelisted", recursive = false),
+                SdkWhitelistEntry("com.example.hostapp.sdk", recursive = false),
             ),
         )
 
-        val direct = classLoader.loadClass("org.pcsoft.framework.pluggiat.classloader.fixtures.whitelisted.WhitelistedMarker")
-        assertEquals(org.pcsoft.framework.pluggiat.classloader.fixtures.whitelisted.WhitelistedMarker::class.java, direct)
+        val direct = classLoader.loadClass("com.example.hostapp.sdk.WhitelistedMarker")
+        assertEquals(com.example.hostapp.sdk.WhitelistedMarker::class.java, direct)
 
         assertThrows(ClassNotFoundException::class.java) {
-            classLoader.loadClass("org.pcsoft.framework.pluggiat.classloader.fixtures.whitelisted.sub.SubPackageMarker")
+            classLoader.loadClass("com.example.hostapp.sdk.sub.SubPackageMarker")
         }
     }
 }

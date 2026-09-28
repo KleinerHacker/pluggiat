@@ -20,7 +20,10 @@
     },
     "id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "description": "Plugin id. Letters, digits, '.', '_' and '-' only, starting and ending with a letter or digit. The restricted character set keeps an id usable as a key and as a path element: it cannot contain the separator the flat persistence formats use, cannot contain a path separator or traversal segment, and cannot contain whitespace or control characters that would make two visually identical ids distinct."
     },
     "name": {
       "type": "string",
@@ -118,7 +121,10 @@
       "properties": {
         "id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "description": "Id of the depended-on plugin, following the same rules as a plugin's own id - a dependency is resolved by matching this against a plugin id, so anything unmatchable here could only ever be a typo or an attempt to smuggle a different character set in."
         },
         "required": {
           "type": "boolean"

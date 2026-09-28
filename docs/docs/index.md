@@ -5,6 +5,24 @@ manages plugins for a host application, so the host itself does not have to impl
 discovery, isolation or lifecycle handling. It is designed to be embedded into any JVM
 application.
 
+## No guarantee of absolute security
+
+!!! danger "pluggiat cannot guarantee 100% security"
+
+    pluggiat's security mechanisms (signature checks, checksum approval, the runtime sandbox and
+    the API whitelist) reduce risk but cannot guarantee complete security. In particular:
+
+    * The JVM's own `SecurityManager` was deprecated for removal by the JDK and is no longer
+      available as an enforcement mechanism; pluggiat's runtime sandbox mediates access via
+      bytecode instrumentation, but this is not equivalent to a JVM-enforced security sandbox.
+    * Like any software, pluggiat and its security mechanisms may contain undiscovered bugs or
+      bypasses.
+
+    A host application that loads untrusted or third-party plugins must not rely on pluggiat as
+    the sole line of defense. Additional measures (process isolation, containerization, OS-level
+    sandboxing, code review of plugins before approval) are strongly recommended for any
+    security-sensitive deployment.
+
 ## AI transparency notice
 
 !!! note "Parts of this software were created with AI"
@@ -16,7 +34,52 @@ application.
     This notice is published in the spirit of the transparency requirements of the European Union's
     Artificial Intelligence Act (Regulation (EU) 2024/1689).
 
+!!! warning "Runtime sandbox requires a `-javaagent` JVM start parameter"
+
+    As soon as a host configures a `PluginSandboxPolicy` that restricts at least one API category,
+    the host JVM must be started with this module's own JAR as a Java agent
+    (`java -javaagent:pluggiat-<version>.jar ...`), or the host aborts at startup. See
+    [Runtime sandbox](host-integration/sandbox.md) for details.
+
 ## Core concepts
+
+```mermaid
+flowchart LR
+    subgraph Host["Host application"]
+        App["Your application code"]
+        EP["Extension point interfaces<br/>(@ExtensionPoint configs)"]
+        SDK["Your own SDK packages"]
+    end
+
+    subgraph Framework["pluggiat"]
+        Mgr["PluginManager<br/>(central entry point)"]
+        Scan["PluginScanner<br/>+ scan strategies"]
+        Sec["PluginSecurity<br/>(strategy chain)"]
+        Load["PluginLoader<br/>(parent-last class loaders)"]
+        Box["PluginSandbox<br/>(runtime mediation)"]
+        Reg["ExtensionPointRegistry<br/>+ ExtensionAggregator"]
+        Pers["PluginPersistenceStrategy<br/>(enabled state, checksums)"]
+    end
+
+    subgraph Disk["Plugin locations on disk"]
+        P1["plugin-a.zip<br/>META-INF/plugin.yml"]
+        P2["plugin-b.jar<br/>META-INF/plugin.yml"]
+    end
+
+    App -->|configures| Mgr
+    EP -->|registered in| Reg
+    SDK -.->|whitelisted for| Load
+    Mgr --> Scan
+    Mgr --> Sec
+    Mgr --> Load
+    Mgr --> Box
+    Mgr --> Reg
+    Mgr --> Pers
+    Scan --> Disk
+    Sec --> Disk
+    Load --> Box
+    Reg -->|typed extensions| App
+```
 
 * **Plugin manifest** - every plugin ships a `META-INF/plugin.yml` (or `.yaml`) file describing
   its identity, version, author and the extension points it contributes.
@@ -109,8 +172,11 @@ This documentation is split by audience:
 
 ## Where to go next
 
+* [Quick start](quick-start.md) - the smallest possible host, end to end
 * [Host integration: PluginManager](host-integration/plugin-manager.md) - the central entry point
   for embedding pluggiat into your application
+* [Runtime sandbox](host-integration/sandbox.md) - mediating a loaded plugin's API access, and the
+  required `-javaagent` JVM start parameter
 * [Troubleshooting](host-integration/troubleshooting.md) - log levels, error and conflict cases
 * [API Docs](dokka/html/index.html) - the generated Dokka API documentation
 * [Licences](licences/index.html) - the dependency licence report

@@ -10,10 +10,14 @@
  * See the License for the specific language governing permissions and limitations.
  */
 
-package org.pcsoft.framework.pluggiat.classloader.fixtures.whitelisted
+package org.pcsoft.framework.pluggiat.sandbox
+
+import java.time.Duration
 
 /**
- * Stand-in for a class directly inside a host SDK package exposed to plugins via a
- * [org.pcsoft.framework.pluggiat.classloader.SdkWhitelistEntry] in [PluginClassLoaderTest].
+ * Thrown by [PluginSandbox.runGoverned] when a governed call for [pluginId] does not complete
+ * within [timeout] ([PluginSandboxPolicy.callTimeout]) - see [ThreadWatchdog] for how the
+ * underlying, now-abandoned worker thread is handled.
  */
-class WhitelistedMarker
+class SandboxTimeoutException(pluginId: String, timeout: Duration) :
+    RuntimeException("Plugin '$pluginId' exceeded its sandbox call timeout of $timeout")

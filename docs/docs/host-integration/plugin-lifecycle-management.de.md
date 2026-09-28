@@ -2,8 +2,37 @@
 
 Diese Seite behandelt die host-seitige Sicht auf den Lifecycle eines Plugins: das Aktivieren/
 Deaktivieren sowie das Verhalten, wenn sich ein Plugin zur Laufzeit fehlerhaft verhält. Für die
-Sicht des Plugin-Entwicklers siehe [Lifecycle-Hooks](../plugin-development/lifecycle.md) und
-[Fehlerbehandlung](../plugin-development/error-handling.md).
+Sicht des Plugin-Entwicklers siehe [Lifecycle-Hooks](../plugin-development/lifecycle.de.md) und
+[Fehlerbehandlung](../plugin-development/error-handling.de.md).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Enabled: scan() / reload() / forceLoad() erfolgreich
+    Enabled --> DisabledByUser: unload()
+    Enabled --> DisabledByError: entweichende Ausnahme führt zu UNLOAD
+    Enabled --> PotentialAttack: Sandbox-Verletzung oder 3 aufeinanderfolgende Aufruf-Timeouts
+
+    DisabledByUser --> Enabled: reactivate() / reload(), Sicherheits-Neuprüfung erfolgreich
+    DisabledByUser --> RecheckFailed: reactivate(), Sicherheits-Neuprüfung fehlgeschlagen
+    DisabledByError --> Enabled: reactivate() / reload(), Sicherheits-Neuprüfung erfolgreich
+    DisabledByError --> RecheckFailed: reactivate(), Sicherheits-Neuprüfung fehlgeschlagen
+    RecheckFailed --> Enabled: reactivate(), Sicherheits-Neuprüfung erfolgreich
+
+    PotentialAttack --> [*]: keine Host-Überschreibung, Force-Load verweigert
+
+    note right of DisabledByUser
+        disabledReason = USER
+    end note
+    note right of DisabledByError
+        disabledReason = RUNTIME_ERROR
+    end note
+    note right of RecheckFailed
+        disabledReason = SECURITY_RECHECK_FAILED
+    end note
+```
+
+Jeder Übergang aus `Enabled` heraus verwirft den isolierten Classloader des Plugins, sodass jeder
+Übergang zurück in diesen Zustand ein vollständiger Reload ist und nie nur ein umgelegtes Flag.
 
 ## Aktiviert/deaktiviert-Status
 
@@ -39,7 +68,7 @@ vollständigen Reload über `PluginLoader`, niemals nur das Zurücksetzen des Ak
 ## Reaktivierung: zuerst die Sicherheits-Neuprüfung
 
 Die Reaktivierung eines deaktivierten Plugins prüft immer zuerst die Sicherheitskette erneut -
-siehe [`PluginManager.reactivate`](plugin-manager.md#reaktivierung-reactivate). Eine
+siehe [`PluginManager.reactivate`](plugin-manager.de.md#reaktivierung-reactivate). Eine
 fehlgeschlagene Neuprüfung hält das Plugin deaktiviert und fällt nicht auf ein automatisches
 Force-Load zurück.
 
@@ -48,9 +77,22 @@ Force-Load zurück.
 Jeder Aufruf in die Erweiterungsimplementierung eines Plugins wird über einen Runtime-Proxy
 durchgesetzt, der entweichende Ausnahmen über die konfigurierte `ExceptionHandlingStrategy` in eine
 von drei Aktionen auflöst - `IGNORE`, `UNLOAD`, `CRASH`. Siehe
-[Fehlerbehandlung](../plugin-development/error-handling.md) für die plugin-seitige Sicht dieses
+[Fehlerbehandlung](../plugin-development/error-handling.de.md) für die plugin-seitige Sicht dieses
 Mechanismus (empfohlene Ausnahmetypen, die Standard-Auflösungsmatrix und was Sie beim Debuggen
 sehen).
+
+```mermaid
+flowchart TD
+    Call["Host ruft eine Erweiterungsmethode<br/>über den Durchsetzungs-Proxy auf"] --> Throw{"Ausnahme<br/>entweicht?"}
+    Throw -->|nein| Ok["Rückgabewert an den Host übergeben"]
+    Throw -->|ja| Resolve["ExceptionHandlingStrategy<br/>löst die Ausnahmeklasse auf"]
+    Resolve -->|IGNORE| Ignore["Vorfall protokollieren;<br/>Plugin bleibt aktiv"]
+    Resolve -->|UNLOAD| Unload["onDisable() / onUnload()<br/>Classloader verworfen<br/>als deaktiviert persistiert (RUNTIME_ERROR)"]
+    Resolve -->|CRASH| Crash["Stacktrace ausgeben,<br/>Host-JVM anhalten"]
+    Unload --> Fatal["PluginFatalException erreicht den Host"]
+    Ignore --> Siblings["Andere Plugins unbeeinflusst"]
+    Fatal --> Siblings
+```
 
 Konfiguration der Strategie:
 
@@ -59,7 +101,7 @@ val strategy = DefaultExceptionHandlingStrategy(
     matrix = mapOf(
         MyDomainException::class to ExceptionHandlingAction.IGNORE,
     ),
-    parent = null, // optional an eine weitere ExceptionHandlingStrategy verketten
+    parent = null, // optionally chain to another ExceptionHandlingStrategy
 )
 ```
 

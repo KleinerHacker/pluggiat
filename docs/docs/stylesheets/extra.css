@@ -11,15 +11,143 @@
  */
 
 :root {
-    --md-primary-fg-color: #3f51b5;
-    --md-primary-fg-color--light: #6573c3;
-    --md-primary-fg-color--dark: #2c387e;
-    --md-accent-fg-color: #7986cb;
+    --md-primary-fg-color: #0d3b8c;
+    --md-primary-fg-color--light: #1a63c4;
+    --md-primary-fg-color--dark: #082856;
+    --md-accent-fg-color: #2196f3;
 }
 
 [data-md-color-scheme="slate"] {
-    --md-primary-fg-color: #7986cb;
-    --md-primary-fg-color--light: #9fa8da;
-    --md-primary-fg-color--dark: #5c6bc0;
-    --md-accent-fg-color: #9fa8da;
+    --md-primary-fg-color: #1a63c4;
+    --md-primary-fg-color--light: #29b6f6;
+    --md-primary-fg-color--dark: #0d3b8c;
+    --md-accent-fg-color: #29b6f6;
+}
+
+/* Clickable Mermaid diagrams (see javascripts/mermaid-zoom.js) */
+
+.mermaid-zoomable {
+    cursor: zoom-in;
+    position: relative;
+    border-radius: 0.2rem;
+    transition: box-shadow 125ms;
+}
+
+.mermaid-zoomable:hover,
+.mermaid-zoomable:focus-visible {
+    box-shadow: 0 0 0 2px var(--md-accent-fg-color);
+    outline: none;
+}
+
+/*
+ * Drawn as a masked SVG rather than a glyph: the Unicode arrows (U+2922 and friends) are rendered
+ * by whichever system font steps in, and most of them place the arrow heads across the stroke
+ * instead of at its ends.
+ */
+.mermaid-zoomable::after {
+    content: "";
+    position: absolute;
+    top: 0.3rem;
+    right: 0.4rem;
+    width: 1.2rem;
+    height: 1.2rem;
+    opacity: 0;
+    background-color: var(--md-accent-fg-color);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z'/%3E%3C/svg%3E") center / contain no-repeat;
+    transition: opacity 125ms;
+    pointer-events: none;
+}
+
+.mermaid-zoom__button svg {
+    display: block;
+    width: 1rem;
+    height: 1rem;
+    margin: 0 auto;
+}
+
+.mermaid-zoomable:hover::after,
+.mermaid-zoomable:focus-visible::after {
+    opacity: 1;
+}
+
+.mermaid-zoomable > .mermaid {
+    margin: 0;
+}
+
+body.mermaid-zoom-open {
+    overflow: hidden;
+}
+
+.mermaid-zoom {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--md-default-bg-color);
+}
+
+.mermaid-zoom[hidden] {
+    display: none;
+}
+
+.mermaid-zoom__toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.3rem;
+    padding: 0.5rem 0.6rem;
+    flex: 0 0 auto;
+}
+
+.mermaid-zoom__button {
+    width: 1.8rem;
+    height: 1.8rem;
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--md-default-fg-color);
+    background-color: var(--md-default-bg-color);
+    border: 1px solid var(--md-default-fg-color--lightest);
+    border-radius: 0.2rem;
+    transition: background-color 125ms, color 125ms;
+}
+
+.mermaid-zoom__button:hover,
+.mermaid-zoom__button:focus-visible {
+    color: var(--md-default-bg-color);
+    background-color: var(--md-accent-fg-color);
+    outline: none;
+}
+
+.mermaid-zoom__stage {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+}
+
+.mermaid-zoom__stage--dragging {
+    cursor: grabbing;
+}
+
+.mermaid-zoom__canvas {
+    transform-origin: center center;
+    will-change: transform;
+}
+
+.mermaid-zoom__canvas > .mermaid {
+    margin: 0;
+}
+
+.mermaid-zoom__hint {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0.4rem 0.6rem 0.6rem;
+    text-align: center;
+    font-size: 0.65rem;
+    color: var(--md-default-fg-color--light);
 }

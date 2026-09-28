@@ -25,7 +25,11 @@ import org.slf4j.LoggerFactory
 class InsecureSecurityStrategy : PluginSecurityStrategy {
     private val logger = LoggerFactory.getLogger(InsecureSecurityStrategy::class.java)
 
+    // SECURITY: deliberately performs no check at all. It exists so that "no verification" has to be
+    // SECURITY: configured explicitly, by name, as a strategy in a location's chain - PluginSecurity refuses an
+    // SECURITY: empty chain, so the only way to accept unverified plugins is to say so out loud here.
     override fun check(result: PluginScanResult): PluginSecurityCheckResult {
+        logger.trace("Strategy InsecureSecurityStrategy deliberately skips every cryptographic/checksum check for '{}'", result.path)
         logger.debug("No security check performed for candidate '{}', passed through as insecure", result.path)
         return PluginSecurityCheckResult.Success
     }

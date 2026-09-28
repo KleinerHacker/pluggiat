@@ -5,7 +5,7 @@ auf den vorherigen Seiten behandelt wurde: das Manifest, einen Beitrag zu einem 
 eine erforderliche und eine optionale Abhängigkeit, Lifecycle-Hooks und Fehlerbehandlung. Es wird
 angenommen, dass der Host einen `exporters`-Erweiterungspunkt anbietet, ähnlich dem, der als
 Beispiel in dieser gesamten Dokumentation verwendet wird - siehe
-[Host-Integration: vollständiges Beispiel](../host-integration/example.md) für die passende
+[Host-Integration: vollständiges Beispiel](../host-integration/example.de.md) für die passende
 Host-Seite genau dieses Szenarios.
 
 ## Das Szenario
@@ -28,8 +28,8 @@ id: com.example.report-exporter-plugin
 name: Report Exporter
 version: "2.1.0"
 minVersion: "1.4.0"
-icon: <base64-kodiertes PNG>
-description: Exportiert Daten als formatierten PDF-/HTML-Report, mit optionaler Wasserzeichnung.
+icon: <base64-encoded PNG>
+description: Exports data as a formatted PDF/HTML report, with optional watermarking.
 author:
   name: Jane Doe
   mail: jane.doe@example.com
@@ -54,10 +54,10 @@ extensions:
 Zwei Dinge sind bemerkenswert, beide bereits auf früheren Seiten behandelt:
 
 * `minVersion: "1.4.0"` bedeutet, dass dieses Plugin sich weigert, gegen einen älteren Host zu
-  laden - siehe [Manifest](manifest.md#pflichtfelder).
+  laden - siehe [Manifest](manifest.de.md#pflichtfelder).
 * Die beiden `dependencies`-Einträge unterscheiden sich nur in `required`, und genau das bestimmt,
   ob ein fehlendes `com.example.watermark-plugin` lediglich die Wasserzeichnung deaktiviert oder das
-  gesamte Plugin ungültig macht - siehe [Abhängigkeiten](dependencies.md#required-vs-optional).
+  gesamte Plugin ungültig macht - siehe [Abhängigkeiten](dependencies.de.md#required-vs-optional).
 
 ## Die Erweiterungsimplementierung
 
@@ -75,20 +75,20 @@ class ReportExporter : Exporter, PluginLifecycle {
     private lateinit var renderPool: ReportRenderPool
 
     override fun onLoad() {
-        // Günstiges, nebenwirkungsfreies Setup - läuft für jede Abhängigkeit, bevor irgendein onEnable läuft.
+        // Cheap, side-effect-free setup - runs for every dependency before any onEnable runs.
         renderPool = ReportRenderPool(size = 4)
     }
 
     override fun onEnable() {
-        // Hier ist echte Arbeit sicher möglich - alle erforderlichen Abhängigkeiten dieses Plugins haben bereits onLoad durchlaufen.
+        // Safe to do real work here - all of this plugin's required dependencies already ran onLoad.
         renderPool.warmUp()
     }
 
     override fun export(data: List<Row>): ByteArray {
-        val chart = ChartingApi.renderChart(data) // aus dem erforderlichen com.example.charting-plugin
+        val chart = ChartingApi.renderChart(data) // from the required com.example.charting-plugin
         val html = renderPool.render(data, chart)
         return if (WatermarkHelper.isAvailable()) {
-            WatermarkHelper.stamp(html) // berührt nur die Typen der optionalen Abhängigkeit
+            WatermarkHelper.stamp(html) // only touches the optional dependency's types
         } else {
             html
         }
@@ -113,7 +113,7 @@ werden, genau wie jeder andere Typ, ohne dass eine Vorhandenseinsprüfung nötig
 ### Verwendung der optionalen Abhängigkeit über eine Helferklasse
 
 `com.example.watermark-plugin` ist `required: false` und möglicherweise nicht installiert. Gemäß dem
-[Helferklassen-Muster](dependencies.md#helferklassen-muster-fur-optionale-abhangigkeiten) wird
+[Helferklassen-Muster](dependencies.de.md#helferklassen-muster-fur-optionale-abhangigkeiten) wird
 `WatermarkApi` (der Typ der optionalen Abhängigkeit) niemals direkt innerhalb von `ReportExporter`
 selbst referenziert - nur innerhalb des kleinen `WatermarkHelper`-Objekts, sodass die eigene
 Klassendatei von `ReportExporter` `WatermarkApi` nie zum Auflösen benötigt:
@@ -125,7 +125,7 @@ internal object WatermarkHelper {
     fun isAvailable(): Boolean = WatermarkPluginRegistry.isLoaded("com.example.watermark-plugin")
 
     fun stamp(html: ByteArray): ByteArray {
-        val api: WatermarkApi = WatermarkApiImpl() // wird erst aufgelöst, wenn diese Zeile tatsächlich läuft
+        val api: WatermarkApi = WatermarkApiImpl() // resolved only when this line actually runs
         return api.applyWatermark(html)
     }
 }
@@ -136,7 +136,7 @@ internal object WatermarkHelper {
 `renderPool.warmUp()` geschieht in `onEnable`, nicht in `onLoad`. Würde eine zukünftige Version
 dieses Plugins eine eigene optionale Abhängigkeit zur `onLoad`-Ausgabe eines anderen Plugins
 hinzufügen, könnte teure Arbeit in `onLoad` laufen, bevor diese Abhängigkeit die Chance hatte, sich
-zu initialisieren - siehe [Lifecycle-Hooks: Aufreihenfolge](lifecycle.md#aufreihenfolge). Symmetrisch
+zu initialisieren - siehe [Lifecycle-Hooks: Aufrufreihenfolge](lifecycle.de.md#aufrufreihenfolge). Symmetrisch
 dazu liegt `renderPool.close()` in `onUnload`, nicht in `onDisable`, sodass das eigene `onDisable`
 eines abhängigen Plugins bis zum Abschluss des Abbaus weiterhin einen funktionierenden
 `ReportExporter` sieht.
@@ -146,12 +146,12 @@ eines abhängigen Plugins bis zum Abschluss des Abbaus weiterhin einen funktioni
 `export` kann aus Gründen fehlschlagen, die nicht das gesamte Plugin lahmlegen sollten - z. B.
 fehlerhafte Eingabezeilen - im Gegensatz zu Gründen, bei denen das Plugin gar nicht weiterarbeiten
 kann - z. B. wenn die Initialisierung des Render-Pools fehlschlägt. Gemäß
-[Fehlerbehandlung](error-handling.md):
+[Fehlerbehandlung](error-handling.de.md):
 
 ```kotlin
 override fun export(data: List<Row>): ByteArray {
     if (data.isEmpty()) {
-        throw PluginExecutionException("Cannot export an empty report") // IGNORE: Plugin bleibt aktiv
+        throw PluginExecutionException("Cannot export an empty report") // IGNORE: plugin stays active
     }
     val pool = renderPool.takeIfHealthy()
         ?: throw PluginFatalException("Render pool is corrupted, cannot recover") // UNLOAD

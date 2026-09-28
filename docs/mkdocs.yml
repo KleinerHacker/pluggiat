@@ -32,6 +32,8 @@ theme:
     - toc.follow
   icon:
     repo: fontawesome/brands/github
+  logo: assets/images/logo.png
+  favicon: assets/images/logo.png
 
 extra:
   version:
@@ -41,10 +43,17 @@ extra:
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - javascripts/mermaid-zoom.js
+
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight
   - pymdownx.inlinehilite
   - tables
@@ -66,6 +75,7 @@ plugins:
           build: true
           nav_translations:
             Home: Startseite
+            Quick start: Schnellstart
             Plugin development: Plugin-Entwicklung
             Manifest: Manifest
             Extension points: Erweiterungspunkte
@@ -80,6 +90,7 @@ plugins:
             Security: Sicherheit
             Public key providers: Public-Key-Provider
             SDK whitelist: SDK-Whitelist
+            Runtime sandbox: Laufzeit-Sandbox
             Persistence: Persistenz
             Plugin lifecycle management: Plugin-Lifecycle-Verwaltung
             Troubleshooting: Fehlersuche
@@ -88,6 +99,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - Quick start: quick-start.md
   - Plugin development:
       - Manifest: plugin-development/manifest.md
       - Extension points: plugin-development/extension-points.md
@@ -102,6 +114,7 @@ nav:
       - Security: host-integration/security.md
       - Public key providers: host-integration/public-key-providers.md
       - SDK whitelist: host-integration/sdk-whitelist.md
+      - Runtime sandbox: host-integration/sandbox.md
       - Persistence: host-integration/persistence.md
       - Plugin lifecycle management: host-integration/plugin-lifecycle-management.md
       - Troubleshooting: host-integration/troubleshooting.md

@@ -62,6 +62,19 @@ class TrustStorePublicKeyProviderStrategyTest {
         assertEquals(SignatureTestFixtures.readPublicKey(keystorePath, "signer"), resolved)
     }
 
+    /**
+     * Use case: when the underlying [KeyStore] throws while resolving the certificate for an alias
+     * (e.g. an uninitialized keystore that was never `load()`ed), [TrustStorePublicKeyProviderStrategy]
+     * catches the exception, logs a warning, and resolves to `null` instead of propagating it.
+     */
+    @Test
+    fun `resolves to null when the keystore throws while resolving the certificate`() {
+        val uninitializedKeyStore = KeyStore.getInstance("JKS")
+        val strategy = TrustStorePublicKeyProviderStrategy(uninitializedKeyStore)
+
+        assertNull(strategy.resolve("signer"))
+    }
+
     private fun loadKeystore(path: Path): KeyStore {
         val keyStore = KeyStore.getInstance("JKS")
         Files.newInputStream(path).use { keyStore.load(it, "changeit".toCharArray()) }

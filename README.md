@@ -1,5 +1,9 @@
 # pluggiat
 
+<p align="center">
+  <img src="docs/docs/assets/images/logo.png" alt="pluggiat logo" width="368" />
+</p>
+
 pluggiat is a plugin manager system for the JVM, written in Kotlin. It discovers, loads and
 manages plugins for a host application, so the host itself does not have to implement plugin
 discovery, isolation or lifecycle handling.
@@ -18,8 +22,9 @@ discovery, isolation or lifecycle handling.
   truststore, directly supplied key, or an OpenPGP keyserver) and checksum-based
   (`ChecksumSecurityStrategy`, host-managed approval of unknown/changed plugins)
 * Isolated plugin classpaths via parent-last `PluginClassLoader`s with a host-configured SDK
-  whitelist, preventing plugins from reflecting into host-internal code; loading is unconditional,
-  so a host can knowingly load a plugin that failed its security check
+  whitelist, preventing plugins from reflecting into host-internal code; pluggiat's own classes and
+  resources are always resolved from the host, so a plugin cannot substitute them; loading is
+  unconditional, so a host can knowingly load a plugin that failed its security check
 * Plugin dependency graph with required and optional dependencies, cycle detection, and a
   configurable `PluginDependencyStrategy` governing cross-location visibility
 * Plugin lifecycle hooks (`onLoad`/`onEnable`/`onDisable`/`onUnload`) and a persistent
@@ -27,6 +32,8 @@ discovery, isolation or lifecycle handling.
 * Generic, pluggable `PluginPersistenceStrategy` (no-op, custom callback, file in four formats,
   JDBC, or host object getter/setter) backing both the checksum security strategy and the
   enabled/disabled status
+* Optional `IntegrityProtectedPersistenceStrategy` decorator: HMAC-protects every stored value with
+  a `SecureRandom`-generated key, detecting direct tampering with the underlying storage
 * Runtime error isolation: every extension call is enforced through a runtime proxy resolving
   escaping exceptions via a configurable `ExceptionHandlingStrategy` (`IGNORE`/`UNLOAD`/`CRASH`) -
   an unhandled exception forces only that plugin to be deactivated, not the whole host application
@@ -38,6 +45,18 @@ discovery, isolation or lifecycle handling.
 * Two ways to make a force-loaded plugin's override stick: `PluginManager.write<T>` for a
   `PersistableSecurityStrategy` (e.g. the checksum strategy persisting its own accepted checksum),
   or a generic, persistent security exception via `forceLoad(pluginId, persistException = true)`
+* `PluginSandbox`: a host-wide facade for a plugin's runtime sandbox, configurable per
+  `PluginLocation` (`sandboxOverride`) or globally per location type (`defaultSandboxPolicy`);
+  bytecode API mediation (filesystem/network/reflection/process-start/`System.exit`) via a Java
+  agent, `PluginSandboxPolicy.callTimeout` thread/time-limit governance (a call exceeding it
+  throws `SandboxTimeoutException` instead of blocking the host thread forever), and process
+  isolation (`SandboxIsolationLevel.PROCESS` runs a plugin's extensions in a separate JVM
+  subprocess - itself instrumented with the same agent and policy, driven over an ASN.1
+  BER/loopback-socket IPC authenticated with a per-subprocess token, with a minimal supported
+  parameter/return type set) are all implemented. Unloading a plugin revokes its policy, so a thread it
+  left running loses its guarded APIs instead of gaining them. **Requires a
+  `-javaagent:<path-to-this-jar>` JVM start parameter** as soon as any policy restricts an API
+  category - see [Runtime sandbox](docs/docs/host-integration/sandbox.md)
 
 ## AI transparency notice
 
@@ -57,6 +76,10 @@ cd pluggiat
 ```
 
 On Windows use `gradlew.bat` instead of `./gradlew`.
+
+> **Embedding pluggiat in a host application?** As soon as you configure a restrictive
+> `PluginSandboxPolicy`, the host JVM must be started with this module's own JAR as a Java agent
+> (`-javaagent:<path-to-pluggiat-jar>`) - see [Runtime sandbox](docs/docs/host-integration/sandbox.md).
 
 ## Consuming the artifacts
 
@@ -135,6 +158,9 @@ be configured in `~/.m2/settings.xml`:
 | Isolated classpaths and dependency graph                             | implemented |
 | Plugin lifecycle and runtime error isolation                         | implemented |
 | Persistence strategies                                                | implemented |
+| Persistence integrity protection (HMAC decorator)                     | implemented |
 | Orchestration runtime (`PluginManager`, ID collisions, `minVersion` check, force-load) | implemented |
+| Runtime sandbox facade and policy configuration; bytecode API mediation via Java agent, thread/time-limit governance and process isolation (`PluginSandbox`) | implemented |
 
-All planned features of the initial feature plan (FP-001) are implemented.
+All planned features of both the initial feature plan (FP-001) and the runtime sandbox feature plan
+(FP-002) are implemented.

@@ -4,7 +4,7 @@ Diese Seite führt durch das Einbetten von pluggiat in eine fiktive Host-Anwendu
 verbindet Plugin-Verzeichnisse, den von ihr angebotenen Erweiterungspunkt, ihre
 Sicherheitskonfiguration, Persistenz, die SDK-Whitelist und die Lifecycle-Verwaltung zu einem
 zusammenhängenden Aufbau. Siehe
-[Plugin-Entwicklung: vollständiges Beispiel](../plugin-development/example.md) für ein Plugin, das
+[Plugin-Entwicklung: vollständiges Beispiel](../plugin-development/example.de.md) für ein Plugin, das
 genau gegen diesen Host geschrieben ist.
 
 ## Das Szenario
@@ -15,9 +15,9 @@ installieren:
 * `plugins/builtin/` - mit der Anwendung selbst ausgeliefert, immer vertrauenswürdig.
 * `plugins/external/` - ein vom Benutzer beschreibbarer Ordner für Drittanbieter-Plugins, verpackt
   als signierte `.zip`-Dateien; unsignierte oder manipulierte werden standardmäßig abgelehnt, mit
-  einem expliziten Weg zur Benutzer-Übersteuerung.
+  einem expliziten Weg zur Benutzer-Überschreibung.
 * Plugins tragen ein "Report"-Exportformat über einen `exporters`-Erweiterungspunkt bei.
-* Der Aktiviert/deaktiviert-Status sowie alle vom Benutzer genehmigten Sicherheits-Übersteuerungen
+* Der Aktiviert/deaktiviert-Status sowie alle vom Benutzer genehmigten Sicherheits-Überschreibungen
   müssen einen Neustart der Anwendung überstehen.
 
 ## Den Erweiterungspunkt definieren
@@ -34,7 +34,7 @@ interface Exporter {
 ```
 
 Kombiniert mit einer host-definierten Konfigurationsklasse, gemäß
-[Erweiterungspunkte definieren](extension-points.md):
+[Erweiterungspunkte definieren](extension-points.de.md):
 
 ```kotlin
 package com.example.reportapp.api
@@ -55,7 +55,7 @@ data class ExporterConfig(
 
 Nur `com.example.reportapp.api` (dieses `Exporter`-Interface sowie das `Row`-DTO, über das Plugins
 Daten austauschen) soll für Plugin-Code jemals sichtbar sein - nichts anderes in den eigenen Paketen
-von ReportApp sollte erreichbar sein, gemäß [SDK-Whitelist](sdk-whitelist.md):
+von ReportApp sollte erreichbar sein, gemäß [SDK-Whitelist](sdk-whitelist.de.md):
 
 ```kotlin
 sdkWhitelistEntry {
@@ -68,7 +68,7 @@ sdkWhitelistEntry {
 Das eingebaute Verzeichnis benötigt keinen Schutz - es ist der eigene Code von ReportApp. Das
 externe Verzeichnis muss standardmäßig alles ablehnen, was nicht mit dem Herausgeberschlüssel von
 ReportApp signiert ist, während ein Benutzer ein bestimmtes Plugin danach weiterhin explizit
-genehmigen können muss. Gemäß [Sicherheit](security.md#welche-strategie-sollte-ich-verwenden):
+genehmigen können muss. Gemäß [Sicherheit](security.de.md#welche-strategie-sollte-ich-verwenden):
 
 ```kotlin
 val reportAppPublicKey: PublicKey = loadReportAppSigningKey()
@@ -92,7 +92,7 @@ unten für das, was ReportApp damit macht.
 Sowohl der Aktiviert/deaktiviert-Status als auch (sobald ein Benutzer ein unsigniertes Plugin
 genehmigt) die daraus resultierende persistierte Sicherheitsausnahme müssen einen Neustart
 überstehen. Für die Bedürfnisse von ReportApp reicht eine einzelne Datei, gemäß
-[Persistenz](persistence.md#filepersistencestrategy):
+[Persistenz](persistence.de.md#filepersistencestrategy):
 
 ```kotlin
 val persistence = FilePersistenceStrategy(
@@ -103,7 +103,7 @@ val persistence = FilePersistenceStrategy(
 ## Den `PluginManager` zusammensetzen
 
 Alles Obige kommt in einem einzigen `pluginManager { ... }`-Block zusammen, gemäß
-[PluginManager](plugin-manager.md):
+[PluginManager](plugin-manager.de.md):
 
 ```kotlin
 val manager = pluginManager {
@@ -115,7 +115,7 @@ val manager = pluginManager {
     location {
         path = Paths.get(userDataDir, "plugins", "external")
         type = PluginLocationType.EXTERNAL
-        scanStrategy = ZipJarScanStrategy() // Standard, hier der Klarheit halber angegeben
+        scanStrategy = ZipJarScanStrategy() // default, shown here for clarity
     }
     defaultSecurityChain {
         type = PluginLocationType.BUILTIN
@@ -132,7 +132,7 @@ val manager = pluginManager {
         packageName = "com.example.reportapp.api"
     }
     extensionPoint(ExporterConfig::class)
-    hostVersion = ReportApp.VERSION // z. B. "1.4.2" - wird gegen das minVersion jedes Plugins geprüft
+    hostVersion = ReportApp.VERSION // e.g. "1.4.2" - checked against each plugin's minVersion
 }
 ```
 
@@ -153,24 +153,24 @@ exportMenu.populate(exporters.map { it to (manager.registry.registrationFor("exp
 Dieser einzige Aufruf löst ID-Kollisionen zwischen `builtin`/`external` auf, prüft das `minVersion`
 jedes Kandidaten gegen `ReportApp.VERSION`, lädt alles Bestandene in Abhängigkeitsreihenfolge und
 aktiviert deren Erweiterungen - siehe
-[ID-Kollisionen und minVersion](plugin-manager.md#id-kollisionen-und-minversion).
+[ID-Kollisionen und minVersion](plugin-manager.de.md#id-kollisionen-und-minversion).
 
 ## Der Freigabeablauf für ein abgelehntes Plugin
 
-Fortsetzung des [Report-Exporter-Beispiels](../plugin-development/example.md): Ein Benutzer lädt
+Fortsetzung des [Report-Exporter-Beispiels](../plugin-development/example.de.md): Ein Benutzer lädt
 einen unsignierten Drittanbieter-Build von `com.example.report-exporter-plugin` herunter und legt
 ihn in `plugins/external/` ab. Beim nächsten `scan()` kommt er als `SECURITY_PROBLEM` zurück - die
 Signaturprüfung ist fehlgeschlagen, und es gibt keine weitere Strategie in der Kette, auf die
 zurückgegriffen werden könnte. Gemäß
-[dem Host-Freigabeablauf](security.md#host-freigabeablauf-nach-einem-security_problem):
+[dem Host-Freigabeablauf](security.de.md#host-freigabeablauf-nach-einem-security_problem):
 
 ```kotlin
 val rejected = manager.scanResults.first { it.status == PluginScanStatus.SECURITY_PROBLEM }
 
 if (userConfirmsDialog("'${rejected.manifest?.name}' is not signed by a known publisher. Load it anyway?")) {
     manager.forceLoad(rejected.manifest!!.id)
-    // Hier gibt es keine PersistableSecurityStrategy (SignatureSecurityStrategy hat keinen
-    // persistierbaren Zustand), also die Übersteuerung stattdessen mit einer generischen Ausnahme dauerhaft machen:
+    // No PersistableSecurityStrategy here (SignatureSecurityStrategy has no persistable state),
+    // so make the override stick with a generic exception instead:
     manager.forceLoad(rejected.manifest!!.id, persistException = true)
 }
 ```
@@ -178,7 +178,7 @@ if (userConfirmsDialog("'${rejected.manifest?.name}' is not signed by a known pu
 Ab diesem Zeitpunkt überspringt jedes zukünftige `scan()`/`reload()` für diese konkrete Plugin-ID
 ihre Sicherheitskette vollständig - jedes Mal als `WARN` protokolliert, sodass dies in den eigenen
 Logs von ReportApp sichtbar und später über
-[Fehlersuche](troubleshooting.md#referenz-pluginscanstatus) nachvollziehbar bleibt.
+[Fehlersuche](troubleshooting.de.md#referenz-pluginscanstatus) nachvollziehbar bleibt.
 
 ## Ein Plugin durch den Benutzer deaktivieren lassen
 
@@ -188,7 +188,7 @@ manager.unload("com.example.report-exporter-plugin")
 
 Dies führt die `onDisable`/`onUnload`-Hooks des Plugins aus, persistiert `"enabled" = "false"` und
 `"disabledReason" = "USER"` über `persistence` und schließt seinen Classloader - siehe
-[Plugin-Lifecycle-Verwaltung](plugin-lifecycle-management.md#deaktivierungsgrund). Es später wieder
+[Plugin-Lifecycle-Verwaltung](plugin-lifecycle-management.de.md#deaktivierungsgrund). Es später wieder
 zu aktivieren ist ein einfaches `manager.reload("com.example.report-exporter-plugin")`, das zuerst
 die Sicherheit erneut prüft (und für diese konkrete Plugin-ID dank der aus dem obigen
 Freigabeablauf persistierten Ausnahme sofort wieder erfolgreich ist).

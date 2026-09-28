@@ -14,6 +14,9 @@ package org.pcsoft.framework.pluggiat.security
 
 import org.pcsoft.framework.pluggiat.persistence.NoPersistenceStrategy
 import org.pcsoft.framework.pluggiat.persistence.PluginPersistenceStrategy
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContentReader
+import org.pcsoft.framework.pluggiat.scanner.PluginContentLimitExceededException
 import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
@@ -38,7 +41,10 @@ class PluginSecurity(
     private val logger = LoggerFactory.getLogger(PluginSecurity::class.java)
 
     /**
-     * Evaluates the security chain for [result].
+     * Evaluates the security chain for [result], re-reading each strategy's required bytes from
+     * disk itself. Prefer the [PinnedPluginContent] overload wherever the candidate's bytes were
+     * already pinned, to close the TOCTOU window between this check and the later
+     * `org.pcsoft.framework.pluggiat.classloader.PluginLoader.load` call.
      *
      * If [SECURITY_EXCEPTION_KEY] is persisted as `"true"` for [result]'s plugin id, the chain is
      * skipped entirely and this returns [PluginSecurityCheckResult.Success] - a WARN is logged every
@@ -61,14 +67,37 @@ class PluginSecurity(
     fun evaluate(
         result: PluginScanResult,
         defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+    ): PluginSecurityCheckResult = evaluateChain(result, defaultSecurityChains) { strategy -> strategy.check(result) }
+
+    /**
+     * Evaluates the security chain for [result] exactly like [evaluate], but checks every strategy
+     * against the already-pinned [pinnedContent] instead of letting each strategy re-read the
+     * candidate from disk itself - the bytes checked here are then reused, unchanged, for the
+     * candidate's actual load.
+     */
+    fun evaluate(
+        result: PluginScanResult,
+        pinnedContent: PinnedPluginContent,
+        defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+    ): PluginSecurityCheckResult = evaluateChain(result, defaultSecurityChains) { strategy -> strategy.check(result, pinnedContent) }
+
+    private fun evaluateChain(
+        result: PluginScanResult,
+        defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+        checkWith: (PluginSecurityStrategy) -> PluginSecurityCheckResult,
     ): PluginSecurityCheckResult {
         val pluginId = result.manifest?.id
+        // SECURITY: a host-granted, explicitly persisted exception is the only way to skip the chain - read
+        // SECURITY: through the persistence strategy, so an integrity-protected store also protects this flag
+        // SECURITY: from being forged by whoever can write the file.
         if (pluginId != null && persistenceStrategy.read(pluginId, SECURITY_EXCEPTION_KEY) == "true") {
             logger.warn("Security exception active for plugin '{}', skipping the security chain entirely", pluginId)
             return PluginSecurityCheckResult.Success
         }
 
         val chain = effectiveChain(result.location, defaultSecurityChains)
+        // SECURITY: an empty chain is a configuration error, not "nothing to check": failing loudly here stops
+        // SECURITY: a location from silently accepting every candidate because nobody configured it.
         check(chain.isNotEmpty()) {
             "No security strategies configured for plugin location '${result.location.path}' (type=${result.location.type}); " +
                 "either set an override on the location or a default chain for its type"
@@ -77,8 +106,10 @@ class PluginSecurity(
         logger.trace("Evaluating chain of {} strategy(ies) for '{}': {}", chain.size, result.path, chain.map { it::class.simpleName })
         val failureReasons = mutableListOf<String>()
         for (strategy in chain) {
-            when (val checkResult = strategy.check(result)) {
+            when (val checkResult = checkWith(strategy)) {
                 is PluginSecurityCheckResult.Success -> {
+                    // SECURITY: the chain is an ordered fall-back, so the first success is enough - each strategy
+                    // SECURITY: is a complete proof of trust on its own, not a partial one.
                     logger.trace("Security strategy {} succeeded for '{}', chain ends positively", strategy::class.simpleName, result.path)
                     return checkResult
                 }
@@ -106,21 +137,88 @@ class PluginSecurity(
      * @param path candidate path to re-scan and re-evaluate
      * @param defaultSecurityChains the default security fallback chain per [PluginLocationType],
      * consulted when [location] has no `securityOverride` of its own
-     * @throws NoSuchElementException if [location]'s scan strategy no longer reports a candidate at [path]
      */
     fun reevaluate(
         location: PluginLocation,
         path: Path,
         defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
     ): PluginSecurityCheckResult {
-        val rescanned = location.scanStrategy.scan(location).first { it.path == path }
-        if (rescanned.status != PluginScanStatus.LOADED) {
-            return PluginSecurityCheckResult.Failure(
-                "Candidate at '$path' is no longer a valid plugin candidate on re-check: ${rescanned.errorMessage} (${rescanned.status})",
-            )
+        val rescanned = rescan(location, path)
+        if (rescanned == null || rescanned.status != PluginScanStatus.LOADED) {
+            return PluginSecurityCheckResult.Failure(rescanFailureMessage(path, rescanned))
         }
         return evaluate(rescanned, defaultSecurityChains)
     }
+
+    /**
+     * Like [reevaluate], but also pins the candidate's bytes at [path] once (see
+     * [PinnedPluginContentReader]) and checks the chain against that pinned content, so the returned
+     * [PinnedPluginContent] can be reused unchanged for the candidate's actual (re-)load - closing
+     * the same TOCTOU window on reactivation that [org.pcsoft.framework.pluggiat.scanner.PluginScanner]
+     * closes on the initial scan.
+     *
+     * @return the check result together with the pinned content on success, or a failed check result
+     * with `null` content if [path] is no longer a valid candidate or the chain rejects it
+     */
+    fun reevaluateAndPin(
+        location: PluginLocation,
+        path: Path,
+        defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
+    ): PinnedReevaluationResult {
+        val rescanned = rescan(location, path)
+        if (rescanned == null || rescanned.status != PluginScanStatus.LOADED) {
+            return PinnedReevaluationResult(PluginSecurityCheckResult.Failure(rescanFailureMessage(path, rescanned)), null)
+        }
+
+        return try {
+            val pinnedContent = PinnedPluginContentReader.read(path)
+            val checkResult = evaluate(rescanned, pinnedContent, defaultSecurityChains)
+            PinnedReevaluationResult(checkResult, pinnedContent.takeIf { checkResult is PluginSecurityCheckResult.Success })
+        } catch (e: PluginContentLimitExceededException) {
+            // Same treatment as on the initial scan (see PluginScanner): a candidate that grew beyond a
+            // resource limit since it was first accepted fails its re-check instead of taking the host
+            // down while being re-read.
+            PinnedReevaluationResult(PluginSecurityCheckResult.Failure(e.message ?: "Plugin candidate exceeds a resource limit"), null)
+        }
+    }
+
+    /**
+     * Re-scans [location] and returns its result for [path], or `null` if the scan no longer reports a
+     * candidate there at all.
+     *
+     * `firstOrNull`, not `first`: a candidate that disappeared between the original scan and this
+     * re-check is an ordinary outcome of re-checking (it may have just been deleted), and must be
+     * reported as a failed re-check - not as a `NoSuchElementException` thrown out of a security check.
+     *
+     * The status is deliberately *not* filtered here. The caller needs the result either way: on success
+     * to evaluate the chain against it, on failure to say what is wrong with it - and asking the scan
+     * strategy a second time for that message would read the candidate from disk again, which is both a
+     * fresh chance for it to change and a second way to fail.
+     */
+    private fun rescan(location: PluginLocation, path: Path): PluginScanResult? {
+        val rescanned = location.scanStrategy.scan(location).firstOrNull { it.path == path }
+        logger.trace("Re-scanned candidate '{}' via {}: status={}", path, location.scanStrategy::class.simpleName, rescanned?.status)
+        return rescanned
+    }
+
+    /** The failure message for a [rescan] result that is absent or no longer `LOADED`. */
+    private fun rescanFailureMessage(path: Path, rescanned: PluginScanResult?): String =
+        if (rescanned == null) {
+            "Candidate at '$path' is no longer reported as a plugin candidate by its location's scan strategy on re-check"
+        } else {
+            "Candidate at '$path' is no longer a valid plugin candidate on re-check: ${rescanned.errorMessage} (${rescanned.status})"
+        }
+
+    /**
+     * Outcome of [reevaluateAndPin].
+     *
+     * @property checkResult the security check outcome
+     * @property pinnedContent the candidate's pinned bytes, `null` unless [checkResult] is [PluginSecurityCheckResult.Success]
+     */
+    data class PinnedReevaluationResult(
+        val checkResult: PluginSecurityCheckResult,
+        val pinnedContent: PinnedPluginContent?,
+    )
 
     companion object {
         /**
@@ -140,7 +238,15 @@ class PluginSecurity(
         fun effectiveChain(
             location: PluginLocation,
             defaultSecurityChains: Map<PluginLocationType, List<PluginSecurityStrategy>>,
-        ): List<PluginSecurityStrategy> =
-            location.securityOverride.ifEmpty { defaultSecurityChains[location.type] ?: emptyList() }
+        ): List<PluginSecurityStrategy> {
+            val override = location.securityOverride
+            val chain = override.ifEmpty { defaultSecurityChains[location.type] ?: emptyList() }
+            LoggerFactory.getLogger(PluginSecurity::class.java).trace(
+                "Resolved effective security chain for location '{}' (type={}): source={}, strategies={}",
+                location.path, location.type, if (override.isNotEmpty()) "override" else "default",
+                chain.map { it::class.simpleName },
+            )
+            return chain
+        }
     }
 }

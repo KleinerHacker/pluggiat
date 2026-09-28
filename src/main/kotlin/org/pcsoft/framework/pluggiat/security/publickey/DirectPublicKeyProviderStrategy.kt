@@ -12,6 +12,7 @@
 
 package org.pcsoft.framework.pluggiat.security.publickey
 
+import org.slf4j.LoggerFactory
 import java.security.PublicKey
 
 /**
@@ -19,5 +20,12 @@ import java.security.PublicKey
  * regardless of the plugin id - useful when a single signing key is used for every plugin.
  */
 class DirectPublicKeyProviderStrategy(private val publicKey: PublicKey) : PublicKeyProviderStrategy {
-    override fun resolve(pluginId: String): PublicKey = publicKey
+    private val logger = LoggerFactory.getLogger(DirectPublicKeyProviderStrategy::class.java)
+
+    // SECURITY: the key is fixed at construction by the host, independent of the plugin id - the strongest
+    // SECURITY: binding of the three providers, since nothing about the candidate can influence it.
+    override fun resolve(pluginId: String): PublicKey {
+        logger.trace("Resolving fixed, host-supplied public key for plugin '{}' via DirectPublicKeyProviderStrategy", pluginId)
+        return publicKey
+    }
 }

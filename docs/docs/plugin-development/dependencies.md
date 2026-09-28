@@ -24,6 +24,26 @@ whether every edge in the cycle is optional.
 
 ## Visibility
 
+```mermaid
+flowchart TD
+    B["Plugin B<br/>(parent-last PluginClassLoader)"]
+    Cond1{"B's manifest declares<br/>a dependency on A?"}
+    Cond2{"PluginDependencyStrategy allows<br/>B's location to see A's location?"}
+    Visible["A's classes visible to B"]
+    Hidden["A's classes not visible<br/>required: plugin B is rejected<br/>optional: B loads without them"]
+    C["Plugin C (not declared)<br/>never visible, no transitive access"]
+    Host["Host class loader"]
+    SDK["SDK whitelist filter<br/>(only whitelisted packages)"]
+
+    B --> Cond1
+    Cond1 -->|no| Hidden
+    Cond1 -->|yes| Cond2
+    Cond2 -->|no| Hidden
+    Cond2 -->|yes| Visible
+    B -.-> C
+    Host --> SDK --> B
+```
+
 A plugin only ever sees the classes of a dependency it explicitly declared - there is no implicit
 or transitive visibility onto any other loaded plugin. Two independent conditions must both hold for
 plugin B to see plugin A's classes:

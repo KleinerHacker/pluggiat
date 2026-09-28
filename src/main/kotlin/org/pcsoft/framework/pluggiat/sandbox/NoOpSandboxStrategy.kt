@@ -10,10 +10,15 @@
  * See the License for the specific language governing permissions and limitations.
  */
 
-package org.pcsoft.framework.pluggiat.classloader.fixtures.internal
+package org.pcsoft.framework.pluggiat.sandbox
+
+import org.pcsoft.framework.pluggiat.classloader.LoadedPlugin
 
 /**
- * Stand-in for a host-internal class never exposed to plugins, used by [PluginClassLoaderTest] to
- * verify that non-whitelisted host classes stay unreachable.
+ * A [PluginSandboxStrategy] that performs no actual enforcement - the default [PluginSandbox]
+ * strategy as of IP-01, replaced once IP-02/IP-03/IP-04 ship concrete strategies.
  */
-class HostInternalMarker
+class NoOpSandboxStrategy : PluginSandboxStrategy {
+    override fun activate(loadedPlugin: LoadedPlugin, policy: PluginSandboxPolicy): SandboxCheckResult =
+        SandboxCheckResult.Success
+}

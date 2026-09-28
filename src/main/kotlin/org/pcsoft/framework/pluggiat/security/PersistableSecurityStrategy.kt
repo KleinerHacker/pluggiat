@@ -12,6 +12,7 @@
 
 package org.pcsoft.framework.pluggiat.security
 
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
 
 /**
@@ -27,6 +28,25 @@ interface PersistableSecurityStrategy : PluginSecurityStrategy {
     /**
      * Persists whatever this strategy needs from [result] so a future [PluginSecurityStrategy.check]
      * for [pluginId] succeeds.
+     *
+     * Reads the candidate from disk itself. Prefer the [PinnedPluginContent] overload wherever the
+     * candidate's bytes were already pinned.
      */
     fun persist(pluginId: String, result: PluginScanResult)
+
+    /**
+     * Persists whatever this strategy needs from [result]'s already-pinned [pinnedContent].
+     *
+     * This is the overload that closes the window the path-based [persist] leaves open: between the
+     * security check a host is reacting to and the moment the accepted state is derived, the candidate on
+     * disk could have been replaced - and what gets persisted (an accepted checksum, for instance) would
+     * then bless bytes nobody ever checked. Passing the pinned bytes means exactly what was checked is
+     * what gets accepted.
+     *
+     * Defaults to the path-based [persist], for an implementation that derives nothing from the
+     * candidate's content.
+     */
+    fun persist(pluginId: String, result: PluginScanResult, pinnedContent: PinnedPluginContent?) {
+        persist(pluginId, result)
+    }
 }

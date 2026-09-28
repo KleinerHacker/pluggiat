@@ -20,6 +20,7 @@ import com.networknt.schema.InputFormat
 import com.networknt.schema.Schema
 import com.networknt.schema.SchemaRegistry
 import com.networknt.schema.SpecificationVersion
+import org.pcsoft.framework.pluggiat.PluginResourceLimits
 import java.io.InputStream
 
 /**
@@ -60,6 +61,8 @@ internal object ManifestParser {
         }
 
         // The validator is based on Jackson 3, so the Jackson 2 tree is handed over as JSON text
+        // SECURITY: schema validation before any mapping: it is what enforces the id pattern/length and
+        // SECURITY: rejects unknown fields, so no unvalidated manifest value ever reaches the framework.
         val violations = schema.validate(node.toString(), InputFormat.JSON)
             .map { "${it.instanceLocation}: ${it.message}" }
         if (violations.isNotEmpty()) {
@@ -77,9 +80,32 @@ internal object ManifestParser {
     }
 
     /**
-     * Parses and validates the manifest YAML content read from the given stream.
+     * Parses and validates the manifest YAML content read from the given stream, reading at most
+     * [PluginResourceLimits.MAX_MANIFEST_SIZE_BYTES].
      *
-     * @throws ManifestValidationException if the content violates the manifest JSON schema or cannot be parsed
+     * The stream is a ZIP entry of an unverified candidate, so its length is whatever the plugin author
+     * chose: reading it wholesale would let a manifest entry of arbitrary size exhaust the heap during
+     * the scan, before this candidate has passed anything at all.
+     *
+     * @throws ManifestValidationException if the content exceeds that limit, violates the manifest JSON
+     * schema, or cannot be parsed
      */
-    fun parse(input: InputStream): PluginManifest = parse(input.readBytes().toString(Charsets.UTF_8))
+    fun parse(input: InputStream): PluginManifest = parse(readBoundedManifest(input))
+
+    /**
+     * Reads one byte more than the limit allows, so exceeding it is detected from what was read instead
+     * of from a length the stream claims.
+     */
+    private fun readBoundedManifest(input: InputStream): String {
+        val limit = PluginResourceLimits.MAX_MANIFEST_SIZE_BYTES
+        // SECURITY: reads at most limit+1 bytes, so an oversized manifest is detected without ever holding
+        // SECURITY: more than that in memory.
+        val bytes = input.readNBytes((limit + 1).toInt())
+        if (bytes.size > limit) {
+            throw ManifestValidationException(
+                "Plugin manifest is larger than the maximum of $limit bytes",
+            )
+        }
+        return bytes.toString(Charsets.UTF_8)
+    }
 }

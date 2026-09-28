@@ -2,7 +2,7 @@
 
 Jedes Plugin wird in seinen eigenen isolierten `PluginClassLoader` geladen, einen
 Parent-Last-Classloader, der standardmäßig keine host-internen Klassen sehen kann. `PluginLoader`
-(siehe [Classloader-Isolation](../plugin-development/dependencies.md)) öffnet gezielt genau die
+(siehe [Classloader-Isolation](../plugin-development/dependencies.de.md)) öffnet gezielt genau die
 Teile des eigenen SDK des Hosts, die Plugins nutzen sollen, über eine Liste von
 `SdkWhitelistEntry`:
 
@@ -19,6 +19,18 @@ val loader = PluginLoader(
     ),
 )
 ```
+
+!!! tip "Sicherheitsempfehlungen"
+
+    * Nur das auf die Whitelist setzen, was Plugins tatsächlich aufrufen müssen - die kleinste
+      brauchbare Oberfläche, nicht einen ganzen Package-Baum "für alle Fälle".
+    * Kein Package auf die Whitelist setzen, das selbst reflection-fähige Hintertüren offenlegt (z. B.
+      eines, das den Classloader des Hosts selbst oder eine interne Collection per Referenz
+      zurückgibt).
+    * `recursive = false` bevorzugen für ein Package, das plugin-seitige API mit internen Helfern
+      mischt, damit eine später hinzugefügte interne Klasse nicht versehentlich erreichbar wird.
+    * Die Whitelist überprüfen, sobald das eigene SDK-Package des Hosts neue Klassen erhält - nichts
+      im Framework stellt sicher, dass dort nur beabsichtigte Typen landen.
 
 ## Was auf die Whitelist gehört
 
@@ -38,6 +50,26 @@ JDK-Plattformklassen (`java.*`, `javax.*`) sind über den Classloader eines Plug
 unabhängig von der Whitelist - Plugin-Bytecode referenziert unbedingt zentrale JDK-Typen (angefangen
 bei `java.lang.Object`), sodass diese bedingungslos an den eigenen Plattform-Classloader der JDK
 delegiert werden, noch bevor die Whitelist überhaupt konsultiert wird.
+
+## Was nicht auf die Whitelist gesetzt werden kann - und nicht überschrieben werden kann
+
+Zwei Gruppen von Klassen werden aufgelöst, *bevor* die Whitelist konsultiert wird; sie dort
+aufzuführen ändert nichts:
+
+* **JDK-Plattformklassen** (`java.*`, `javax.*`) kommen immer vom eigenen Plattform-Classloader der
+  JDK.
+* **Die eigenen Klassen von pluggiat** (`org.pcsoft.framework.pluggiat.*`) kommen immer vom Host. Das
+  ist eine Sicherheitsgrenze, keine Bequemlichkeit: Die Guard-Aufrufe der Sandbox, die in den eigenen
+  Bytecode eines Plugins eingefügt werden, lösen die Guard-Registry des Frameworks über den Namen auf,
+  und ein Plugin, das eine Klasse dieses Namens in seiner eigenen JAR mitbringt, bekäme sonst *seine*
+  Kopie geladen (der Classloader ist Parent-Last) - eine Registry, die einfach alles erlaubt. Die
+  Delegation dieser Klassen hat keinen Rückfallweg: Schlägt sie fehl, schlägt das Laden mit einer
+  `ClassNotFoundException` fehl, statt mit der Version des Plugins fortzufahren. Dasselbe gilt für
+  *Ressourcen* unterhalb von `org/pcsoft/framework/pluggiat/`, die ein Plugin ebenfalls nicht
+  bereitstellen kann.
+
+Ein Host sollte sein eigenes SDK daher nicht im Namensraum `org.pcsoft.framework.pluggiat` ablegen -
+diese Klassen würden immer von dort genommen, wo das Framework selbst geladen wurde.
 
 ## Abgleich
 
@@ -61,4 +93,4 @@ Zu entscheiden, *ob* dies gerechtfertigt ist, und diese Entscheidung zu protokol
 Plugin-ID und ursprünglicher Fehlschlaggrund), liegt vollständig in der Verantwortung der
 Host-Anwendung selbst - `PluginLoader` trifft diese Entscheidung weder noch gibt er selbst einen
 Protokolleintrag darüber aus (siehe
-[Host-Freigabeablauf nach einem `SECURITY_PROBLEM`](security.md#host-freigabeablauf-nach-einem-security_problem)).
+[Host-Freigabeablauf nach einem `SECURITY_PROBLEM`](security.de.md#host-freigabeablauf-nach-einem-security_problem)).

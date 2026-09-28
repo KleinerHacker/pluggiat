@@ -54,6 +54,19 @@ enum class PluginScanStatus {
      * required dependency or a class loading error).
      */
     LOAD_FAILED,
+
+    /**
+     * The candidate was successfully loaded, but a loaded instance violated its
+     * `org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy` at runtime (a category-attributed
+     * API-mediation violation, see `org.pcsoft.framework.pluggiat.sandbox.agent.SandboxGuardRegistry`)
+     * and was forcibly unloaded as a result - deliberately a distinct status from [SECURITY_PROBLEM]:
+     * the latter is a pre-load check that never let the candidate run at all, this one is a
+     * post-load, runtime finding about a plugin that already executed. Like [SECURITY_PROBLEM], a
+     * candidate with this status cannot be force-loaded again
+     * (`org.pcsoft.framework.pluggiat.PluginManager.forceLoad`) and cannot displace a
+     * [LOADED] candidate of the same id via `org.pcsoft.framework.pluggiat.orchestration.IdCollisionResolver`.
+     */
+    POTENTIAL_ATTACK,
 }
 
 /**
@@ -68,6 +81,10 @@ enum class PluginScanStatus {
  * [PluginScanStatus.LOAD_FAILED])
  * @property status the outcome of scanning (and, once assigned by `PluginManager.scan`, orchestrating) this candidate
  * @property errorMessage human-readable reason, `null` unless [status] is not [PluginScanStatus.LOADED]
+ * @property pinnedContent the exact bytes of this candidate as read once by [PluginScanner] for its
+ * security check, `null` unless [status] is [PluginScanStatus.LOADED]; used by
+ * `org.pcsoft.framework.pluggiat.PluginManager` to load the very same bytes that were checked (see
+ * [PinnedPluginContent])
  */
 data class PluginScanResult(
     val location: PluginLocation,
@@ -75,4 +92,5 @@ data class PluginScanResult(
     val manifest: PluginManifest?,
     val status: PluginScanStatus,
     val errorMessage: String? = null,
+    val pinnedContent: PinnedPluginContent? = null,
 )
