@@ -28,7 +28,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build
-        run: ./gradlew build -x test --stacktrace --info
+        run: ./gradlew build --stacktrace --info
 
   test:
     runs-on: ubuntu-latest
