@@ -14,11 +14,16 @@ package org.pcsoft.framework.pluggiat.security.publickey
 
 import org.bouncycastle.bcpg.ArmoredOutputStream
 import org.bouncycastle.bcpg.PublicKeyAlgorithmTags
+import org.bouncycastle.bcpg.PublicSubkeyPacket
+import org.bouncycastle.bcpg.RSAPublicBCPGKey
+import org.bouncycastle.openpgp.PGPPublicKey
 import org.bouncycastle.openpgp.PGPPublicKeyRing
+import org.bouncycastle.openpgp.operator.jcajce.JcaKeyFingerprintCalculator
 import org.bouncycastle.openpgp.operator.jcajce.JcaPGPKeyConverter
 import java.io.ByteArrayOutputStream
 import java.security.KeyPairGenerator
 import java.security.PublicKey
+import java.security.interfaces.RSAPublicKey
 import java.util.Date
 
 /**
@@ -45,10 +50,34 @@ object OpenPgpTestFixtures {
         val pgpPublicKey = JcaPGPKeyConverter().getPGPPublicKey(PublicKeyAlgorithmTags.RSA_GENERAL, publicKey, Date())
         val keyRing = PGPPublicKeyRing(listOf(pgpPublicKey))
 
-        val armored = ByteArrayOutputStream().also { buffer ->
-            ArmoredOutputStream(buffer).use { it.write(keyRing.encoded) }
-        }.toByteArray()
-
+        val armored = armor(keyRing)
         return ExportedKey(armored, "%016X".format(pgpPublicKey.keyID), publicKey)
     }
+
+    /**
+     * Generates an OpenPGP key ring consisting of a fresh master key and a fresh RSA subkey. The returned
+     * [ExportedKey] describes the *subkey* (its key id and its public key), so a lookup by that id matches
+     * a non-master key only.
+     */
+    fun generateKeyWithSubkey(): ExportedKey {
+        val generator = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }
+        val masterPublic = generator.generateKeyPair().public
+        val subPublic = generator.generateKeyPair().public as RSAPublicKey
+
+        val master = JcaPGPKeyConverter().getPGPPublicKey(PublicKeyAlgorithmTags.RSA_GENERAL, masterPublic, Date())
+        val subPacket = PublicSubkeyPacket(
+            PublicKeyAlgorithmTags.RSA_GENERAL,
+            Date(),
+            RSAPublicBCPGKey(subPublic.modulus, subPublic.publicExponent),
+        )
+        val subkey = PGPPublicKey(subPacket, JcaKeyFingerprintCalculator())
+        val keyRing = PGPPublicKeyRing(listOf(master, subkey))
+
+        return ExportedKey(armor(keyRing), "%016X".format(subkey.keyID), subPublic)
+    }
+
+    private fun armor(keyRing: PGPPublicKeyRing): ByteArray =
+        ByteArrayOutputStream().also { buffer ->
+            ArmoredOutputStream(buffer).use { it.write(keyRing.encoded) }
+        }.toByteArray()
 }

@@ -245,4 +245,63 @@ class PluginProcessManagerTest {
         // if the suite ever runs against the packaged JAR itself, a real, existing jar path is equally valid.
         assertTrue(agentJar == null || (agentJar.toString().endsWith(".jar") && Files.isRegularFile(agentJar)))
     }
+
+    /**
+     * Use case: pinned content with zero bytes is rejected before any subprocess is started, with a
+     * [ProcessIsolationStartupException] naming the plugin.
+     */
+    @Test
+    fun `start rejects an empty plugin before starting a subprocess`() {
+        val manager = PluginProcessManager()
+
+        val exception = assertThrows(ProcessIsolationStartupException::class.java) {
+            manager.start(
+                pluginId, Path.of("unused.jar"), PinnedPluginContent.Single(ByteArray(0)),
+                PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20),
+            )
+        }
+
+        assertTrue(exception.message!!.contains("outside the supported range"))
+        assertFalse(manager.isRunning(pluginId))
+    }
+
+    /**
+     * Use case: a subprocess that cannot be launched at all (here: the JVM home points to a directory
+     * without a java executable) fails the start with a [ProcessIsolationStartupException] carrying the
+     * launch error as its cause.
+     */
+    @Test
+    fun `start reports a subprocess that cannot be launched`() {
+        val manager = PluginProcessManager()
+        val originalJavaHome = System.getProperty("java.home")
+        System.setProperty("java.home", Files.createTempDirectory("no-java-home").toString())
+        try {
+            val exception = assertThrows(ProcessIsolationStartupException::class.java) {
+                manager.start(
+                    pluginId, Path.of("unused.jar"), PinnedPluginContent.Single(ByteArray(16)),
+                    PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20),
+                )
+            }
+
+            assertTrue(exception.message!!.contains("Failed to start subprocess"))
+            assertFalse(manager.isRunning(pluginId))
+        } finally {
+            System.setProperty("java.home", originalJavaHome)
+        }
+    }
+
+    /**
+     * Use case: [PluginProcessManager.stop] with a grace period too short for the subprocess to exit
+     * escalates to a forced termination, and the plugin is afterwards no longer tracked.
+     */
+    @Test
+    fun `stop escalates to a forced termination when the grace period is exceeded`() {
+        val manager = PluginProcessManager()
+        val zip = ProcessIsolationFixturePackaging.writeZip()
+        manager.start(pluginId, zip, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20))
+
+        manager.stop(pluginId, Duration.ofNanos(1))
+
+        assertFalse(manager.isRunning(pluginId))
+    }
 }

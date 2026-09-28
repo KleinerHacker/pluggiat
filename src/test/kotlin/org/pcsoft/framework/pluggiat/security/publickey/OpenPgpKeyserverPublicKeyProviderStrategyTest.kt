@@ -152,6 +152,98 @@ class OpenPgpKeyserverPublicKeyProviderStrategyTest {
         OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { null }, keyserverBaseUrl = "http://localhost:11371")
     }
 
+    /**
+     * Use case: an expired cache entry is not served - a second lookup after the cache duration elapsed
+     * queries the keyserver again.
+     */
+    @Test
+    fun `queries the keyserver again once the cache entry has expired`() {
+        val exportedKey = OpenPgpTestFixtures.generateKey()
+        var requestCount = 0
+        withKeyserver({ exchange ->
+            requestCount++
+            exchange.sendResponseHeaders(200, exportedKey.armoredPublicKey.size.toLong())
+            exchange.responseBody.use { it.write(exportedKey.armoredPublicKey) }
+        }) { baseUrl ->
+            val strategy = OpenPgpKeyserverPublicKeyProviderStrategy(
+                keyIdResolver = { exportedKey.keyId },
+                keyserverBaseUrl = baseUrl,
+                cacheDuration = Duration.ZERO,
+            )
+
+            strategy.resolve("plugin-a")
+            strategy.resolve("plugin-a")
+
+            assertEquals(2, requestCount)
+        }
+    }
+
+    /**
+     * Use case: a configured key id that is blank after removing the `0x` prefix resolves to `null` without
+     * any keyserver request - an empty id would otherwise match an arbitrary key.
+     */
+    @Test
+    fun `resolves to null for a blank key id without querying the keyserver`() {
+        var requestCount = 0
+        withKeyserver({ exchange ->
+            requestCount++
+            exchange.sendResponseHeaders(404, -1)
+        }) { baseUrl ->
+            val strategy = OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { "0x" }, keyserverBaseUrl = baseUrl)
+
+            assertNull(strategy.resolve("plugin-a"))
+            assertEquals(0, requestCount)
+        }
+    }
+
+    /**
+     * Use case: when the requested key id matches only a subkey of the returned ring (no master key
+     * matches), that matching subkey is used.
+     */
+    @Test
+    fun `falls back to a matching subkey when no master key matches`() {
+        val exportedKey = OpenPgpTestFixtures.generateKeyWithSubkey()
+        withKeyserver({ exchange ->
+            exchange.sendResponseHeaders(200, exportedKey.armoredPublicKey.size.toLong())
+            exchange.responseBody.use { it.write(exportedKey.armoredPublicKey) }
+        }) { baseUrl ->
+            val strategy = OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { exportedKey.keyId }, keyserverBaseUrl = baseUrl)
+
+            assertEquals(exportedKey.publicKey, strategy.resolve("plugin-a"))
+        }
+    }
+
+    /**
+     * Use case: a base URL with a scheme other than https or http is rejected at construction.
+     */
+    @Test
+    fun `rejects a base url with an unsupported scheme`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { null }, keyserverBaseUrl = "ftp://keys.example.com")
+        }
+    }
+
+    /**
+     * Use case: a plain-HTTP base URL whose host cannot be determined (unparsable or missing) is rejected.
+     */
+    @Test
+    fun `rejects a plaintext base url with an unparsable or missing host`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { null }, keyserverBaseUrl = "http://bad host")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { null }, keyserverBaseUrl = "http:///path")
+        }
+    }
+
+    /**
+     * Use case: plain HTTP to the IPv6 loopback address is accepted like the other loopback hosts.
+     */
+    @Test
+    fun `accepts a plaintext base url to the ipv6 loopback address`() {
+        OpenPgpKeyserverPublicKeyProviderStrategy(keyIdResolver = { null }, keyserverBaseUrl = "http://[::1]:11371")
+    }
+
     private fun withKeyserver(handler: (com.sun.net.httpserver.HttpExchange) -> Unit, block: (baseUrl: String) -> Unit) {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/pks/lookup", handler)

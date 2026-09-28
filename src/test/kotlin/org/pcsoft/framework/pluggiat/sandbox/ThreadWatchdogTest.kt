@@ -209,4 +209,112 @@ class ThreadWatchdogTest {
 
         assertEquals(false, secondStartedBeforeReleasingFirst)
     }
+
+    /**
+     * Use case: an exception thrown by the governed block on the watchdog thread is unwrapped from
+     * its `ExecutionException` and rethrown to the caller as the original exception.
+     */
+    @Test
+    fun `an exception thrown by the block is rethrown unwrapped to the caller`() {
+        val watchdog = ThreadWatchdog()
+
+        val thrown = assertThrows(IllegalStateException::class.java) {
+            watchdog.runGoverned<Unit>("plugin-a", policyWithTimeout(1000)) { throw IllegalStateException("plugin failure") }
+        }
+
+        assertEquals("plugin failure", thrown.message)
+    }
+
+    /**
+     * Use case: the calling thread is interrupted while it waits for a governed call - the call is
+     * cancelled, the interrupt flag is restored and the [InterruptedException] propagates.
+     */
+    @Test
+    fun `an interrupted caller cancels the call and keeps its interrupt flag`() {
+        val watchdog = ThreadWatchdog()
+        val caught = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val flagRestored = java.util.concurrent.atomic.AtomicBoolean(false)
+        val started = CountDownLatch(1)
+        val caller = Thread {
+            try {
+                watchdog.runGoverned("plugin-a", policyWithTimeout(10_000)) {
+                    started.countDown()
+                    Thread.sleep(5000)
+                }
+            } catch (e: InterruptedException) {
+                caught.set(e)
+                flagRestored.set(Thread.currentThread().isInterrupted)
+            }
+        }
+
+        caller.start()
+        started.await(2, TimeUnit.SECONDS)
+        caller.interrupt()
+        caller.join(5000)
+
+        assertEquals(InterruptedException::class.java, caught.get()?.javaClass)
+        assertEquals(true, flagRestored.get())
+    }
+
+    /**
+     * Use case: replacing a timed-out executor for a plugin whose slot was concurrently marked
+     * deactivated leaves the deactivated marker untouched - a later call is still refused.
+     */
+    @Test
+    fun `replacing an executor keeps a concurrent deactivation marker`() {
+        val watchdog = ThreadWatchdog()
+        watchdog.deactivate("plugin-a")
+        val staleExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val replace = ThreadWatchdog::class.java.getDeclaredMethod(
+            "replaceExecutor", String::class.java, java.util.concurrent.ExecutorService::class.java,
+        ).apply { isAccessible = true }
+
+        replace.invoke(watchdog, "plugin-a", staleExecutor)
+
+        assertEquals(true, staleExecutor.isShutdown)
+        assertThrows(SandboxDeactivatedException::class.java) {
+            watchdog.runGoverned("plugin-a", policyWithTimeout(1000)) { 1 }
+        }
+    }
+
+    /**
+     * Use case: replacing a timed-out executor whose slot already holds a different, newer executor
+     * leaves that newer executor in place - a later governed call still succeeds.
+     */
+    @Test
+    fun `replacing a stale executor keeps a newer live executor`() {
+        val watchdog = ThreadWatchdog()
+        assertEquals(1, watchdog.runGoverned("plugin-a", policyWithTimeout(1000)) { 1 })
+        val staleExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val replace = ThreadWatchdog::class.java.getDeclaredMethod(
+            "replaceExecutor", String::class.java, java.util.concurrent.ExecutorService::class.java,
+        ).apply { isAccessible = true }
+
+        replace.invoke(watchdog, "plugin-a", staleExecutor)
+
+        assertEquals(true, staleExecutor.isShutdown)
+        assertEquals(2, watchdog.runGoverned("plugin-a", policyWithTimeout(1000)) { 2 })
+    }
+
+    /**
+     * Use case: an uncaught exception on a watchdog thread is logged by the thread's uncaught
+     * exception handler; the thread is a daemon and terminates without affecting the host.
+     */
+    @Test
+    fun `an uncaught exception on a watchdog thread is handled and the thread ends`() {
+        val watchdog = ThreadWatchdog()
+        val newExecutor = ThreadWatchdog::class.java.getDeclaredMethod("newExecutorFor", String::class.java)
+            .apply { isAccessible = true }
+        val executor = newExecutor.invoke(watchdog, "plugin-a") as java.util.concurrent.ExecutorService
+        val threadRef = java.util.concurrent.atomic.AtomicReference<Thread>()
+
+        executor.execute {
+            threadRef.set(Thread.currentThread())
+            throw IllegalStateException("uncaught in watchdog thread")
+        }
+        executor.shutdown()
+
+        assertEquals(true, executor.awaitTermination(5, TimeUnit.SECONDS))
+        assertEquals(true, threadRef.get().isDaemon)
+    }
 }

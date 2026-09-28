@@ -182,4 +182,29 @@ class ChecksumSecurityStrategyTest {
             ChecksumSecurityStrategy(persistenceOf(null)).check(result)
         }
     }
+
+    /**
+     * Use case: [ChecksumSecurityStrategy.persist] with pinned content computes the digest over the pinned
+     * bytes - not over what is on disk now - so a candidate swapped after pinning does not get its own
+     * checksum blessed.
+     */
+    @Test
+    fun `persist with pinned content records the checksum of the pinned bytes`(@TempDir tempDir: Path) {
+        val store = mutableMapOf<String, String>()
+        val persistence = object : PluginPersistenceStrategy {
+            override fun read(pluginId: String, key: String): String? = store["$pluginId.$key"]
+            override fun write(pluginId: String, key: String, value: String) {
+                store["$pluginId.$key"] = value
+            }
+        }
+        val strategy = ChecksumSecurityStrategy(persistence)
+        val result = candidate(tempDir)
+        val pinnedBytes = "pinned bytes".toByteArray()
+        val pinned = org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent.Single(pinnedBytes)
+
+        strategy.persist("plugin-a", result, pinned)
+
+        assertEquals(MessageDigestChecksumAlgorithm("SHA-512").digest(pinnedBytes), store["plugin-a.${ChecksumSecurityStrategy.PERSISTENCE_KEY}"])
+        assertEquals(PluginSecurityCheckResult.Success, strategy.check(result, pinned))
+    }
 }

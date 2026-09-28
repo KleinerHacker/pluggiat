@@ -24,7 +24,10 @@ import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFix
 import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixtureImpl
 import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixturePackaging
 import java.nio.file.Path
+import org.pcsoft.framework.pluggiat.sandbox.SandboxViolation
 import java.time.Duration
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Verifies [ProcessIsolationStrategy]'s cross-process extension proxy end to end, against a real
@@ -196,5 +199,49 @@ class ProcessIsolationStrategyTest {
 
         val ex = assertThrows(SandboxTimeoutException::class.java) { proxy.hang() }
         assertTrue(ex.message?.contains(pluginId) == true)
+    }
+
+    /**
+     * Use case: a subprocess that crashes mid-call is reported through the strategy's `onViolation`
+     * callback as a violation of the plugin, so the surrounding sandbox learns about the crash.
+     */
+    @Test
+    fun `a crashed subprocess is forwarded as a violation`() {
+        val jar = buildFixtureJar()
+        val isolationStrategy = newStrategy()
+        val latch = CountDownLatch(1)
+        var reported: SandboxViolation? = null
+        isolationStrategy.onViolation = { _, violation ->
+            reported = violation
+            latch.countDown()
+        }
+        val proxy = isolationStrategy.createExtensionProxy(
+            pluginId, jar, null, ProcessIsolationFixtureApi::class.java,
+            ProcessIsolationFixtureImpl::class.java.name, PluginSandboxPolicy.UNRESTRICTED,
+        ) as ProcessIsolationFixtureApi
+
+        assertThrows(ProcessIsolationIoException::class.java) { proxy.crash() }
+
+        assertTrue(latch.await(10, TimeUnit.SECONDS))
+        assertEquals(pluginId, reported!!.pluginId)
+        assertTrue(reported.reason.contains("crashed"))
+    }
+
+    /**
+     * Use case: the proxy answers `equals`, `hashCode` and `toString` locally (identity based and a
+     * descriptive text) without starting a subprocess.
+     */
+    @Test
+    fun `proxy answers equals hashCode and toString locally`() {
+        val implementation = ProcessIsolationFixtureImpl::class.java.name
+        val proxy = newStrategy().createExtensionProxy(
+            pluginId, Path.of("unused.jar"), null, ProcessIsolationFixtureApi::class.java,
+            implementation, PluginSandboxPolicy.UNRESTRICTED,
+        ) as ProcessIsolationFixtureApi
+
+        assertTrue(proxy.equals(proxy))
+        assertTrue(!proxy.equals("another object"))
+        assertEquals(System.identityHashCode(proxy), proxy.hashCode())
+        assertEquals("ProcessIsolatedProxy($implementation@$pluginId)", proxy.toString())
     }
 }

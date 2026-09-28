@@ -12,19 +12,26 @@
 
 package org.pcsoft.framework.pluggiat.sandbox.process
 
+import org.bouncycastle.asn1.DERSequence
+import org.bouncycastle.asn1.DERUTF8String
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.pcsoft.framework.pluggiat.sandbox.process.der.DerCodec
 import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessCall
 import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessResponse
 import org.pcsoft.framework.pluggiat.sandbox.process.der.SandboxValue
+import java.net.InetAddress
+import java.net.Socket
 import java.time.Duration
 
 /**
  * Verifies [ProcessIpcServer]'s authentication of incoming calls. The server's port is a loopback port
  * and therefore reachable by every process on the machine, so the IPC token - not the connection - is
- * what distinguishes the host's calls from anyone else's.
+ * what distinguishes the host's calls from anyone else's. Also verifies how the server dispatches
+ * accepted calls and reports failures.
  */
 class ProcessIpcServerTest {
 
@@ -40,6 +47,12 @@ class ProcessIpcServerTest {
         }
 
         fun echo(input: String): String = input
+
+        fun nothing() {
+            // intentionally empty: a void method answered with a unit value
+        }
+
+        fun explode(): String = throw IllegalStateException("target exploded")
 
         companion object {
             @Volatile
@@ -65,6 +78,9 @@ class ProcessIpcServerTest {
             serverThread.join(Duration.ofSeconds(5).toMillis())
         }
     }
+
+    private fun authenticatedCall(server: ProcessIpcServer, call: ProcessCall): ProcessResponse =
+        ProcessIpcClient("example", server.port, Duration.ofSeconds(10), serverToken).call(call)
 
     /**
      * Use case: a call presenting a token other than the server's is answered with a plain failure and -
@@ -132,5 +148,95 @@ class ProcessIpcServerTest {
             assertInstanceOf(ProcessResponse.Success::class.java, response)
             assertFalse(response is ProcessResponse.Failure)
         }
+    }
+
+    /**
+     * Use case: a call to a method that returns nothing (void) is answered with a successful
+     * [SandboxValue.UnitValue] instead of trying to encode a result.
+     */
+    @Test
+    fun `a void method is answered with a unit value`() {
+        withServer { server ->
+            val response = authenticatedCall(server, echoCall().copy(methodName = "nothing", arguments = emptyList()))
+
+            assertEquals(ProcessResponse.Success(SandboxValue.UnitValue), response)
+        }
+    }
+
+    /**
+     * Use case: a call naming a method that does not exist with that parameter count is answered with a
+     * failure naming the method, and the server keeps running.
+     */
+    @Test
+    fun `a call to an unknown method is answered with a failure`() {
+        withServer { server ->
+            val response = authenticatedCall(server, echoCall().copy(methodName = "doesNotExist"))
+
+            val failure = assertInstanceOf(ProcessResponse.Failure::class.java, response)
+            assertTrue(failure.message.contains("doesNotExist"))
+        }
+    }
+
+    /**
+     * Use case: a call naming a class the plugin's class loader cannot resolve is answered with a
+     * failure instead of crashing the server.
+     */
+    @Test
+    fun `a call to an unknown class is answered with a failure`() {
+        withServer { server ->
+            val response = authenticatedCall(server, echoCall().copy(implementationClassName = "example.does.not.Exist"))
+
+            val failure = assertInstanceOf(ProcessResponse.Failure::class.java, response)
+            assertTrue(failure.message.contains("example.does.not.Exist"))
+        }
+    }
+
+    /**
+     * Use case: an exception raised by the invoked extension method itself is answered with a failure
+     * carrying the original exception's message (not the reflection wrapper's).
+     */
+    @Test
+    fun `an exception of the target method is answered with its own message`() {
+        withServer { server ->
+            val response = authenticatedCall(server, echoCall().copy(methodName = "explode", arguments = emptyList()))
+
+            assertEquals(ProcessResponse.Failure("target exploded"), response)
+        }
+    }
+
+    /**
+     * Use case: a malformed message on the socket (here: a sequence with the wrong element count) is
+     * answered with a failure describing the problem, and the server keeps serving afterwards.
+     */
+    @Test
+    fun `a malformed message is answered with a failure and the server keeps serving`() {
+        withServer { server ->
+            Socket(InetAddress.getLoopbackAddress(), server.port).use { socket ->
+                socket.soTimeout = 10_000
+                socket.getOutputStream().write(DERSequence(arrayOf(DERUTF8String("only-one-element"))).encoded)
+                socket.getOutputStream().flush()
+
+                val response = DerCodec.readResponse(socket.getInputStream())
+
+                val failure = assertInstanceOf(ProcessResponse.Failure::class.java, response)
+                assertTrue(failure.message.contains("Malformed ProcessCall"))
+            }
+
+            assertInstanceOf(ProcessResponse.Success::class.java, authenticatedCall(server, echoCall()))
+        }
+    }
+
+    /**
+     * Use case: serving on a server that was already closed returns immediately instead of blocking, so
+     * a shutdown that races with the start of the accept loop ends cleanly.
+     */
+    @Test
+    fun `serveForever returns immediately on a closed server`() {
+        val server = ProcessIpcServer(javaClass.classLoader, serverToken)
+        server.close()
+
+        server.serveForever()
+
+        assertTrue(true, "reaching this line means the accept loop did not block")
     }
 }

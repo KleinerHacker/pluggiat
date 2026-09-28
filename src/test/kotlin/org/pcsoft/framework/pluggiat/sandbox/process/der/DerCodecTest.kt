@@ -184,4 +184,95 @@ class DerCodecTest {
 
         assertEquals(response, decoded)
     }
+
+    private fun callWithArgument(argument: org.bouncycastle.asn1.ASN1Encodable): ByteArray =
+        org.bouncycastle.asn1.DERSequence(
+            arrayOf(
+                org.bouncycastle.asn1.DERUTF8String("token"),
+                org.bouncycastle.asn1.DERUTF8String("com.example.Impl"),
+                org.bouncycastle.asn1.DERUTF8String("doSomething"),
+                org.bouncycastle.asn1.DERSequence(arrayOf(argument)),
+            ),
+        ).encoded
+
+    /**
+     * Use case: a value that does not consist of exactly a tag and a payload is rejected instead of
+     * being partially interpreted.
+     */
+    @Test
+    fun `a value with the wrong element count is rejected`() {
+        val value = org.bouncycastle.asn1.DERSequence(
+            arrayOf<org.bouncycastle.asn1.ASN1Encodable>(
+                org.bouncycastle.asn1.ASN1Integer(0L),
+                org.bouncycastle.asn1.ASN1Integer(1L),
+                org.bouncycastle.asn1.ASN1Integer(2L),
+            ),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            DerCodec.readCall(ByteArrayInputStream(callWithArgument(value)))
+        }
+    }
+
+    /**
+     * Use case: an object value whose field entry is not a name/value pair is rejected instead of being
+     * partially interpreted.
+     */
+    @Test
+    fun `an object field with the wrong element count is rejected`() {
+        val value = org.bouncycastle.asn1.DERSequence(
+            arrayOf<org.bouncycastle.asn1.ASN1Encodable>(
+                org.bouncycastle.asn1.ASN1Integer(7L),
+                org.bouncycastle.asn1.DERSet(
+                    arrayOf<org.bouncycastle.asn1.ASN1Encodable>(
+                        org.bouncycastle.asn1.DERSequence(arrayOf<org.bouncycastle.asn1.ASN1Encodable>(org.bouncycastle.asn1.DERUTF8String("lonely"))),
+                    ),
+                ),
+            ),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            DerCodec.readCall(ByteArrayInputStream(callWithArgument(value)))
+        }
+    }
+
+    /**
+     * Use case: a response with the wrong number of elements is rejected.
+     */
+    @Test
+    fun `a response with the wrong element count is rejected`() {
+        val forged = org.bouncycastle.asn1.DERSequence(arrayOf<org.bouncycastle.asn1.ASN1Encodable>(org.bouncycastle.asn1.ASN1Integer(0L)))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            DerCodec.readResponse(ByteArrayInputStream(forged.encoded))
+        }
+    }
+
+    /**
+     * Use case: a response carrying a status tag that is neither success nor failure is rejected.
+     */
+    @Test
+    fun `a response with an unknown status tag is rejected`() {
+        val forged = org.bouncycastle.asn1.DERSequence(
+            arrayOf<org.bouncycastle.asn1.ASN1Encodable>(
+                org.bouncycastle.asn1.ASN1Integer(5L),
+                org.bouncycastle.asn1.DERUTF8String("whatever"),
+            ),
+        )
+
+        assertThrows(IllegalStateException::class.java) {
+            DerCodec.readResponse(ByteArrayInputStream(forged.encoded))
+        }
+    }
+
+    /**
+     * Use case: reading from a stream whose peer closed the connection without sending anything fails
+     * with an [java.io.EOFException] instead of returning a bogus message.
+     */
+    @Test
+    fun `reading from an empty stream fails with an EOFException`() {
+        assertThrows(java.io.EOFException::class.java) {
+            DerCodec.readResponse(ByteArrayInputStream(ByteArray(0)))
+        }
+    }
 }

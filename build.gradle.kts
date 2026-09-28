@@ -139,6 +139,11 @@ kover {
             includes {
                 packages("org.pcsoft.framework.pluggiat.sandbox", "org.pcsoft.framework.pluggiat.security")
             }
+            excludes {
+                // Test classes of the agent test source set and the compatibility copies of interface
+                // default methods are not production behaviour and cannot be exercised by a test.
+                classes("*Test", "*\$DefaultImpls")
+            }
         }
         verify {
             rule("Line coverage of the sandbox and security packages") {

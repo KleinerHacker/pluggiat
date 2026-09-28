@@ -212,6 +212,81 @@ class PluginSecurityTest {
     }
 
     /**
+     * Use case: [PluginSecurity.reevaluateAndPin] fails without pinned content and with a message saying
+     * so when the scan strategy no longer reports the candidate path at all.
+     */
+    @Test
+    fun `reevaluateAndPin fails when the candidate is no longer reported at all`(@org.junit.jupiter.api.io.TempDir tempDir: Path) {
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+
+        val result = PluginSecurity().reevaluateAndPin(location, tempDir.resolve("never-existed.jar"), emptyMap())
+
+        assertTrue(result.checkResult is PluginSecurityCheckResult.Failure)
+        assertTrue((result.checkResult as PluginSecurityCheckResult.Failure).reason.contains("no longer reported as a plugin candidate"))
+        assertEquals(null, result.pinnedContent)
+    }
+
+    /**
+     * Use case: a candidate that grew beyond the maximum candidate file size since it was first accepted
+     * fails its re-check with the limit message instead of throwing out of [PluginSecurity.reevaluateAndPin].
+     */
+    @Test
+    fun `reevaluateAndPin fails when the candidate exceeds the file size limit`(@org.junit.jupiter.api.io.TempDir tempDir: Path) {
+        val jarPath = tempDir.resolve("huge.jar")
+        java.io.RandomAccessFile(jarPath.toFile(), "rw").use { it.setLength(org.pcsoft.framework.pluggiat.PluginResourceLimits.MAX_CANDIDATE_FILE_SIZE_BYTES + 1) }
+        val manifest = PluginManifest(id = "plugin-a", name = "plugin-a", version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==")
+        val scanStrategy = object : org.pcsoft.framework.pluggiat.scanner.PluginScanStrategy {
+            override fun scan(location: PluginLocation): List<PluginScanResult> =
+                listOf(PluginScanResult(location, jarPath, manifest, PluginScanStatus.LOADED))
+        }
+        val strategy = FixedResultStrategy(PluginSecurityCheckResult.Success)
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, scanStrategy, securityOverride = listOf(strategy))
+
+        val result = PluginSecurity().reevaluateAndPin(location, jarPath, emptyMap())
+
+        assertTrue(result.checkResult is PluginSecurityCheckResult.Failure)
+        assertTrue((result.checkResult as PluginSecurityCheckResult.Failure).reason.contains("exceeds the maximum candidate file size"))
+        assertEquals(null, result.pinnedContent)
+        assertTrue(!strategy.invoked)
+    }
+
+    /**
+     * Use case: without a location override, the default chain configured for the location's type is
+     * used to evaluate the candidate.
+     */
+    @Test
+    fun `type default chain is used when the location has no override`() {
+        val defaultStrategy = FixedResultStrategy(PluginSecurityCheckResult.Success)
+        val location = PluginLocation(Path.of("."), PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val defaults = mapOf(PluginLocationType.EXTERNAL to listOf(defaultStrategy))
+
+        val result = PluginSecurity().evaluate(scanResult(location), defaults)
+
+        assertEquals(PluginSecurityCheckResult.Success, result)
+        assertTrue(defaultStrategy.invoked)
+    }
+
+    /**
+     * Use case: [PluginSecurity.reevaluateAndPin] returns no pinned content when the chain rejects the
+     * candidate - only an accepted candidate's bytes may be reused for a load.
+     */
+    @Test
+    fun `reevaluateAndPin returns no pinned content when the chain rejects the candidate`(@org.junit.jupiter.api.io.TempDir tempDir: Path) {
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.writeJar(
+            jarPath,
+            mapOf("META-INF/plugin.yml" to org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures.validManifestYaml("plugin-a")),
+        )
+        val strategy = FixedResultStrategy(PluginSecurityCheckResult.Failure("rejected"))
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy(), securityOverride = listOf(strategy))
+
+        val result = PluginSecurity().reevaluateAndPin(location, jarPath, emptyMap())
+
+        assertTrue(result.checkResult is PluginSecurityCheckResult.Failure)
+        assertEquals(null, result.pinnedContent)
+    }
+
+    /**
      * Use case: a persisted `securityException` flag for the candidate's plugin id skips the chain
      * entirely, resolving to `Success` without invoking any configured strategy.
      */

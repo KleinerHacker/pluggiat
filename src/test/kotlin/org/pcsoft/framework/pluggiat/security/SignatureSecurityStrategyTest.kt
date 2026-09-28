@@ -212,4 +212,96 @@ class SignatureSecurityStrategyTest {
 
         assertTrue(checkResult is PluginSecurityCheckResult.Failure)
     }
+
+    /**
+     * Use case: calling the path-based [SignatureSecurityStrategy.check] with a result that has no
+     * resolved manifest (status other than LOADED) is a programming error and raises an
+     * [IllegalArgumentException].
+     */
+    @Test
+    fun `check throws for a result without a manifest`(@TempDir tempDir: Path) {
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, tempDir.resolve("missing.jar"), null, PluginScanStatus.MANIFEST_NOT_FOUND, "not found")
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+            SignatureSecurityStrategy({ null }).check(result)
+        }
+    }
+
+    /**
+     * Use case: calling the pinned-content [SignatureSecurityStrategy.check] overload with a result that
+     * has no resolved manifest is a programming error and raises an [IllegalArgumentException].
+     */
+    @Test
+    fun `pinned check throws for a result without a manifest`(@TempDir tempDir: Path) {
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, tempDir.resolve("missing.jar"), null, PluginScanStatus.MANIFEST_NOT_FOUND, "not found")
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+            SignatureSecurityStrategy({ null }).check(result, org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent.Single(ByteArray(0)))
+        }
+    }
+
+    /**
+     * Use case: a signed JAR that contains a directory entry next to several regular entries is accepted;
+     * directory entries carry no signature of their own and are not counted as signable entries.
+     */
+    @Test
+    fun `accepts a signed candidate containing a directory entry and several files`(@TempDir tempDir: Path) {
+        val keystorePath = SignatureTestFixtures.generateSelfSignedKeystore(tempDir, "signer")
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        PluginScannerTestFixtures.writeJar(
+            jarPath,
+            linkedMapOf(
+                "com/example/" to "",
+                "META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a"),
+                "com/example/Payload.txt" to "payload",
+            ),
+        )
+        SignatureTestFixtures.signJar(jarPath, keystorePath, "signer")
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, jarPath, manifest, PluginScanStatus.LOADED)
+
+        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
+
+        assertEquals(PluginSecurityCheckResult.Success, checkResult)
+    }
+
+    /**
+     * Use case: a signed archive that contains nothing but a directory entry and the signing metadata has no
+     * signable entries and is rejected - an "empty" candidate must not count as verified.
+     */
+    @Test
+    fun `rejects a signed candidate without any signable entries`(@TempDir tempDir: Path) {
+        val keystorePath = SignatureTestFixtures.generateSelfSignedKeystore(tempDir, "signer")
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        PluginScannerTestFixtures.writeJar(jarPath, mapOf("com/example/" to ""))
+        SignatureTestFixtures.signJar(jarPath, keystorePath, "signer")
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, jarPath, manifest, PluginScanStatus.LOADED)
+
+        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
+
+        assertTrue(checkResult is PluginSecurityCheckResult.Failure)
+        assertTrue((checkResult as PluginSecurityCheckResult.Failure).reason.contains("No signable entries"))
+    }
+
+    /**
+     * Use case: a candidate signed with a certificate whose validity period has not started yet is
+     * rejected, even though the public key matches.
+     */
+    @Test
+    fun `rejects a SINGLE_JAR candidate signed with a not yet valid certificate`(@TempDir tempDir: Path) {
+        val keystorePath = SignatureTestFixtures.generateNotYetValidSelfSignedKeystore(tempDir, "signer")
+        val jarPath = tempDir.resolve("plugin-a.jar")
+        PluginScannerTestFixtures.writeJar(jarPath, mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a")))
+        SignatureTestFixtures.signJar(jarPath, keystorePath, "signer")
+        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, SingleJarScanStrategy())
+        val result = PluginScanResult(location, jarPath, manifest, PluginScanStatus.LOADED)
+
+        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
+
+        assertTrue(checkResult is PluginSecurityCheckResult.Failure)
+        assertTrue((checkResult as PluginSecurityCheckResult.Failure).reason.contains("not yet valid"))
+    }
 }
