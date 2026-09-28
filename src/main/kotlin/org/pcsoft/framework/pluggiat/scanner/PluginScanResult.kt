@@ -73,8 +73,8 @@ enum class PluginScanStatus {
  * A single plugin candidate found while scanning a [PluginLocation].
  *
  * @property location the location this candidate was found at
- * @property path the candidate's own location on disk (a single JAR, a plugin's own folder, or the
- * ZIP archive itself, depending on the location's [PluginLocation.scanStrategy])
+ * @property path the candidate's own location on disk (a single JAR or the ZIP archive itself,
+ * depending on the location's [PluginLocation.scanStrategy])
  * @property manifest the candidate's parsed manifest; `null` only for [PluginScanStatus.MANIFEST_NOT_FOUND]
  * and [PluginScanStatus.MANIFEST_INVALID], present for every other status including the
  * orchestration-level ones ([PluginScanStatus.ID_COLLISION], [PluginScanStatus.MIN_VERSION_VIOLATION],

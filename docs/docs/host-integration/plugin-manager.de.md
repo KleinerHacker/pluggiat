@@ -32,11 +32,20 @@ val manager = pluginManager {
 `PluginManagerConfiguration` (der Empfänger des Builders) bündelt jede host-weite Einstellung, die
 das Framework benötigt, an einer Stelle, jeweils über einen verschachtelten Builder-Block befüllt:
 
-* `pluginLocations` - die zu scannenden Verzeichnisse, über `location { path = ...; type = ...; ... }`;
-  die eigene Sicherheits-Override-Kette eines Verzeichnisses wird über einen verschachtelten
-  `securityOverride { addStrategy(...) }`-Block gesetzt.
+* `pluginLocations` - die zu scannenden Verzeichnisse, über `location { path = ...; type = ...; ... }`.
+  Neben `path` und `type` akzeptiert ein Verzeichnis:
+    * `scanStrategy` - wie Kandidaten im Verzeichnis gefunden werden (`SingleJarScanStrategy` oder
+      `ZipJarScanStrategy`, der Standard);
+    * `securityOverride { addStrategy(...) }` - die eigene Sicherheitskette des Verzeichnisses, die
+      gegenüber der Standardkette für seinen `type` gewinnt;
+    * `dependencyStrategyOverride` - eine `PluginDependencyStrategy` für dieses Verzeichnis anstelle
+      der globalen `dependencyStrategy`;
+    * `sandboxOverride` - eine `PluginSandboxPolicy` für dieses Verzeichnis anstelle des Standards für
+      seinen `type`, siehe [Laufzeit-Sandbox](sandbox.de.md).
 * `defaultSecurityChains` - Standard-Sicherheitskette pro `PluginLocationType`, über
   `defaultSecurityChain { type = ...; addStrategy(...) }`, siehe [Sicherheit](security.de.md).
+* `sandboxPolicies` - Standard-Sandbox-Policy pro `PluginLocationType`, über
+  `defaultSandboxPolicy { type = ...; policy = ... }`, siehe [Laufzeit-Sandbox](sandbox.de.md).
 * `dependencyStrategy` - die globale `PluginDependencyStrategy`.
 * `persistenceStrategy` - die einzelne `PluginPersistenceStrategy`-Instanz, siehe
   [Persistenz](persistence.de.md).
@@ -54,6 +63,7 @@ das Framework benötigt, an einer Stelle, jeweils über einen verschachtelten Bu
 ```kotlin
 manager.scanner  // PluginScanner, pre-wired with defaultSecurityChains
 manager.security // PluginSecurity, also used to pre-wire scanner
+manager.sandbox  // PluginSandbox, the host-wide runtime sandbox facade, see Runtime sandbox
 manager.loader   // PluginLoader, pre-wired with sdkWhitelist
 manager.registry // ExtensionPointRegistry, built once from extensionPointClasses
 ```
@@ -64,16 +74,23 @@ verdrahten möchten.
 
 ## Zustand
 
-`PluginManager` ist zustandsbehaftet und intern synchronisiert - er hält den aktuellen
-Orchestrierungszustand selbst, statt bei jedem Aufruf ein kombiniertes Ergebnisobjekt
-zurückzugeben, sodass jeder Teil Ihres Hosts denselben aktuellen Zustand direkt von der Instanz
-lesen kann:
+`PluginManager` ist zustandsbehaftet - er hält den aktuellen Orchestrierungszustand selbst, statt bei
+jedem Aufruf ein kombiniertes Ergebnisobjekt zurückzugeben, sodass jeder Teil Ihres Hosts denselben
+aktuellen Zustand direkt von der Instanz lesen kann.
 
-Alle öffentlichen Methoden sind intern synchronisiert und können von jedem Thread aus sicher
-aufgerufen werden. Ein Aufruf blockiert, bis ein anderer Aufruf auf derselben Instanz abgeschlossen
-ist - z. B. sieht `getExtensions`, das `extensionsByKey` während eines gleichzeitigen `scan()`
-liest, entweder den Zustand von vor oder von nach diesem `scan()`, niemals einen teilweise
-aktualisierten.
+Die Orchestrierungsmethoden `scan()`, `reload()`, `unload()` und `forceLoad()` (ebenso wie die
+framework-eigene Behandlung eines Sandbox-Verstoßes) sind intern über eine gemeinsame Sperre
+synchronisiert und können von jedem Thread aus sicher aufgerufen werden: Ein Aufruf blockiert, bis
+jeder andere dieser Aufrufe auf derselben Instanz abgeschlossen ist.
+
+`reactivate`, `write`, `getExtensions` und `getFirstExtension` nehmen diese Sperre **nicht**. Sie
+warten nicht auf ein laufendes `scan()`, und die von ihnen gelesenen Zustandsfelder sind einfache,
+nicht-`volatile` Properties, sodass ein anderer Thread als derjenige, der
+`scan()`/`reload()`/`unload()`/`forceLoad()` aufgerufen hat, den neuesten Zustand nicht garantiert
+sofort sieht. Lesen Sie Erweiterungen von einem anderen Thread als dem, der die Plugins orchestriert,
+übergeben Sie den Zustand mit Ihrer eigenen Synchronisation.
+
+Der Zustand wird bereitgestellt über:
 
 * `scanResults: List<PluginScanResult>` - jeder vom letzten `scan()` gefundene Plugin-Kandidat, mit
   seinem endgültigen Status (einschließlich der Orchestrierungsebenen-Status unten).
@@ -132,7 +149,11 @@ neuen Ergebnis nicht mehr vorhanden ist, wird automatisch geschlossen.
 
 `reload(pluginId)` ist der reguläre, sichere Weg, ein einzelnes Plugin (erneut) zu aktivieren: Es
 prüft zuerst die Sicherheitskette erneut (über denselben Ablauf, den bereits `reactivate` verwendet,
-siehe unten) und ersetzt den Eintrag des Plugins in `loadedPlugins` nur bei Erfolg.
+siehe unten) und ersetzt den Eintrag des Plugins in `loadedPlugins` nur bei Erfolg. Bevor es
+irgendetwas anderes tut - noch vor der erneuten Sicherheitsprüfung - weist es ein Plugin, dessen
+`scanResults`-Status `POTENTIAL_ATTACK` ist (ein Verstoß gegen die Laufzeit-Sandbox), mit einer
+`IllegalStateException` ab: Ein solches Plugin kann weder neu geladen noch per Force-Load geladen
+werden, und der Host hat keine Überschreibung dafür.
 
 `unload(pluginId)` ist das Gegenstück zu `reload`: eine bewusste, host-initiierte Deaktivierung. Es
 ruft `onDisable`/`onUnload` auf den echten Erweiterungsinstanzen des Plugins auf, persistiert es als
@@ -148,7 +169,9 @@ val result = manager.forceLoad(pluginId)
 Lädt den Kandidaten bedingungslos, unter vollständiger Umgehung seines aktuellen
 `scanResults`-Status - die Entscheidung, *ob* dies gerechtfertigt ist (z. B. nach Rückfrage beim
 Benutzer des Hosts), liegt vollständig beim Aufrufer. Der `scanResults`-Eintrag selbst bleibt
-unverändert; nur `loadedPlugins`/`extensionsByKey` zeigen das Plugin danach als geladen an.
+unverändert; nur `loadedPlugins`/`extensionsByKey` zeigen das Plugin danach als geladen an. Der
+einzige Status, den es nicht umgehen kann, ist `POTENTIAL_ATTACK`: Für ein so markiertes Plugin wirft
+`forceLoad` eine `IllegalStateException`.
 
 Für sich genommen ist `forceLoad` eine einmalige Überschreibung: Ein späteres `reload`/`scan` prüft
 die Sicherheitskette von Grund auf erneut und schlägt aus demselben Grund erneut fehl. Es gibt zwei
@@ -175,8 +198,10 @@ Kandidaten unter `path` erneut, über `manager.security`, und lädt ihn nur bei 
 `manager.loader` neu - persistiert ihn dabei über
 `PluginManagerConfiguration.persistenceStrategy` wieder als aktiviert. Schlägt die erneute Prüfung
 fehl, bleibt das Plugin deaktiviert (sein Deaktivierungsgrund wird aktualisiert), und es findet kein
-automatisches Force-Load statt. Siehe [Plugin-Lifecycle-Verwaltung](plugin-lifecycle-management.de.md)
-für das Gesamtbild.
+automatisches Force-Load statt. Wie `reload` wirft es - vor jeder erneuten Sicherheitsprüfung und
+ohne etwas zu persistieren - eine `IllegalStateException` für ein Plugin (anhand von `manifest.id`),
+dessen `scanResults`-Status `POTENTIAL_ATTACK` ist, sodass ein direkter Aufruf diese Sperre nicht
+umgeht. Siehe [Plugin-Lifecycle-Verwaltung](plugin-lifecycle-management.de.md) für das Gesamtbild.
 
 ## ID-Kollisionen und minVersion
 

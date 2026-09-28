@@ -65,10 +65,11 @@ selbst speichert, nicht für große oder hochfrequente Daten.
 
 ### `DatabasePersistenceStrategy`
 
-Wird von einer JDBC-`javax.sql.DataSource` getragen, nur reines JDBC (kein ORM). Erstellt bei
-erster Verwendung automatisch eine eigene Tabelle `plugin_state(plugin_id, plugin_key, plugin_value)`,
-falls sie noch nicht existiert (Spaltennamen vermeiden bewusst die reservierten SQL-Wörter
-`key`/`value`):
+Wird von einer JDBC-`javax.sql.DataSource` getragen, nur reines JDBC (kein ORM). Erstellt automatisch
+eine eigene Tabelle `plugin_state(plugin_id, plugin_key, plugin_value)`, falls sie noch nicht
+existiert - und zwar sobald die Strategie instanziiert wird, sodass bereits der Konstruktor eine
+funktionierende Datenbankverbindung benötigt (Spaltennamen vermeiden bewusst die reservierten
+SQL-Wörter `key`/`value`):
 
 ```kotlin
 val strategy = DatabasePersistenceStrategy(myDataSource)

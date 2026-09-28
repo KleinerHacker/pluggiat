@@ -32,11 +32,20 @@ val manager = pluginManager {
 `PluginManagerConfiguration` (the builder's receiver) bundles every host-wide setting the framework
 needs in one place, each filled in via a nested builder block:
 
-* `pluginLocations` - the locations to scan, via `location { path = ...; type = ...; ... }`; a
-  location's own security override chain is set via a nested `securityOverride { addStrategy(...) }`
-  block.
+* `pluginLocations` - the locations to scan, via `location { path = ...; type = ...; ... }`. Besides
+  `path` and `type`, a location accepts:
+    * `scanStrategy` - how candidates are found in the location (`SingleJarScanStrategy` or
+      `ZipJarScanStrategy`, the default);
+    * `securityOverride { addStrategy(...) }` - the location's own security chain, which wins over the
+      default chain for its `type`;
+    * `dependencyStrategyOverride` - a `PluginDependencyStrategy` for this location instead of the
+      global `dependencyStrategy`;
+    * `sandboxOverride` - a `PluginSandboxPolicy` for this location instead of the default for its
+      `type`, see [Runtime sandbox](sandbox.md).
 * `defaultSecurityChains` - per-`PluginLocationType` default security chain, via
   `defaultSecurityChain { type = ...; addStrategy(...) }`, see [Security](security.md).
+* `sandboxPolicies` - per-`PluginLocationType` default sandbox policy, via
+  `defaultSandboxPolicy { type = ...; policy = ... }`, see [Runtime sandbox](sandbox.md).
 * `dependencyStrategy` - the global `PluginDependencyStrategy`.
 * `persistenceStrategy` - the single `PluginPersistenceStrategy` instance, see
   [Persistence](persistence.md).
@@ -52,6 +61,7 @@ needs in one place, each filled in via a nested builder block:
 ```kotlin
 manager.scanner  // PluginScanner, pre-wired with defaultSecurityChains
 manager.security // PluginSecurity, also used to pre-wire scanner
+manager.sandbox  // PluginSandbox, the host-wide runtime sandbox facade, see Runtime sandbox
 manager.loader   // PluginLoader, pre-wired with sdkWhitelist
 manager.registry // ExtensionPointRegistry, built once from extensionPointClasses
 ```
@@ -61,14 +71,21 @@ constructor parameters remain directly usable if you prefer to wire things yours
 
 ## State
 
-`PluginManager` is stateful and internally synchronized - it holds the current orchestration state
-itself rather than returning a combined result object from every call, so every part of your host
-can read the same current state directly off the instance:
+`PluginManager` is stateful - it holds the current orchestration state itself rather than returning a
+combined result object from every call, so every part of your host can read the same current state
+directly off the instance.
 
-All public methods are internally synchronized and safe to call from any thread. A call blocks
-until any other call on the same instance finishes - e.g. `getExtensions` reading `extensionsByKey`
-during a concurrent `scan()` sees either the state from before or after that `scan()`, never a
-partially updated one.
+The orchestration methods `scan()`, `reload()`, `unload()` and `forceLoad()` (as well as the
+framework's own handling of a sandbox violation) are internally synchronized on one lock and safe to
+call from any thread: a call blocks until any other of these calls on the same instance finishes.
+
+`reactivate`, `write`, `getExtensions` and `getFirstExtension` do **not** take that lock. They do not
+wait for a running `scan()`, and the state fields they read are plain, non-`volatile` properties, so a
+thread other than the one that called `scan()`/`reload()`/`unload()`/`forceLoad()` is not guaranteed to
+see the newest state immediately. If you read extensions from a different thread than the one
+orchestrating the plugins, hand the state over with your own synchronization.
+
+The state is exposed through:
 
 * `scanResults: List<PluginScanResult>` - every plugin candidate found by the last `scan()`, with
   its final status (including the orchestration-level ones below).
@@ -127,7 +144,10 @@ automatically.
 
 `reload(pluginId)` is the regular, secure way to (re-)activate a single plugin: it re-checks the
 security chain first (via the same flow `reactivate` already used, see below) and only replaces the
-plugin's entry in `loadedPlugins` on success.
+plugin's entry in `loadedPlugins` on success. Before it does anything else - before the security
+re-check - it refuses a plugin whose `scanResults` status is `POTENTIAL_ATTACK` (a runtime sandbox
+violation) with an `IllegalStateException`: such a plugin can neither be reloaded nor force-loaded, and
+the host has no override for it.
 
 `unload(pluginId)` is `reload`'s counterpart: a deliberate, host-initiated deactivation. It invokes
 `onDisable`/`onUnload` on the plugin's real extension instances, persists it as disabled (reason
@@ -143,7 +163,8 @@ val result = manager.forceLoad(pluginId)
 Loads the candidate unconditionally, bypassing its current `scanResults` status entirely - deciding
 *whether* this is warranted (e.g. after asking the host's user) is entirely up to the caller. The
 `scanResults` entry itself is left unchanged; only `loadedPlugins`/`extensionsByKey` show the plugin
-as loaded afterward.
+as loaded afterward. The one status it cannot bypass is `POTENTIAL_ATTACK`: for a plugin marked that
+way, `forceLoad` throws an `IllegalStateException`.
 
 By itself, `forceLoad` is a one-time override: a later `reload`/`scan` re-checks the security chain
 from scratch and fails again for the same reason. Two ways to make an override stick:
@@ -167,8 +188,10 @@ The lower-level building block `reload` is built on: re-checks the security chai
 candidate at `path` first, via `manager.security`, and only reloads it via `manager.loader` on
 success - persisting it as enabled again through `PluginManagerConfiguration.persistenceStrategy`.
 On a failed re-check, the plugin stays disabled (its disable reason is updated) and no automatic
-force-load happens. See [Plugin lifecycle management](plugin-lifecycle-management.md) for the full
-picture.
+force-load happens. Like `reload`, it throws an `IllegalStateException` - before any security re-check
+and without persisting anything - for a plugin (by `manifest.id`) whose `scanResults` status is
+`POTENTIAL_ATTACK`, so calling it directly does not bypass that block. See
+[Plugin lifecycle management](plugin-lifecycle-management.md) for the full picture.
 
 ## Id collisions and minVersion
 

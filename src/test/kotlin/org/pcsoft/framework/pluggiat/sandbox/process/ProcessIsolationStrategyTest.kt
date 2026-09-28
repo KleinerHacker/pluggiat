@@ -22,13 +22,9 @@ import org.pcsoft.framework.pluggiat.sandbox.SandboxTimeoutException
 import org.pcsoft.framework.pluggiat.sandbox.process.fixture.FixturePerson
 import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixtureApi
 import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixtureImpl
-import java.io.File
-import java.nio.file.Files
+import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixturePackaging
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.Duration
-import java.util.jar.JarEntry
-import java.util.jar.JarOutputStream
 
 /**
  * Verifies [ProcessIsolationStrategy]'s cross-process extension proxy end to end, against a real
@@ -49,35 +45,13 @@ class ProcessIsolationStrategyTest {
 
     /**
      * Packages the already-compiled [ProcessIsolationFixtureApi]/[ProcessIsolationFixtureImpl] `.class`
-     * files (found via the test classpath, exactly as Gradle compiled them) into a fresh temporary
-     * folder location together with a copy of the Kotlin standard library JAR (the fixture classes'
-     * compiler-generated null-check intrinsics need it at runtime, and the subprocess's own
-     * `URLClassLoader` - see `SubprocessBootstrapMain` - deliberately has no access to the host's own
-     * application classpath) - usable as a process-isolated "plugin" folder location for
-     * [ProcessIsolationStrategy.createExtensionProxy] (see `PluginProcessClasspath`, which picks up
-     * every `*.jar` in a folder location).
+     * files (found via the test classpath, exactly as Gradle compiled them) together with a copy of the
+     * Kotlin standard library JAR into a temporary ZIP (the fixture classes' compiler-generated
+     * null-check intrinsics need it at runtime, and the subprocess deliberately has no access to the
+     * host's own application classpath) - usable as a process-isolated "plugin" ZIP candidate for
+     * [ProcessIsolationStrategy.createExtensionProxy], read once from its path because it is not pinned.
      */
-    private fun buildFixtureJar(): Path {
-        val folder = Files.createTempDirectory("process-isolation-fixture-")
-        val jarPath = folder.resolve("fixture.jar")
-        JarOutputStream(Files.newOutputStream(jarPath)).use { jar ->
-            for (fixtureClass in listOf(ProcessIsolationFixtureApi::class.java, ProcessIsolationFixtureImpl::class.java, FixturePerson::class.java)) {
-                val resourceName = fixtureClass.name.replace('.', '/') + ".class"
-                val bytes = requireNotNull(fixtureClass.classLoader.getResourceAsStream(resourceName)) {
-                    "Compiled class resource not found: $resourceName"
-                }.use { it.readBytes() }
-                jar.putNextEntry(JarEntry(resourceName))
-                jar.write(bytes)
-                jar.closeEntry()
-            }
-        }
-        val kotlinStdlibJar = System.getProperty("java.class.path")
-            .split(File.pathSeparatorChar)
-            .map { Path.of(it) }
-            .first { it.toString().contains("kotlin-stdlib") }
-        Files.copy(kotlinStdlibJar, folder.resolve(kotlinStdlibJar.fileName), StandardCopyOption.REPLACE_EXISTING)
-        return folder
-    }
+    private fun buildFixtureJar(): Path = ProcessIsolationFixturePackaging.writeZip()
 
     /**
      * Use case: activating a process-isolated policy that restricts at least one API category fails with

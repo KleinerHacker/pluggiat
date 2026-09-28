@@ -36,7 +36,8 @@ flowchart LR
 ```
 
 With `exclusive = true`, at most one plugin may populate the key - if both plugins above
-contributed to an exclusive key, **both** would be rejected.
+contributed to an exclusive key, the extensions of **both** would be dropped (see
+[Exclusive extension point conflict](troubleshooting.md#exclusive-extension-point-conflict)).
 
 ## Defining an extension point
 
@@ -62,7 +63,7 @@ constructor property of the configuration class (besides `implementation`) is ma
 matching field of the plugin manifest's extension entry.
 
 Set `exclusive = true` if at most one plugin may ever populate this extension point; if two
-plugins do, both are rejected entirely (see [Extension points](../plugin-development/extension-points.md)
+plugins do, the extensions of both are dropped (see [Extension points](../plugin-development/extension-points.md)
 for the plugin developer's perspective).
 
 ## Registering extension points
@@ -102,4 +103,11 @@ for (extension in exporters) {
 ```
 
 `result.pluginResults` reports, per plugin, its id, its `Path` (passed through unchanged from the
-candidate) and its status (`LOADED` or `REJECTED_EXCLUSIVE_CONFLICT`).
+candidate) and its status:
+
+* `LOADED` - the plugin's extensions were resolved and are active.
+* `REJECTED_EXCLUSIVE_CONFLICT` - the plugin contributed to an exclusive extension point key together
+  with at least one other plugin; its extensions are not part of `extensionsByKey`.
+* `DISABLED` - the plugin is persisted as disabled (no extension class was resolved or instantiated at
+  all), or its `onLoad`/`onEnable` exceeded the sandbox timeout while its extensions were resolved (it
+  is then persisted as disabled as well).

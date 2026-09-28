@@ -16,8 +16,11 @@ Diese sind empfohlen, nicht zwingend:
 
 * Werfen Sie `PluginExecutionException` für einen Fehler, der Ihr Plugin nicht deaktivieren sollte
   (z. B. "dieser eine Export ist fehlgeschlagen, bitte erneut versuchen").
-* Werfen Sie `PluginFatalException` für einen Fehler, der so schwerwiegend ist, dass Ihr Plugin
-  nicht weiterarbeiten kann.
+* `PluginFatalException` ist der Ausnahmetyp, den der Host erhält, wenn der Proxy eine andere
+  Ausnahme zu `UNLOAD` aufgelöst hat (siehe unten). Wenn Sie sie selbst werfen, wird Ihr Plugin
+  *nicht* deaktiviert: wie `PluginExecutionException` erreicht sie den Aufrufer unverändert. Damit
+  ein nicht behebbarer Fehler Ihr Plugin entlädt, lassen Sie stattdessen eine beliebige andere
+  Unchecked Exception entweichen (z. B. eine `IllegalStateException`).
 
 ## Standard-Auflösungsmatrix
 
@@ -31,11 +34,21 @@ passiert. Sofern der Host nichts Eigenes konfiguriert hat, gilt die Standardmatr
 | jede andere Checked Exception (`Exception`, nicht `RuntimeException`) | `IGNORE` |
 | jede andere Unchecked Exception/jeder Error (`RuntimeException`, `Error`) | `UNLOAD` |
 
-* `IGNORE` - Ihr Plugin bleibt aktiv; der Vorfall wird nur protokolliert.
+Die ersten beiden Zeilen sind die eigenen Standardwerte der Strategie für diese beiden Typen. Der
+Enforcement-Proxy reicht eine von Ihrem Code geworfene `PluginExecutionException` oder
+`PluginFatalException` jedoch unverändert durch, ohne die Strategie zu befragen: wenn Sie eine davon
+selbst werfen, wird die Aktion ihrer Zeile nie ausgelöst - insbesondere nicht `UNLOAD`, und auch ein
+vom Host für sie konfigurierter Eintrag (z. B. `CRASH`) wird nicht angewendet. Über jede andere
+Ausnahme entscheidet die Strategie.
+
+* `IGNORE` - Ihr Plugin bleibt aktiv. Der Aufruf selbst schlägt trotzdem fehl: der Aufrufer auf
+  Host-Seite erhält eine `PluginExecutionException`, die die ursprüngliche Ausnahme als `cause`
+  trägt.
 * `UNLOAD` - Ihr Plugin wird zwangsweise deaktiviert: `onDisable`/`onUnload` werden aufgerufen,
   sofern Sie [`PluginLifecycle`](lifecycle.de.md) implementieren, der Classloader Ihres Plugins wird
-  verworfen, und es wird als deaktiviert persistiert. Eine spätere Reaktivierung erfordert einen
-  vollständigen Reload und eine erneute Sicherheitsprüfung.
+  verworfen, und es wird als deaktiviert persistiert. Der Aufrufer erhält eine
+  `PluginFatalException`, die die ursprüngliche Ausnahme als `cause` trägt. Eine spätere
+  Reaktivierung erfordert einen vollständigen Reload und eine erneute Sicherheitsprüfung.
 * `CRASH` - ein Host kann dies für bestimmte Ausnahmetypen konfigurieren; es hält die gesamte
   Host-JVM an. Bewusst nichts, was ein Plugin jemals absichtlich auslösen sollte.
 
@@ -74,6 +87,9 @@ Der Proxy fängt Aufrufe ab, die über den deklarierten API-Typ des Erweiterungs
 Aufgrund der Natur der JVM kann er Folgendes nicht abfangen:
 
 * `final`-Methoden (sie können vom Proxy nicht überschrieben werden).
+* `protected` und package-private Methoden einer offenen Klasse: die generierte
+  ByteBuddy-Unterklasse fängt nur `public`, nicht-`final` Methoden ab (bei einem Interface als
+  API-Typ wird jede Interface-Methode abgefangen).
 * Direkten Feldzugriff (Felder werden nie geproxyt, nur Methodenaufrufe).
 * `static`-Methoden (es gibt keine Instanz, die geproxyt werden könnte).
 

@@ -15,6 +15,7 @@ package org.pcsoft.framework.pluggiat.manifest
 import java.io.ByteArrayInputStream
 import java.util.Base64
 import javax.imageio.ImageIO
+import javax.imageio.stream.MemoryCacheImageInputStream
 
 /**
  * Detects the image format of a plugin's Base64-encoded `icon` field.
@@ -32,7 +33,8 @@ internal object IconDetector {
      * For raster formats, this is the uppercase format name reported by the responsible `ImageIO`
      * reader (e.g. `"PNG"`, `"JPEG"`). For vector icons, `"SVG"` is returned.
      *
-     * @throws IconFormatException if the content is not valid Base64 or its image format is not recognised
+     * @throws IconFormatException if the content is not valid Base64, its image format is not recognised,
+     * or the image reading facility of the JVM is unavailable (e.g. no `java.desktop` module)
      */
     fun detectFormat(base64Icon: String): String {
         // SECURITY: the icon is plugin-controlled text; a decode failure is reported as an invalid manifest
@@ -49,14 +51,21 @@ internal object IconDetector {
 
         // SECURITY: only the format is detected here - the image is never decoded into pixels, so a crafted
         // SECURITY: image cannot reach an image codec's parsing code during the scan.
-        ImageIO.createImageInputStream(ByteArrayInputStream(bytes)).use { imageInputStream ->
-            val readers = ImageIO.getImageReaders(imageInputStream)
-            if (readers.hasNext()) {
-                return readers.next().formatName.uppercase()
+        // SECURITY: a memory-backed stream is used directly instead of ImageIO.createImageInputStream, which
+        // SECURITY: would write a temporary file whenever the JVM-wide ImageIO cache is enabled.
+        val format = try {
+            MemoryCacheImageInputStream(ByteArrayInputStream(bytes)).use { imageInputStream ->
+                val readers = ImageIO.getImageReaders(imageInputStream)
+                if (readers.hasNext()) readers.next().formatName.uppercase() else null
             }
+        } catch (e: LinkageError) {
+            throw IconFormatException("Icon format cannot be checked, the image reading facility is unavailable (${e.javaClass.simpleName})")
+        } catch (e: RuntimeException) {
+            throw IconFormatException("Icon format cannot be checked, the image reading facility failed (${e.javaClass.simpleName})")
         }
 
-        throw IconFormatException("Icon format could not be recognised by any registered ImageIO reader or as SVG")
+        return format
+            ?: throw IconFormatException("Icon format could not be recognised by any registered ImageIO reader or as SVG")
     }
 
     private fun looksLikeSvg(bytes: ByteArray): Boolean {

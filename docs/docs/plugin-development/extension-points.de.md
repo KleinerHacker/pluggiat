@@ -60,13 +60,18 @@ flowchart LR
         K2["Schlüssel &quot;renderer&quot;"]
         PA2["Ihr Plugin<br/>MyRenderer"] -->|abgelehnt| K2
         PB2["Anderes Plugin<br/>TheirRenderer"] -->|abgelehnt| K2
-        K2 --> Warn["Beide Plugins vollständig abgelehnt,<br/>Warnung nennt beide Ids und den Schlüssel"]
+        K2 --> Warn["Erweiterungen beider Plugins abgelehnt,<br/>Warnung nennt beide Ids und den Schlüssel"]
     end
 ```
 
 Manche Erweiterungspunkte erlauben nur eine einzige aktive Implementierung über alle installierten
 Plugins hinweg. Wenn Ihr Plugin und ein anderes installiertes Plugin beide zum selben exklusiven
-Erweiterungspunkt-Schlüssel beitragen, werden **beide Plugins vollständig abgelehnt**, und es wird
-eine Warnung protokolliert, die beide Plugin-IDs sowie den betroffenen Schlüssel nennt. Ob ein
+Erweiterungspunkt-Schlüssel beitragen, werden **die Erweiterungen aller beitragenden Plugins
+abgelehnt**: keine davon wird dem Host für diesen Schlüssel übergeben, und es wird eine Warnung
+protokolliert, die alle beitragenden Plugin-IDs sowie den betroffenen Schlüssel nennt. Ob ein
 gegebener Erweiterungspunkt exklusiv ist, legt der Host fest; konsultieren Sie dessen Dokumentation
 für die von ihm angebotenen Erweiterungspunkte.
+
+Das Ablehnen der Erweiterungen entlädt die Plugins selbst nicht: sie bleiben geladen und behalten
+ihren Scan-Status. Ihre Erweiterungsimplementierungen waren bereits instanziiert, und
+`onLoad`/`onEnable` war auf ihnen bereits aufgerufen worden, bevor der Konflikt erkannt wurde.

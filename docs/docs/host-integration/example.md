@@ -141,8 +141,9 @@ for (problem in problems) {
     logger.warn("Plugin at {} not loaded: {} ({})", problem.path, problem.status, problem.errorMessage)
 }
 
-val exporters: List<Exporter> = manager.getExtensions("exporters")
-exportMenu.populate(exporters.map { it to (manager.registry.registrationFor("exporters")) })
+// Every resolved extension carries its instance and its mapped configuration (fileExtension, displayName).
+val exporters = manager.extensionsByKey["exporters"].orEmpty()
+exportMenu.populate(exporters.map { (it.instance as Exporter) to (it.configuration as ExporterConfig) })
 ```
 
 This single call resolves id collisions across `builtin`/`external`, checks every candidate's
@@ -161,9 +162,8 @@ check failed and there is no other strategy in the chain to fall back on. Per
 val rejected = manager.scanResults.first { it.status == PluginScanStatus.SECURITY_PROBLEM }
 
 if (userConfirmsDialog("'${rejected.manifest?.name}' is not signed by a known publisher. Load it anyway?")) {
-    manager.forceLoad(rejected.manifest!!.id)
     // No PersistableSecurityStrategy here (SignatureSecurityStrategy has no persistable state),
-    // so make the override stick with a generic exception instead:
+    // so a single call both loads the plugin and makes the override stick with a generic exception:
     manager.forceLoad(rejected.manifest!!.id, persistException = true)
 }
 ```

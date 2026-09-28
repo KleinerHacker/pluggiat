@@ -20,8 +20,6 @@ import org.pcsoft.framework.pluggiat.security.checksum.ChecksumAlgorithm
 import org.pcsoft.framework.pluggiat.security.checksum.MessageDigestChecksumAlgorithm
 import org.pcsoft.framework.pluggiat.security.checksum.digestsEqual
 import org.slf4j.LoggerFactory
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -119,54 +117,19 @@ class ChecksumSecurityStrategy(
     }
 
     /**
-     * The bytes covered by the checksum for [path]. For a
-     * [org.pcsoft.framework.pluggiat.scanner.MultiJarWithOwnFolderScanStrategy] candidate,
-     * [path] is the candidate's folder rather than a single file; in that case, the checksum covers
-     * the concatenated bytes of every `*.jar` file directly inside it, in deterministic (sorted)
-     * file name order.
+     * The bytes covered by the checksum for [path]: the candidate file's own bytes.
      */
     private fun candidateBytes(path: Path): ByteArray {
-        if (!Files.isDirectory(path)) {
-            logger.trace("Computing {} checksum of single-file candidate '{}'", algorithm.id, path)
-            return Files.readAllBytes(path)
-        }
-        val files = Files.newDirectoryStream(path, "*.jar").use { it.toList() }.sortedBy { it.fileName.toString() }
-        logger.trace("Computing {} checksum of candidate '{}' over {} file(s): {}", algorithm.id, path, files.size, files)
-        return concatenateWithLengthPrefixes(files.map { Files.readAllBytes(it) })
+        logger.trace("Computing {} checksum of candidate '{}'", algorithm.id, path)
+        return Files.readAllBytes(path)
     }
 
     /**
      * The bytes covered by the checksum for an already-pinned [content] - the pinned equivalent of
-     * [candidateBytes], over the same deterministic (sorted) file name order for a [PinnedPluginContent.Multi]
-     * candidate.
+     * [candidateBytes].
      */
     private fun candidateBytes(content: PinnedPluginContent): ByteArray = when (content) {
         is PinnedPluginContent.Single -> content.bytes
-        is PinnedPluginContent.Multi -> concatenateWithLengthPrefixes(content.filesByName.toSortedMap().values.toList())
-    }
-
-    /**
-     * Concatenates the files of a multi-file candidate, each prefixed with its own length in bytes, so
-     * exactly one set of files can produce any given digest input.
-     *
-     * A plain concatenation is ambiguous: moving bytes from the end of one JAR to the start of the next
-     * leaves the concatenation - and therefore the checksum - unchanged. A plugin shipped as a folder of
-     * JARs could exploit that to alter what its JARs contain while keeping the accepted checksum valid.
-     * Prefixing each file's length pins the split points as well as the bytes.
-     *
-     * Note that this changes the digest of multi-file candidates compared to earlier versions; their
-     * persisted checksum has to be accepted once more. Single-file candidates are unaffected - there is
-     * no boundary to be ambiguous about.
-     */
-    private fun concatenateWithLengthPrefixes(files: List<ByteArray>): ByteArray {
-        val out = ByteArrayOutputStream()
-        for (bytes in files) {
-            // SECURITY: the length prefix pins the boundary between files, so bytes cannot be moved from one
-            // SECURITY: JAR into the next while keeping the digest unchanged.
-            out.write(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
-            out.write(bytes)
-        }
-        return out.toByteArray()
     }
 
     companion object {

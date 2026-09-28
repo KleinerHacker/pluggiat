@@ -14,8 +14,13 @@ package org.pcsoft.framework.pluggiat.manifest
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.Base64
+import javax.imageio.ImageIO
 
 class IconDetectorTest {
 
@@ -61,5 +66,27 @@ class IconDetectorTest {
     @Test
     fun `throws for content that is not valid Base64`() {
         assertThrows(IconFormatException::class.java) { IconDetector.detectFormat("not-base64!!!") }
+    }
+
+    /**
+     * Use case: detecting a raster format must not write a temporary cache file even while the
+     * JVM-wide ImageIO disk cache is enabled, because the plugin-controlled icon bytes are read through
+     * a memory-backed stream only.
+     */
+    @Test
+    fun `detection does not write an ImageIO cache file`(@TempDir cacheDir: Path) {
+        val originalUseCache = ImageIO.getUseCache()
+        val originalCacheDirectory = ImageIO.getCacheDirectory()
+        try {
+            ImageIO.setUseCache(true)
+            ImageIO.setCacheDirectory(cacheDir.toFile())
+
+            assertEquals("PNG", IconDetector.detectFormat(pngBase64))
+
+            Files.list(cacheDir).use { files -> assertTrue(files.findAny().isEmpty) }
+        } finally {
+            ImageIO.setUseCache(originalUseCache)
+            ImageIO.setCacheDirectory(originalCacheDirectory)
+        }
     }
 }

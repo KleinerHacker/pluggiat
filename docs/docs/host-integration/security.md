@@ -83,8 +83,7 @@ val scanner = PluginScanner(
 
 ## Checksum algorithms
 
-Both `SignatureSecurityStrategy`'s checksum list (for `MultiJarWithOwnFolderScanStrategy`, see
-below) and `ChecksumSecurityStrategy` compute checksums via a pluggable
+`ChecksumSecurityStrategy` computes checksums via a pluggable
 `org.pcsoft.framework.pluggiat.security.checksum.ChecksumAlgorithm`:
 
 ```kotlin
@@ -95,8 +94,8 @@ interface ChecksumAlgorithm {
 ```
 
 The shipped implementation, `MessageDigestChecksumAlgorithm`, wraps any `java.security.MessageDigest`
-algorithm name understood by the JVM (e.g. `"MD5"`, `"SHA-256"`, `"SHA-512"`, ...). Both strategies
-default to `MessageDigestChecksumAlgorithm("SHA-512")` unless configured otherwise:
+algorithm name understood by the JVM (e.g. `"MD5"`, `"SHA-256"`, `"SHA-512"`, ...). The strategy
+defaults to `MessageDigestChecksumAlgorithm("SHA-512")` unless configured otherwise:
 
 ```kotlin
 val strategy = ChecksumSecurityStrategy(myPersistenceStrategy, algorithm = MessageDigestChecksumAlgorithm("SHA-256"))
@@ -119,18 +118,11 @@ Requires the candidate to be signed with a key resolved via an injected
 `org.pcsoft.framework.pluggiat.security.publickey.PublicKeyProviderStrategy` (see
 [Public key providers](public-key-providers.md) for the shipped implementations), looked up by
 the plugin's manifest `id`. Verification uses the JDK's standard JAR code-signing mechanism
-(`jarsigner`/`JarFile(verify = true)`):
-
-* `SingleJarScanStrategy`/`ZipJarScanStrategy` candidates: the candidate file itself (the `.jar` or
-  the `.zip`) must be signed. Signing a `.zip` uses the exact same mechanism as signing a `.jar` -
-  a signed JAR structurally *is* a specially structured ZIP, so the file extension makes no
-  difference to signature verification.
-* `MultiJarWithOwnFolderScanStrategy` candidates: the manifest JAR inside the candidate folder must
-  be signed, and must additionally contain a `META-INF/plugin-checksums.txt` entry listing a
-  checksum (via the strategy's configured [`ChecksumAlgorithm`](#checksum-algorithms), SHA-512 by
-  default) for every other JAR in the folder (one `<hex-digest>  <file-name>` line each, two
-  spaces, matching e.g. `sha512sum`'s output format); every listed checksum must match the actual
-  sibling file.
+(signatures created with `jarsigner`, verified through a `JarInputStream` with verification enabled
+over the candidate's pinned bytes, see [Hardening of the check itself](#hardening-of-the-check-itself)):
+the candidate file itself (the `.jar` or the `.zip`) must be signed. Signing a `.zip` uses the exact
+same mechanism as signing a `.jar` - a signed JAR structurally *is* a specially structured ZIP, so
+the file extension makes no difference to signature verification.
 
 #### Creating a valid signature per scan strategy
 
@@ -145,9 +137,9 @@ is the one a `PublicKeyProviderStrategy` implementation must later resolve for t
 jarsigner -keystore my-signing.jks -storepass <password> plugin-a.jar my-signing-alias
 ```
 
-**`ZipJarScanStrategy`** - build the `.zip` exactly like a `MultiJarWithOwnFolderScanStrategy`
-folder (manifest JAR + any other JARs directly inside it, see below), then sign the finished `.zip`
-file itself with the very same command, just pointed at the `.zip` instead of a `.jar`:
+**`ZipJarScanStrategy`** - build the `.zip` from the manifest JAR plus any other JARs of the plugin,
+then sign the finished `.zip` file itself with the very same command, just pointed at the `.zip`
+instead of a `.jar`:
 
 ```shell
 jarsigner -keystore my-signing.jks -storepass <password> plugin-a.zip my-signing-alias
@@ -155,29 +147,6 @@ jarsigner -keystore my-signing.jks -storepass <password> plugin-a.zip my-signing
 
 This works because `jarsigner` only cares about the ZIP container format, not the file extension -
 a signed JAR *is* a ZIP with an added `META-INF/MANIFEST.MF` plus signature entries.
-
-**`MultiJarWithOwnFolderScanStrategy`** - only the manifest JAR (the one containing
-`META-INF/plugin.yml`/`plugin.yaml`) gets signed, not the other JARs in the folder. Before signing
-it, add a `META-INF/plugin-checksums.txt` entry to it listing the checksum of every other JAR in the
-folder for whichever `ChecksumAlgorithm` the host configures the strategy with (SHA-512 by default,
-shown here with `sha512sum`):
-
-```shell
-# from inside the plugin's folder, next to plugin-a-manifest.jar and plugin-a-lib.jar
-sha512sum plugin-a-lib.jar > plugin-checksums.txt
-mkdir -p META-INF && mv plugin-checksums.txt META-INF/
-jar uf plugin-a-manifest.jar META-INF/plugin-checksums.txt
-jarsigner -keystore my-signing.jks -storepass <password> plugin-a-manifest.jar my-signing-alias
-```
-
-If the host configures `SignatureSecurityStrategy` with a different `ChecksumAlgorithm`, use the
-matching command instead (e.g. `sha256sum`/`md5sum`) - the algorithm used to produce the checksum
-list must match the one the strategy is configured with, or every checksum will simply mismatch.
-
-The checksum list must be added **before** signing, since `jarsigner` needs to cover it with the
-signature; if any other JAR in the folder changes afterwards without re-running this whole sequence,
-`SignatureSecurityStrategy` reports a checksum mismatch even though the manifest JAR's own signature
-is still technically valid.
 
 ### `ChecksumSecurityStrategy`
 
@@ -195,7 +164,7 @@ plugin file changed) are treated identically as a **failed** check - the framewo
 
 !!! note "Migration note (breaking change)"
 
-    Prior to IP-06, `ChecksumSecurityStrategy` took a separate `ExpectedChecksumCallback`, and an
+    In earlier versions, `ChecksumSecurityStrategy` took a separate `ExpectedChecksumCallback`, and an
     approved checksum was recorded through a dedicated `ChecksumPersistenceCallback`. Both were
     removed in favor of the single, generic [`PluginPersistenceStrategy`](persistence.md) (key
     `"checksum"`), which now also backs the plugin enabled/disabled status.
@@ -247,13 +216,19 @@ A strategy that knows how to persist its own accepted state can implement
 ```kotlin
 interface PersistableSecurityStrategy : PluginSecurityStrategy {
     fun persist(pluginId: String, result: PluginScanResult)
+
+    // Defaults to the path-based persist(pluginId, result) above.
+    fun persist(pluginId: String, result: PluginScanResult, pinnedContent: PinnedPluginContent?)
 }
 ```
 
 `ChecksumSecurityStrategy` implements it: `persist` computes the candidate's actual checksum and
 writes it as the new expected checksum. A host does not need to know the strategy's persistence key
 or how to recompute its value itself - `PluginManager.write` looks up the configured strategy
-instance of the given type for the plugin and delegates to it:
+instance of the given type for the plugin and delegates to it, through the overload that takes the
+candidate's pinned bytes (see [Hardening of the check itself](#hardening-of-the-check-itself)). A
+strategy that derives nothing from the candidate's content only has to implement the first overload,
+because the second one falls back to it by default:
 
 ```kotlin
 manager.forceLoad(pluginId)
@@ -288,15 +263,18 @@ Beyond choosing and chaining strategies, the security chain has several hardenin
 apply regardless of which strategy or strategies a location uses:
 
 * **Byte-pinning closes the check-to-load gap (TOCTOU).** A candidate's bytes are read from disk
-  exactly once, during the scan's security check, into a `PinnedPluginContent`; the same pinned
-  bytes - not a second, fresh read of the file - are what actually gets loaded afterwards. A
-  candidate swapped on disk between the check and the load can therefore no longer slip past the
-  chain: whatever content the check verified is exactly what runs. Both the security check and the
-  loader resolve ZIP/JAR entries through the same shared resolution logic, so a JAR with duplicate
-  entry names cannot be verified as one entry and loaded as another.
-* **Checksum comparison is constant-time.** `ChecksumSecurityStrategy` (and `SignatureSecurityStrategy`'s
-  per-file checksum list) compares digests via `MessageDigest.isEqual` instead of `String.equals`,
-  avoiding a timing side channel on the comparison itself.
+  exactly once, during the scan's security check, into a `PinnedPluginContent`; once the candidate
+  has passed the chain, the same pinned bytes - not a second, fresh read of the file - are what
+  actually gets loaded afterwards. A candidate swapped on disk between the check and the load can
+  therefore no longer slip past the chain: whatever content the check verified is exactly what runs.
+  `reload`/`reactivate` re-check and pin the candidate again. Both the security check and the loader
+  resolve ZIP/JAR entries through the same shared resolution logic, so a JAR with duplicate entry names
+  cannot be verified as one entry and loaded as another. This holds for candidates that passed their
+  chain: a candidate that failed it (`SECURITY_PROBLEM`) carries no pinned bytes, so
+  `PluginManager.forceLoad` - the host's explicit override - reads it from disk again.
+* **Checksum comparison is constant-time.** `ChecksumSecurityStrategy` compares digests via
+  `MessageDigest.isEqual` instead of `String.equals`, avoiding a timing side channel on the comparison
+  itself.
 * **An expired or not-yet-valid signing certificate fails the check.** `SignatureSecurityStrategy`
   additionally calls `X509Certificate.checkValidity()` on the signer's certificate; a key that used
   to be valid but has since expired is no longer silently accepted just because the public key still
@@ -308,8 +286,8 @@ apply regardless of which strategy or strategies a location uses:
   longer win a colliding id away from an already-verified candidate by simply declaring a higher
   manifest `version`.
 * **Reading a candidate is bounded.** Before any strategy runs, the candidate's own bytes are read
-  under fixed limits: candidate file size and total candidate size, unpacked size per archive entry and
-  per candidate, archive nesting depth, and manifest size. A candidate exceeding one of them becomes a
+  under fixed limits: candidate file size, unpacked size per archive entry and per candidate, archive
+  nesting depth, and manifest size. A candidate exceeding one of them becomes a
   `SECURITY_PROBLEM` with the limit named in its `errorMessage`, instead of taking the host JVM down
   with an `OutOfMemoryError` while merely being read - an attack that would otherwise need neither a
   signature nor a successful load. The limits are deliberately not configurable.
@@ -323,12 +301,14 @@ apply regardless of which strategy or strategies a location uses:
   searches every key ring of the response and accepts only a key whose fingerprint or 64-bit key id
   matches the one asked for; anything else resolves to `null`. Its base URL must use `https://` (a
   loopback host may use plain HTTP), so the response cannot be replaced in transit.
-* **Accepting a candidate accepts its checked bytes.** `PluginManager.write` and
-  `ChecksumSecurityStrategy.persist` derive the state they persist from the candidate's pinned bytes,
-  not from a fresh read of its path - a candidate swapped between the failed check and the host's
-  decision cannot have its own checksum persisted as trusted. For a multi-JAR candidate, each file's
-  bytes are length-prefixed before digesting, so bytes cannot be shifted across file boundaries while
-  keeping the checksum valid.
+* **Accepting a candidate accepts its checked bytes - when it was pinned.** `PluginManager.write` hands
+  the candidate's pinned bytes to `PersistableSecurityStrategy.persist`, and
+  `ChecksumSecurityStrategy.persist` derives the checksum it stores from those bytes, not from a fresh
+  read of the candidate's path. A candidate that failed its security check - which is exactly the case
+  in the documented approval flow (`forceLoad`, then `write<ChecksumSecurityStrategy>`) - has no pinned
+  bytes, because the scanner only pins candidates that passed the chain. `persist` then falls back to
+  reading the path and logs a `WARN`: what is accepted is whatever is on disk at that moment, so in that
+  flow a candidate swapped between the failed check and the host's decision is not protected.
 
 ### Restrictions
 

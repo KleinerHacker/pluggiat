@@ -24,7 +24,7 @@ import java.nio.file.Path
  *
  * Deliberately unaware of [org.pcsoft.framework.pluggiat.scanner.PluginScanResult] or any other
  * scanner/security type beyond [PinnedPluginContent] - it only needs a candidate's own [Path]
- * (single JAR, own folder, or ZIP file, auto-detected) or already-pinned [PinnedPluginContent], and
+ * (single JAR or ZIP file, auto-detected) or already-pinned [PinnedPluginContent], and
  * its already-parsed [PluginManifest]. It performs no security check of its own and is
  * unconditionally callable regardless of any prior security outcome - deciding *whether* loading a
  * given plugin is warranted, and logging that decision, is entirely up to the caller.
@@ -100,7 +100,6 @@ class PluginLoader(
 
     private fun createClassLoader(path: Path, dependencyClassLoaders: List<PluginClassLoader>): Pair<PluginClassLoader, FileSystem?> =
         when {
-            Files.isDirectory(path) -> classLoaderFromJars(jarsIn(path), dependencyClassLoaders) to null
             path.toString().endsWith(".zip") -> {
                 // SECURITY: the mounted file system is returned to the caller, which hands it to LoadedPlugin
                 // SECURITY: so closing the plugin also closes this mount - an open mount would keep the

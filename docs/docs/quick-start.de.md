@@ -41,6 +41,8 @@ Das Maven-Äquivalent und die benötigten GitHub-Packages-Zugangsdaten siehe
 Die eigene Plugin-API - der einzige pluggiat-unabhängige Typ, den ein Plugin-Autor kennen muss:
 
 ```kotlin
+package com.example.host.api
+
 interface Greeter {
     fun greet(): String
 }
@@ -77,6 +79,9 @@ val manager = pluginManager {
         type = PluginLocationType.EXTERNAL
         addStrategy(InsecureSecurityStrategy()) // local development only, see Security
     }
+    sdkWhitelistEntry {
+        packageName = "com.example.host.api" // the package of Greeter, visible to the plugins
+    }
     extensionPoint(GreeterConfig::class)
 }
 ```
@@ -84,6 +89,11 @@ val manager = pluginManager {
 `InsecureSecurityStrategy` führt überhaupt keine Prüfung durch - für einen ersten Lauf gegen
 selbst geschriebene Plugins in Ordnung, aber vor der Annahme fremder Plugins zu ersetzen; siehe
 [Sicherheit](host-integration/security.de.md).
+
+`sdkWhitelistEntry` macht das Paket der eigenen Plugin-API für die isolierten Class Loader der
+Plugins sichtbar. Ohne diesen Eintrag sieht ein Plugin `Greeter` nicht, seine Implementierung kann
+nicht dagegen gelinkt werden und `scan()` schlägt fehl; siehe
+[SDK-Whitelist](host-integration/sdk-whitelist.de.md).
 
 ## 4. Plugins scannen, laden und nutzen
 

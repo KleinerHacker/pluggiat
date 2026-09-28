@@ -23,7 +23,6 @@ import org.pcsoft.framework.pluggiat.security.InsecureSecurityStrategy
 import org.pcsoft.framework.pluggiat.security.PluginSecurity
 import java.io.ByteArrayOutputStream
 import java.io.RandomAccessFile
-import java.nio.file.Files
 import java.nio.file.Path
 import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
@@ -83,26 +82,6 @@ class PluginResourceLimitsTest {
         }
 
         assertTrue(exception.message!!.contains("maximum candidate file size"))
-    }
-
-    /**
-     * Use case: a folder candidate whose files are individually acceptable but together exceed
-     * [PluginResourceLimits.MAX_CANDIDATE_TOTAL_SIZE_BYTES] is rejected as well - the per-file bound
-     * alone could otherwise be circumvented by shipping many merely large JARs.
-     */
-    @Test
-    fun `rejects a folder candidate above the total size limit`(@TempDir tempDir: Path) {
-        val folder = Files.createDirectory(tempDir.resolve("plugin-a"))
-        // Each file is exactly at the per-file bound, so only their sum can trip the total bound.
-        val perFileMaximum = PluginResourceLimits.MAX_CANDIDATE_FILE_SIZE_BYTES
-        val fileCount = (PluginResourceLimits.MAX_CANDIDATE_TOTAL_SIZE_BYTES / perFileMaximum + 1).toInt()
-        repeat(fileCount) { index -> sparseFileOf(folder.resolve("jar-$index.jar"), perFileMaximum) }
-
-        val exception = assertThrows(PluginContentLimitExceededException::class.java) {
-            PinnedPluginContentReader.read(folder)
-        }
-
-        assertTrue(exception.message!!.contains("maximum total size"))
     }
 
     /**

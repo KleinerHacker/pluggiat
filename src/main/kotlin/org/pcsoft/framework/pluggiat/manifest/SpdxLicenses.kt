@@ -27,6 +27,14 @@ internal object SpdxLicenses {
 
     private const val RESOURCE_PATH = "/spdx/spdx-license-ids.json"
 
+    private val EXPRESSION_SEPARATOR = Regex("[\\s()]+")
+
+    private val OPERATORS = setOf("AND", "OR")
+
+    private const val EXCEPTION_OPERATOR = "WITH"
+
+    private val USER_DEFINED_PREFIXES = listOf("LicenseRef-", "DocumentRef-")
+
     private data class SpdxLicenseIds(
         val licenseListVersion: String,
         val licenseIds: List<String>,
@@ -57,4 +65,33 @@ internal object SpdxLicenses {
      * The comparison is case-sensitive, matching the canonical casing of the SPDX license list.
      */
     fun isKnownSpdxId(licenseId: String): Boolean = licenseId in licenseIds
+
+    /**
+     * Returns every identifier of the given SPDX license [expression] that is not a known SPDX license
+     * identifier; an empty list means the expression is recognised.
+     *
+     * The expression is split at whitespace and parentheses. The operators `AND`, `OR` and `WITH` are
+     * skipped, the exception identifier following `WITH` is not checked (it belongs to the separate SPDX
+     * exception list), a trailing `+` ("or later") is ignored, and user-defined `LicenseRef-`/`DocumentRef-`
+     * identifiers are accepted. A blank expression yields the expression itself as unknown.
+     */
+    fun unknownIds(expression: String): List<String> {
+        val tokens = expression.split(EXPRESSION_SEPARATOR).filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) {
+            return listOf(expression)
+        }
+
+        val unknown = mutableListOf<String>()
+        var skipNext = false
+        for (token in tokens) {
+            when {
+                skipNext -> skipNext = false
+                token.equals(EXCEPTION_OPERATOR, ignoreCase = true) -> skipNext = true
+                OPERATORS.any { it.equals(token, ignoreCase = true) } -> Unit
+                USER_DEFINED_PREFIXES.any { token.startsWith(it) } -> Unit
+                !isKnownSpdxId(token.removeSuffix("+")) -> unknown += token
+            }
+        }
+        return unknown
+    }
 }

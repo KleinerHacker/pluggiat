@@ -19,9 +19,11 @@ mismatch - never a thrown exception. Three implementations ship with the framewo
     * Prefer `TrustStorePublicKeyProviderStrategy` over hardcoding a key in code
       (`DirectPublicKeyProviderStrategy`) once you manage more than one signing key or expect to
       rotate one.
-    * `OpenPgpKeyserverPublicKeyProviderStrategy` trusts whatever the keyserver returns for a key id -
-      pin `keyIdResolver` to fingerprints you resolved and recorded yourself, not to a name-based
-      search, and keep `cacheDuration` short enough to notice a revoked key in reasonable time.
+    * `OpenPgpKeyserverPublicKeyProviderStrategy` only accepts a key from the keyserver's answer whose
+      fingerprint or 64-bit key id matches the id it asked for, and requires an `https://` base URL -
+      but a short key id is still a weak identifier, so pin `keyIdResolver` to full fingerprints you
+      resolved and recorded yourself, not to a name-based search, and keep `cacheDuration` short
+      enough to notice a revoked key in reasonable time.
     * A `null` resolution is a silent, logged failure, not an exception - make sure your own
       monitoring surfaces the resulting `SECURITY_PROBLEM`, since nothing else will page you about it.
 
@@ -73,8 +75,14 @@ val provider = OpenPgpKeyserverPublicKeyProviderStrategy(
 * The lookup uses the standard HKP `GET /pks/lookup?op=get&options=mr&search=0x<keyId>` endpoint,
   so any HKP-compatible keyserver can be configured via `keyserverBaseUrl`, not just
   `keys.openpgp.org`.
-* A resolved key's signing-capable master key is converted to a `java.security.PublicKey` via
-  Bouncy Castle's OpenPGP support (RFC 9580).
+* `keyserverBaseUrl` must use `https://` (a loopback host may use plain HTTP); anything else makes the
+  constructor throw an `IllegalArgumentException`.
+* The keyserver's answer is bound to the requested key id: every key ring of the response is searched,
+  and only a key whose fingerprint or 64-bit key id matches the requested one is accepted - a response
+  without such a key resolves to `null`.
+* Among the matching keys, the master key is preferred (otherwise the first matching key is taken) and
+  converted to a `java.security.PublicKey` via Bouncy Castle's OpenPGP support (RFC 9580). Whether that
+  key is signing-capable is not checked.
 * `timeout` bounds both connection and request time; an unreachable or slow keyserver resolves to
   `null` (logged as a WARN) instead of blocking the scan path.
 * `cacheDuration` bounds how long a lookup result - successful or failed - is kept in memory before

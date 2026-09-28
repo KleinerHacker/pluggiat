@@ -12,6 +12,7 @@
 
 package org.pcsoft.framework.pluggiat.manifest
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -42,5 +43,74 @@ class SpdxLicensesTest {
     @Test
     fun `identifier match is case-sensitive`() {
         assertFalse(SpdxLicenses.isKnownSpdxId("apache-2.0"))
+    }
+
+    /**
+     * Use case: a plain, known identifier yields no unknown ids.
+     */
+    @Test
+    fun `unknownIds is empty for a single known identifier`() {
+        assertEquals(emptyList<String>(), SpdxLicenses.unknownIds("Apache-2.0"))
+    }
+
+    /**
+     * Use case: a compound expression of known identifiers joined with `OR`, `AND` and parentheses is
+     * recognised, the operators themselves are not reported as unknown.
+     */
+    @Test
+    fun `unknownIds accepts compound expressions with operators and parentheses`() {
+        assertEquals(emptyList<String>(), SpdxLicenses.unknownIds("(Apache-2.0 OR MIT) AND BSD-3-Clause"))
+    }
+
+    /**
+     * Use case: operators are matched case-insensitively, since SPDX allows lower-case operators.
+     */
+    @Test
+    fun `unknownIds treats operators case-insensitively`() {
+        assertEquals(emptyList<String>(), SpdxLicenses.unknownIds("Apache-2.0 or MIT"))
+    }
+
+    /**
+     * Use case: the exception identifier after `WITH` belongs to the separate SPDX exception list and
+     * is therefore not checked against the license identifiers.
+     */
+    @Test
+    fun `unknownIds skips the exception identifier following WITH`() {
+        assertEquals(emptyList<String>(), SpdxLicenses.unknownIds("GPL-2.0-only WITH Classpath-exception-2.0"))
+    }
+
+    /**
+     * Use case: the "or later" suffix `+` is ignored when looking the identifier up.
+     */
+    @Test
+    fun `unknownIds ignores the or-later plus suffix`() {
+        assertEquals(emptyList<String>(), SpdxLicenses.unknownIds("GPL-2.0+"))
+    }
+
+    /**
+     * Use case: user-defined `LicenseRef-` and `DocumentRef-` identifiers are valid SPDX syntax and are
+     * accepted without a lookup.
+     */
+    @Test
+    fun `unknownIds accepts user-defined LicenseRef and DocumentRef identifiers`() {
+        assertEquals(emptyList<String>(), SpdxLicenses.unknownIds("LicenseRef-Internal OR DocumentRef-Other:LicenseRef-X"))
+    }
+
+    /**
+     * Use case: every identifier of an expression that is not on the SPDX list is reported, while the
+     * known ones next to it are not.
+     */
+    @Test
+    fun `unknownIds reports exactly the unknown identifiers`() {
+        assertEquals(listOf("Custom", "License"), SpdxLicenses.unknownIds("Apache-2.0 Custom License"))
+    }
+
+    /**
+     * Use case: a blank license expression is reported as unknown as a whole instead of passing as an
+     * expression without any identifier.
+     */
+    @Test
+    fun `unknownIds reports a blank expression as unknown`() {
+        assertEquals(listOf("  "), SpdxLicenses.unknownIds("  "))
     }
 }

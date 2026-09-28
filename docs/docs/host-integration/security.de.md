@@ -89,21 +89,19 @@ val scanner = PluginScanner(
 
 ## Prüfsummenalgorithmen
 
-Sowohl die Prüfsummenliste von `SignatureSecurityStrategy` (für
-`MultiJarWithOwnFolderScanStrategy`, siehe unten) als auch `ChecksumSecurityStrategy` berechnen
-Prüfsummen über einen pluggbaren
+`ChecksumSecurityStrategy` berechnet Prüfsummen über einen pluggbaren
 `org.pcsoft.framework.pluggiat.security.checksum.ChecksumAlgorithm`:
 
 ```kotlin
 interface ChecksumAlgorithm {
     val id: String
-    fun digest(bytes: ByteArray): String // hex-kodiert
+    fun digest(bytes: ByteArray): String // hex-encoded
 }
 ```
 
 Die mitgelieferte Implementierung `MessageDigestChecksumAlgorithm` umschließt jeden von der JVM
 verstandenen `java.security.MessageDigest`-Algorithmusnamen (z. B. `"MD5"`, `"SHA-256"`,
-`"SHA-512"`, ...). Beide Strategien verwenden standardmäßig
+`"SHA-512"`, ...). Die Strategie verwendet standardmäßig
 `MessageDigestChecksumAlgorithm("SHA-512")`, sofern nicht anders konfiguriert:
 
 ```kotlin
@@ -129,18 +127,12 @@ Verlangt, dass der Kandidat mit einem über eine injizierte
 `org.pcsoft.framework.pluggiat.security.publickey.PublicKeyProviderStrategy` aufgelösten Schlüssel
 signiert ist (siehe [Public-Key-Provider](public-key-providers.de.md) für die mitgelieferten
 Implementierungen), nachgeschlagen anhand der Manifest-`id` des Plugins. Die Verifikation nutzt den
-Standard-JAR-Signaturmechanismus der JDK (`jarsigner`/`JarFile(verify = true)`):
-
-* Kandidaten von `SingleJarScanStrategy`/`ZipJarScanStrategy`: die Kandidatendatei selbst (die
-  `.jar` oder die `.zip`) muss signiert sein. Das Signieren einer `.zip` verwendet exakt denselben
-  Mechanismus wie das Signieren einer `.jar` - eine signierte JAR *ist* strukturell eine speziell
-  aufgebaute ZIP, sodass die Dateiendung für die Signaturprüfung keinen Unterschied macht.
-* Kandidaten von `MultiJarWithOwnFolderScanStrategy`: die Manifest-JAR innerhalb des
-  Kandidatenordners muss signiert sein und zusätzlich einen `META-INF/plugin-checksums.txt`-Eintrag
-  enthalten, der für jede andere JAR im Ordner eine Prüfsumme auflistet (über den konfigurierten
-  [`ChecksumAlgorithm`](#prufsummenalgorithmen) der Strategie, standardmäßig SHA-512; je eine Zeile
-  `<hex-digest>  <file-name>` mit zwei Leerzeichen, passend z. B. zum Ausgabeformat von
-  `sha512sum`); jede aufgeführte Prüfsumme muss mit der tatsächlichen Nachbardatei übereinstimmen.
+Standard-JAR-Signaturmechanismus der JDK (mit `jarsigner` erzeugte Signaturen, verifiziert über einen
+`JarInputStream` mit aktivierter Verifikation über die gepinnten Bytes des Kandidaten, siehe
+[Härtung der Prüfung selbst](#hartung-der-prufung-selbst)): Die Kandidatendatei selbst (die `.jar`
+oder die `.zip`) muss signiert sein. Das Signieren einer `.zip` verwendet exakt denselben
+Mechanismus wie das Signieren einer `.jar` - eine signierte JAR *ist* strukturell eine speziell
+aufgebaute ZIP, sodass die Dateiendung für die Signaturprüfung keinen Unterschied macht.
 
 #### Eine gültige Signatur pro Scan-Strategie erzeugen
 
@@ -156,10 +148,9 @@ der JDK (in jeder JDK enthalten) - es ist kein plugin-spezifisches Tooling erfor
 jarsigner -keystore my-signing.jks -storepass <password> plugin-a.jar my-signing-alias
 ```
 
-**`ZipJarScanStrategy`** - die `.zip` genau wie einen `MultiJarWithOwnFolderScanStrategy`-Ordner
-aufbauen (Manifest-JAR + beliebige weitere JARs direkt darin, siehe unten), dann die fertige
-`.zip`-Datei selbst mit demselben Befehl signieren, nur eben auf die `.zip` statt auf eine `.jar`
-gerichtet:
+**`ZipJarScanStrategy`** - die `.zip` aus der Manifest-JAR und beliebigen weiteren JARs des Plugins
+aufbauen, dann die fertige `.zip`-Datei selbst mit demselben Befehl signieren, nur eben auf die
+`.zip` statt auf eine `.jar` gerichtet:
 
 ```shell
 jarsigner -keystore my-signing.jks -storepass <password> plugin-a.zip my-signing-alias
@@ -168,30 +159,6 @@ jarsigner -keystore my-signing.jks -storepass <password> plugin-a.zip my-signing
 Das funktioniert, weil sich `jarsigner` nur um das ZIP-Containerformat kümmert, nicht um die
 Dateiendung - eine signierte JAR *ist* eine ZIP mit hinzugefügter `META-INF/MANIFEST.MF` sowie
 Signatureinträgen.
-
-**`MultiJarWithOwnFolderScanStrategy`** - nur die Manifest-JAR (diejenige, die
-`META-INF/plugin.yml`/`plugin.yaml` enthält) wird signiert, nicht die anderen JARs im Ordner. Fügen
-Sie ihr vor dem Signieren einen `META-INF/plugin-checksums.txt`-Eintrag hinzu, der die Prüfsumme
-jeder anderen JAR im Ordner für den jeweils konfigurierten `ChecksumAlgorithm` der Strategie
-auflistet (standardmäßig SHA-512, hier mit `sha512sum` gezeigt):
-
-```shell
-# innerhalb des Plugin-Ordners, neben plugin-a-manifest.jar und plugin-a-lib.jar
-sha512sum plugin-a-lib.jar > plugin-checksums.txt
-mkdir -p META-INF && mv plugin-checksums.txt META-INF/
-jar uf plugin-a-manifest.jar META-INF/plugin-checksums.txt
-jarsigner -keystore my-signing.jks -storepass <password> plugin-a-manifest.jar my-signing-alias
-```
-
-Konfiguriert der Host `SignatureSecurityStrategy` mit einem anderen `ChecksumAlgorithm`, verwenden
-Sie stattdessen den passenden Befehl (z. B. `sha256sum`/`md5sum`) - der zur Erzeugung der
-Prüfsummenliste verwendete Algorithmus muss mit dem der Strategie konfigurierten übereinstimmen,
-sonst stimmt schlicht jede Prüfsumme nicht überein.
-
-Die Prüfsummenliste muss **vor** dem Signieren hinzugefügt werden, da `jarsigner` sie mit der
-Signatur abdecken muss; ändert sich danach eine andere JAR im Ordner, ohne diese gesamte Abfolge
-erneut auszuführen, meldet `SignatureSecurityStrategy` eine nicht übereinstimmende Prüfsumme, obwohl
-die Signatur der Manifest-JAR selbst technisch noch gültig ist.
 
 ### `ChecksumSecurityStrategy`
 
@@ -210,8 +177,8 @@ Prüfung behandelt - das Framework kennt keinen separaten "ausstehend"-Zustand.
 
 !!! note "Migrationshinweis (Breaking Change)"
 
-    Vor IP-06 nahm `ChecksumSecurityStrategy` einen separaten `ExpectedChecksumCallback` entgegen,
-    und eine genehmigte Prüfsumme wurde über einen eigenen `ChecksumPersistenceCallback`
+    In früheren Versionen nahm `ChecksumSecurityStrategy` einen separaten `ExpectedChecksumCallback`
+    entgegen, und eine genehmigte Prüfsumme wurde über einen eigenen `ChecksumPersistenceCallback`
     aufgezeichnet. Beide wurden zugunsten der einzigen, generischen
     [`PluginPersistenceStrategy`](persistence.de.md) (Schlüssel `"checksum"`) entfernt, die nun auch
     den aktiviert/deaktiviert-Status der Plugins trägt.
@@ -267,6 +234,9 @@ Eine Strategie, die ihren eigenen akzeptierten Zustand persistieren kann, kann z
 ```kotlin
 interface PersistableSecurityStrategy : PluginSecurityStrategy {
     fun persist(pluginId: String, result: PluginScanResult)
+
+    // Defaults to the path-based persist(pluginId, result) above.
+    fun persist(pluginId: String, result: PluginScanResult, pinnedContent: PinnedPluginContent?)
 }
 ```
 
@@ -274,7 +244,10 @@ interface PersistableSecurityStrategy : PluginSecurityStrategy {
 Kandidaten und schreibt sie als neue erwartete Prüfsumme. Ein Host muss weder den
 Persistenzschlüssel der Strategie noch die Berechnung ihres Werts selbst kennen -
 `PluginManager.write` sucht die konfigurierte Strategieinstanz des angegebenen Typs für das Plugin
-und delegiert an sie:
+und delegiert an sie, und zwar über die Überladung, die die gepinnten Bytes des Kandidaten
+entgegennimmt (siehe [Härtung der Prüfung selbst](#hartung-der-prufung-selbst)). Eine Strategie, die
+nichts aus dem Inhalt des Kandidaten ableitet, muss nur die erste Überladung implementieren, da die
+zweite standardmäßig auf sie zurückfällt:
 
 ```kotlin
 manager.forceLoad(pluginId)
@@ -315,17 +288,20 @@ Verzeichnis verwendet:
 
 * **Byte-Pinning schließt die Lücke zwischen Prüfung und Laden (TOCTOU).** Die Bytes eines
   Kandidaten werden genau einmal von der Festplatte gelesen, während der Sicherheitsprüfung des
-  Scans, und zwar in einen `PinnedPluginContent`; dieselben gepinnten Bytes - nicht ein zweites,
-  erneutes Lesen der Datei - sind das, was anschließend tatsächlich geladen wird. Ein Kandidat, der
-  zwischen Prüfung und Laden auf der Festplatte ausgetauscht wird, kann daher nicht mehr an der
-  Kette vorbeikommen: genau der Inhalt, den die Prüfung verifiziert hat, wird ausgeführt. Sowohl die
-  Sicherheitsprüfung als auch der Loader lösen ZIP-/JAR-Einträge über dieselbe gemeinsame
-  Auflösungslogik auf, sodass eine JAR mit doppelten Eintragsnamen nicht als der eine Eintrag
-  verifiziert und als ein anderer geladen werden kann.
-* **Der Prüfsummenvergleich ist laufzeitkonstant.** `ChecksumSecurityStrategy` (und die
-  dateiweise Prüfsummenliste von `SignatureSecurityStrategy`) vergleicht Digests über
-  `MessageDigest.isEqual` statt über `String.equals` und vermeidet so einen Timing-Seitenkanal beim
-  Vergleich selbst.
+  Scans, und zwar in einen `PinnedPluginContent`; sobald der Kandidat die Kette bestanden hat, sind
+  dieselben gepinnten Bytes - nicht ein zweites, erneutes Lesen der Datei - das, was anschließend
+  tatsächlich geladen wird. Ein Kandidat, der zwischen Prüfung und Laden auf der Festplatte
+  ausgetauscht wird, kann daher nicht mehr an der Kette vorbeikommen: genau der Inhalt, den die
+  Prüfung verifiziert hat, wird ausgeführt. `reload`/`reactivate` prüfen und pinnen den Kandidaten
+  erneut. Sowohl die Sicherheitsprüfung als auch der Loader lösen ZIP-/JAR-Einträge über dieselbe
+  gemeinsame Auflösungslogik auf, sodass eine JAR mit doppelten Eintragsnamen nicht als der eine
+  Eintrag verifiziert und als ein anderer geladen werden kann. Dies gilt für Kandidaten, die ihre
+  Kette bestanden haben: Ein Kandidat, der sie nicht bestanden hat (`SECURITY_PROBLEM`), trägt keine
+  gepinnten Bytes, sodass `PluginManager.forceLoad` - die explizite Überschreibung durch den Host -
+  ihn erneut von der Festplatte liest.
+* **Der Prüfsummenvergleich ist laufzeitkonstant.** `ChecksumSecurityStrategy` vergleicht Digests
+  über `MessageDigest.isEqual` statt über `String.equals` und vermeidet so einen
+  Timing-Seitenkanal beim Vergleich selbst.
 * **Ein abgelaufenes oder noch nicht gültiges Signierzertifikat lässt die Prüfung fehlschlagen.**
   `SignatureSecurityStrategy` ruft zusätzlich `X509Certificate.checkValidity()` auf dem Zertifikat
   des Signierenden auf; ein Schlüssel, der einmal gültig war, seitdem aber abgelaufen ist, wird
@@ -338,12 +314,12 @@ Verzeichnis verwendet:
   eigenen Status und kann eine kollidierende ID nicht mehr einem bereits verifizierten Kandidaten
   abnehmen, indem er einfach eine höhere Manifest-`version` angibt.
 * **Das Lesen eines Kandidaten ist begrenzt.** Bevor irgendeine Strategie läuft, werden die eigenen
-  Bytes des Kandidaten unter festen Grenzen gelesen: Dateigröße des Kandidaten und Gesamtgröße des
-  Kandidaten, entpackte Größe je Archiveintrag und je Kandidat, Verschachtelungstiefe von Archiven
-  sowie Manifestgröße. Ein Kandidat, der eine davon überschreitet, wird zum `SECURITY_PROBLEM` mit der
-  benannten Grenze in seiner `errorMessage`, statt die Host-JVM allein beim Lesen mit einem
-  `OutOfMemoryError` mitzunehmen - ein Angriff, der sonst weder eine Signatur noch ein erfolgreiches
-  Laden benötigen würde. Die Grenzen sind bewusst nicht konfigurierbar.
+  Bytes des Kandidaten unter festen Grenzen gelesen: Dateigröße des Kandidaten, entpackte Größe je
+  Archiveintrag und je Kandidat, Verschachtelungstiefe von Archiven sowie Manifestgröße. Ein
+  Kandidat, der eine davon überschreitet, wird zum `SECURITY_PROBLEM` mit der benannten Grenze in
+  seiner `errorMessage`, statt die Host-JVM allein beim Lesen mit einem `OutOfMemoryError`
+  mitzunehmen - ein Angriff, der sonst weder eine Signatur noch ein erfolgreiches Laden benötigen
+  würde. Die Grenzen sind bewusst nicht konfigurierbar.
 * **Jeder Eintrag einer signierten JAR muss wirklich signiert sein.** `SignatureSecurityStrategy`
   nimmt nur die Signaturdateien aus, die der JAR-Verifizierer tatsächlich auswertet
   (`META-INF/MANIFEST.MF` sowie jede `.SF` *mit* dem passenden Signaturblock). Ein Eintrag, der nach
@@ -356,14 +332,16 @@ Verzeichnis verwendet:
   einen Schlüssel, dessen Fingerprint oder 64-Bit-Key-ID zur angefragten passt; alles andere löst auf
   `null` auf. Ihre Basis-URL muss `https://` verwenden (ein Loopback-Host darf einfaches HTTP nutzen),
   damit die Antwort nicht während der Übertragung ersetzt werden kann.
-* **Einen Kandidaten zu akzeptieren heißt, seine geprüften Bytes zu akzeptieren.**
-  `PluginManager.write` und `ChecksumSecurityStrategy.persist` leiten den Zustand, den sie
-  persistieren, aus den gepinnten Bytes des Kandidaten ab, nicht aus einem erneuten Lesen seines Pfads
-  - für einen Kandidaten, der zwischen der fehlgeschlagenen Prüfung und der Entscheidung des Hosts
-  ausgetauscht wurde, kann nicht seine eigene Prüfsumme als vertrauenswürdig persistiert werden. Bei
-  einem Multi-JAR-Kandidaten werden die Bytes jeder Datei vor dem Digest mit einem Längenpräfix
-  versehen, sodass Bytes nicht über Dateigrenzen hinweg verschoben werden können, während die
-  Prüfsumme gültig bleibt.
+* **Einen Kandidaten zu akzeptieren heißt, seine geprüften Bytes zu akzeptieren - sofern er gepinnt
+  wurde.** `PluginManager.write` übergibt die gepinnten Bytes des Kandidaten an
+  `PersistableSecurityStrategy.persist`, und `ChecksumSecurityStrategy.persist` leitet die Prüfsumme,
+  die es speichert, aus diesen Bytes ab, nicht aus einem erneuten Lesen des Pfads des Kandidaten. Ein
+  Kandidat, dessen Sicherheitsprüfung fehlgeschlagen ist - genau der Fall im dokumentierten
+  Freigabeablauf (`forceLoad`, dann `write<ChecksumSecurityStrategy>`) -, hat keine gepinnten Bytes,
+  da der Scanner nur Kandidaten pinnt, die die Kette bestanden haben. `persist` fällt dann auf das
+  Lesen des Pfads zurück und protokolliert eine `WARN`: Akzeptiert wird, was in diesem Moment auf der
+  Festplatte liegt, sodass in diesem Ablauf ein Kandidat, der zwischen der fehlgeschlagenen Prüfung
+  und der Entscheidung des Hosts ausgetauscht wurde, nicht geschützt ist.
 
 ### Einschränkungen
 

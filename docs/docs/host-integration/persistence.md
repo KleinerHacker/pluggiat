@@ -61,8 +61,9 @@ high-frequency data.
 ### `DatabasePersistenceStrategy`
 
 Backed by a JDBC `javax.sql.DataSource`, plain JDBC only (no ORM). Creates its own table
-`plugin_state(plugin_id, plugin_key, plugin_value)` automatically on first use if it does not exist
-yet (column names deliberately avoid the reserved SQL words `key`/`value`):
+`plugin_state(plugin_id, plugin_key, plugin_value)` automatically if it does not exist yet - as soon
+as the strategy is instantiated, so the constructor already needs a working database connection
+(column names deliberately avoid the reserved SQL words `key`/`value`):
 
 ```kotlin
 val strategy = DatabasePersistenceStrategy(myDataSource)

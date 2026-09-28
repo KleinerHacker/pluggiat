@@ -90,9 +90,11 @@ data class PluginExtensionResult(
  * by extension point key; an entry's [ResolvedExtension.instance] is the runtime enforcement proxy
  * (see [ExtensionProxyFactory]) whenever its extension point's host plugin API type is proxy-eligible,
  * the real instance otherwise
- * @property realInstancesByPlugin the same entries' real, unproxied instances grouped by plugin id
- * instead of by key, for internal framework use (e.g. `org.pcsoft.framework.pluggiat.PluginManager.unload`
- * invoking [PluginLifecycle] hooks directly) - never handed out to plugin-facing host code
+ * @property realInstancesByPlugin the real, unproxied instances of every plugin that was instantiated
+ * - including plugins rejected by an exclusive extension point conflict, whose `onLoad`/`onEnable`
+ * hooks ran before the conflict was detected - grouped by plugin id instead of by key, for internal
+ * framework use (e.g. `org.pcsoft.framework.pluggiat.PluginManager.unload` invoking [PluginLifecycle]
+ * hooks directly) - never handed out to plugin-facing host code
  */
 data class ExtensionAggregationResult(
     val pluginResults: List<PluginExtensionResult>,
@@ -183,9 +185,7 @@ class ExtensionAggregator(
             .flatten()
             .groupBy { it.key }
 
-        val realInstancesByPlugin = realInstances.filterKeys { it !in rejectedPluginIds }
-
-        return ExtensionAggregationResult(pluginResults, extensionsByKey, realInstancesByPlugin)
+        return ExtensionAggregationResult(pluginResults, extensionsByKey, realInstances)
     }
 
     private fun isEnabled(pluginId: String): Boolean =

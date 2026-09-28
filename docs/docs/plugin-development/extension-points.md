@@ -58,12 +58,17 @@ flowchart LR
         K2["Key &quot;renderer&quot;"]
         PA2["Your plugin<br/>MyRenderer"] -->|rejected| K2
         PB2["Other plugin<br/>TheirRenderer"] -->|rejected| K2
-        K2 --> Warn["Both plugins rejected entirely,<br/>warning names both ids and the key"]
+        K2 --> Warn["Extensions of both plugins rejected,<br/>warning names both ids and the key"]
     end
 ```
 
 Some extension points only allow a single active implementation across all installed plugins. If
 your plugin and another installed plugin both contribute to the same exclusive extension point
-key, **both plugins are rejected entirely** and a warning naming both plugin ids and the affected
-key is logged. Whether a given extension point is exclusive is defined by the host; consult the
-host's documentation for the extension points it offers.
+key, **the extensions of all contributing plugins are rejected**: none of them is handed out to the
+host for that key, and a warning naming all contributing plugin ids and the affected key is logged.
+Whether a given extension point is exclusive is defined by the host; consult the host's
+documentation for the extension points it offers.
+
+Rejecting the extensions does not unload the plugins themselves: they stay loaded and keep their
+scan status. Their extension implementations were already instantiated, and `onLoad`/`onEnable`
+had already been invoked on them, before the conflict was detected.

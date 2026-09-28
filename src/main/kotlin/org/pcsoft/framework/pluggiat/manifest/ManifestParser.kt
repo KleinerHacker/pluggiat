@@ -21,11 +21,15 @@ import com.networknt.schema.Schema
 import com.networknt.schema.SchemaRegistry
 import com.networknt.schema.SpecificationVersion
 import org.pcsoft.framework.pluggiat.PluginResourceLimits
+import org.slf4j.LoggerFactory
 import java.io.InputStream
 
 /**
  * Parses and validates plugin manifests (`META-INF/plugin.yml`/`plugin.yaml`) against the manifest
  * JSON schema and maps them onto [PluginManifest].
+ *
+ * After a successful validation the icon format and the license identifier are additionally checked on a
+ * best-effort basis; a finding is only ever logged as a warning and never invalidates the manifest.
  */
 internal object ManifestParser {
 
@@ -35,6 +39,10 @@ internal object ManifestParser {
     val MANIFEST_FILE_NAMES: List<String> = listOf("META-INF/plugin.yml", "META-INF/plugin.yaml")
 
     private const val SCHEMA_RESOURCE_PATH = "/schema/plugin-manifest.schema.json"
+
+    private const val MAX_LOGGED_VALUE_LENGTH = 64
+
+    private val logger = LoggerFactory.getLogger(ManifestParser::class.java)
 
     private val yamlMapper: YAMLMapper = YAMLMapper.builder()
         .addModule(kotlinModule())
@@ -72,11 +80,13 @@ internal object ManifestParser {
             )
         }
 
-        return try {
+        val manifest = try {
             yamlMapper.treeToValue(node, PluginManifest::class.java)
         } catch (e: Exception) {
             throw ManifestValidationException("Plugin manifest could not be mapped to PluginManifest", cause = e)
         }
+        warnAboutAdvisoryFindings(manifest)
+        return manifest
     }
 
     /**
@@ -108,4 +118,35 @@ internal object ManifestParser {
         }
         return bytes.toString(Charsets.UTF_8)
     }
+
+    /**
+     * Logs a warning for an unrecognised icon format and for a license identifier missing from the SPDX
+     * list. Never throws: a check that cannot run is logged and skipped, so a best-effort finding can
+     * neither invalidate a manifest nor abort a scan.
+     */
+    private fun warnAboutAdvisoryFindings(manifest: PluginManifest) {
+        try {
+            IconDetector.detectFormat(manifest.icon)
+        } catch (e: IconFormatException) {
+            logger.warn("Plugin '{}': {}", manifest.id, e.message)
+        }
+
+        val license = manifest.legal?.license ?: return
+        try {
+            val unknownIds = SpdxLicenses.unknownIds(license)
+            if (unknownIds.isNotEmpty()) {
+                logger.warn(
+                    "Plugin '{}': license '{}' is not a known SPDX license expression (unknown: {})",
+                    manifest.id, sanitizeForLog(license), unknownIds.joinToString { sanitizeForLog(it) },
+                )
+            }
+        } catch (e: Exception) {
+            logger.warn("Plugin '{}': the license could not be checked against the SPDX list ({})", manifest.id, e.javaClass.simpleName)
+        }
+    }
+
+    // SECURITY: plugin-controlled text reaches the log only shortened and without control characters, so a
+    // SECURITY: manifest cannot forge additional log lines.
+    private fun sanitizeForLog(value: String): String =
+        value.take(MAX_LOGGED_VALUE_LENGTH).map { if (it.isISOControl()) '?' else it }.joinToString("")
 }

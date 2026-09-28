@@ -48,12 +48,17 @@ independent of the whitelist - plugin bytecode unconditionally references core J
 with `java.lang.Object`), so these are delegated to the JDK's own platform class loader
 unconditionally, before the whitelist is even consulted.
 
+A `java.*`/`javax.*` name the platform class loader does not know (for example a `javax.*` API that is
+not part of the JDK) is not an error: resolution simply continues with the remaining steps - the
+whitelist, then the plugin's own JARs, then the class loaders of its dependencies.
+
 ## What cannot be whitelisted - and cannot be overridden
 
 Two groups of classes are resolved *before* the whitelist is consulted, and listing them changes
 nothing:
 
-* **JDK platform classes** (`java.*`, `javax.*`) always come from the JDK's own platform class loader.
+* **JDK platform classes** (`java.*`, `javax.*`) always come from the JDK's own platform class loader
+  wherever it knows them.
 * **pluggiat's own classes** (`org.pcsoft.framework.pluggiat.*`) always come from the host. This is a
   security boundary, not a convenience: the sandbox's guard calls, injected into a plugin's own
   bytecode, resolve the framework's guard registry by name, and a plugin shipping a class of that name

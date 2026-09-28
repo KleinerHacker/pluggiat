@@ -15,9 +15,10 @@ package com.example.sandboxfixture
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /**
  * The "plugin API" of the sandbox agent test fixture: one method that performs a guarded call and one
@@ -73,19 +74,28 @@ object SandboxAgentFixtureJar {
     }
 
     /**
-     * Same fixture, but as a folder candidate that additionally carries a copy of the Kotlin standard
-     * library: a process-isolated subprocess has no access to the host's own application classpath, so
-     * the compiler-generated intrinsics of these Kotlin classes have to be part of the candidate.
+     * Same fixture, but as a ZIP candidate that carries the fixture JAR next to a copy of the Kotlin
+     * standard library JAR: a process-isolated subprocess has no access to the host's own application
+     * classpath, so the compiler-generated intrinsics of these Kotlin classes have to be part of the
+     * candidate.
      */
-    fun writeFolderWithKotlinStdlib(): Path {
-        val folder = Files.createTempDirectory("sandbox-agent-fixture-folder-")
-        writeFixtureJar(folder.resolve("fixture.jar"))
+    fun writeZipWithKotlinStdlib(): Path {
+        val folder = Files.createTempDirectory("sandbox-agent-fixture-zip-")
+        val fixtureJar = writeFixtureJar(folder.resolve("fixture.jar"))
         val kotlinStdlibJar = System.getProperty("java.class.path")
             .split(File.pathSeparatorChar)
             .map { Path.of(it) }
             .first { it.toString().contains("kotlin-stdlib") }
-        Files.copy(kotlinStdlibJar, folder.resolve(kotlinStdlibJar.fileName), StandardCopyOption.REPLACE_EXISTING)
-        return folder
+        val zipPath = folder.resolve("fixture-plugin.zip")
+        ZipOutputStream(Files.newOutputStream(zipPath)).use { zip ->
+            zip.putNextEntry(ZipEntry("fixture.jar"))
+            zip.write(Files.readAllBytes(fixtureJar))
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry(kotlinStdlibJar.fileName.toString()))
+            zip.write(Files.readAllBytes(kotlinStdlibJar))
+            zip.closeEntry()
+        }
+        return zipPath
     }
 
     /**

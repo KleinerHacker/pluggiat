@@ -235,6 +235,11 @@ class PluginManagerConfiguration {
  * [forceLoad] a candidate the host decides to load despite a failed check; 4. the host accesses
  * loaded extension implementations via [getExtensions]/[getFirstExtension].
  *
+ * Every [scan], [reload], [unload] and [forceLoad] re-aggregates the extensions of *all* loaded
+ * plugins: the instances of the previous aggregation first receive [PluginLifecycle.onDisable] and
+ * [PluginLifecycle.onUnload], then every active plugin is instantiated again and receives
+ * [PluginLifecycle.onLoad] and [PluginLifecycle.onEnable].
+ *
  * @property config the configuration this instance was built from
  */
 class PluginManager(val config: PluginManagerConfiguration) {
@@ -298,10 +303,19 @@ class PluginManager(val config: PluginManagerConfiguration) {
     private var lastAggregation: ExtensionAggregationResult = ExtensionAggregationResult(emptyList(), emptyMap())
 
     /**
-     * Per-plugin-id count of consecutive category-less (timeout) sandbox violations, reset whenever a
-     * violation is *not* seen (i.e. only ever read/written from within [handleSandboxViolation]). Once
-     * [MAX_TIMEOUT_VIOLATIONS] is reached, the plugin is force-unloaded exactly like a category-attributed
-     * violation - see [handleSandboxViolation].
+     * Ids of plugins whose instances of [lastAggregation] were already finished by another path (a
+     * regular [unload], a runtime `UNLOAD` or a forced sandbox unload), so [tearDownPreviousInstances]
+     * must not invoke their lifecycle hooks a second time - or at all, for a plugin that just attacked
+     * the sandbox.
+     */
+    private val finishedInstancePluginIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Per-plugin-id cumulative count of category-less (timeout) sandbox violations, only ever
+     * read/written from within [handleSandboxViolation]. Successful calls, [unload] and [reload] do not
+     * reset it: the counter is cleared only by a category-attributed violation or once
+     * [MAX_TIMEOUT_VIOLATIONS] is reached, at which point the plugin is force-unloaded exactly like a
+     * category-attributed violation - see [handleSandboxViolation].
      */
     private val timeoutViolationCounts = ConcurrentHashMap<String, Int>()
 
@@ -357,6 +371,8 @@ class PluginManager(val config: PluginManagerConfiguration) {
                 }
             }
 
+            // The previous instances get their hooks while their class loaders are still open.
+            tearDownPreviousInstances()
             for ((pluginId, plugin) in loadedPlugins) {
                 if (pluginId !in newLoaded) {
                     plugin.close()
@@ -405,6 +421,21 @@ class PluginManager(val config: PluginManagerConfiguration) {
     }
 
     /**
+     * Refuses [operation] for a plugin whose [scanResults] entry is [PluginScanStatus.POTENTIAL_ATTACK]:
+     * unlike every other non-`LOADED` status, a plugin marked by a runtime sandbox violation has no host
+     * override, so neither [reload], [reactivate] nor [forceLoad] may bring it back.
+     *
+     * @throws IllegalStateException if [pluginId] is marked [PluginScanStatus.POTENTIAL_ATTACK]
+     */
+    private fun requireNotMarkedAsAttack(pluginId: String, operation: String) {
+        // SECURITY: checked before anything is re-read, re-checked or persisted, so a plugin that attacked
+        // SECURITY: the sandbox cannot be re-enabled through any entry point, however its security chain votes.
+        check(scanResults.none { it.manifest?.id == pluginId && it.status == PluginScanStatus.POTENTIAL_ATTACK }) {
+            "Plugin '$pluginId' is marked POTENTIAL_ATTACK (runtime sandbox violation) and cannot be $operation"
+        }
+    }
+
+    /**
      * Re-checks security for the plugin candidate at [path] within [location] and, only on success,
      * reloads it via [loader] and persists it as enabled again via
      * [PluginManagerConfiguration.persistenceStrategy].
@@ -412,6 +443,9 @@ class PluginManager(val config: PluginManagerConfiguration) {
      * A failed re-check keeps the plugin disabled (its disable reason is updated to reflect the
      * failed re-check) and never falls back to a force-load - a host that wants to force-load
      * despite the failure calls [forceLoad] instead.
+     *
+     * @throws IllegalStateException if [manifest]'s plugin is marked [PluginScanStatus.POTENTIAL_ATTACK]
+     * (runtime sandbox violation); such a plugin can never be reactivated
      */
     fun reactivate(
         location: PluginLocation,
@@ -419,6 +453,7 @@ class PluginManager(val config: PluginManagerConfiguration) {
         manifest: PluginManifest,
         dependencies: Map<String, LoadedPlugin> = emptyMap(),
     ): PluginLoadResult {
+        requireNotMarkedAsAttack(manifest.id, "reactivated")
         val (check, pinnedContent) = security.reevaluateAndPin(location, path, config.defaultSecurityChains)
         if (check is PluginSecurityCheckResult.Failure || pinnedContent == null) {
             val reason = (check as? PluginSecurityCheckResult.Failure)?.reason ?: "no pinned content"
@@ -444,9 +479,12 @@ class PluginManager(val config: PluginManagerConfiguration) {
      * untouched.
      *
      * @throws NoSuchElementException if no [scanResults] entry with [pluginId] is known
+     * @throws IllegalStateException if [pluginId]'s [PluginScanResult.status] is [PluginScanStatus.POTENTIAL_ATTACK] -
+     * a plugin marked by a runtime sandbox violation can never be reloaded
      */
     fun reload(pluginId: String): PluginLoadResult {
         lock.withLock {
+            requireNotMarkedAsAttack(pluginId, "reloaded")
             val scanResult = scanResults.first { it.manifest?.id == pluginId }
             val manifest = requireNotNull(scanResult.manifest) { "No manifest known for plugin '$pluginId'" }
             val dependencies = visibleDependencies(
@@ -457,6 +495,8 @@ class PluginManager(val config: PluginManagerConfiguration) {
 
             val result = reactivate(scanResult.location, scanResult.path, manifest, dependencies)
             if (result is PluginLoadResult.Loaded) {
+                // The previous instances get their hooks before the sandbox registration of the old loader is revoked.
+                tearDownPreviousInstances()
                 sandbox.deactivate(pluginId, loadedPlugins[pluginId]?.classLoader)
                 loadedPlugins[pluginId]?.close()
                 loadedPlugins = loadedPlugins + (pluginId to result.plugin)
@@ -486,24 +526,8 @@ class PluginManager(val config: PluginManagerConfiguration) {
             val plugin = loadedPlugins[pluginId] ?: return
             val location = scanResults.firstOrNull { it.manifest?.id == pluginId }?.location
             val policy = location?.let { effectiveSandboxPolicyFor(it) } ?: PluginSandboxPolicy.UNRESTRICTED
-            try {
-                sandbox.runGoverned(pluginId, policy) {
-                    lastAggregation.realInstancesByPlugin[pluginId].orEmpty().forEach { instance ->
-                        if (instance is PluginLifecycle) {
-                            logger.debug("Invoking onDisable on extension implementation {} of plugin '{}'", instance::class.java.name, pluginId)
-                            runCatching { instance.onDisable() }
-                            logger.debug("Invoking onUnload on extension implementation {} of plugin '{}'", instance::class.java.name, pluginId)
-                            runCatching { instance.onUnload() }
-                        }
-                    }
-                }
-            } catch (e: SandboxTimeoutException) {
-                logger.error(
-                    "Plugin '{}' timed out invoking onDisable/onUnload during unload(); unloading it anyway - its " +
-                        "abandoned worker thread may still be running in the background",
-                    pluginId, e,
-                )
-            }
+            runLifecycleTeardown(pluginId, policy, lastAggregation.realInstancesByPlugin[pluginId].orEmpty())
+            finishedInstancePluginIds += pluginId
             config.persistenceStrategy.write(pluginId, ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY, ExtensionAggregator.USER_REASON)
             config.persistenceStrategy.write(pluginId, ExtensionAggregator.ENABLED_PERSISTENCE_KEY, "false")
             plugin.close()
@@ -534,9 +558,7 @@ class PluginManager(val config: PluginManagerConfiguration) {
     fun forceLoad(pluginId: String, persistException: Boolean = false): PluginLoadResult {
         lock.withLock {
             val scanResult = scanResults.first { it.manifest?.id == pluginId }
-            check(scanResult.status != PluginScanStatus.POTENTIAL_ATTACK) {
-                "Plugin '$pluginId' is marked POTENTIAL_ATTACK (runtime sandbox violation) and cannot be force-loaded"
-            }
+            requireNotMarkedAsAttack(pluginId, "force-loaded")
             val manifest = requireNotNull(scanResult.manifest) { "No manifest known for plugin '$pluginId'" }
             val dependencies = visibleDependencies(
                 scanResult.path, scanResult.location, manifest,
@@ -596,7 +618,58 @@ class PluginManager(val config: PluginManagerConfiguration) {
     internal fun effectiveChainFor(result: PluginScanResult): List<PluginSecurityStrategy> =
         PluginSecurity.effectiveChain(result.location, config.defaultSecurityChains)
 
+    /**
+     * Invokes [PluginLifecycle.onDisable] and then [PluginLifecycle.onUnload] on every [instances] entry
+     * that implements [PluginLifecycle], under [sandbox]'s governance for [pluginId].
+     *
+     * A failing hook is swallowed per instance, and a [SandboxTimeoutException] is logged and swallowed:
+     * a plugin can never block the operation that tears it down by hanging in a hook.
+     */
+    private fun runLifecycleTeardown(pluginId: String, policy: PluginSandboxPolicy, instances: List<Any>) {
+        try {
+            sandbox.runGoverned(pluginId, policy) {
+                instances.forEach { instance ->
+                    if (instance is PluginLifecycle) {
+                        logger.debug("Invoking onDisable on extension implementation {} of plugin '{}'", instance::class.java.name, pluginId)
+                        runCatching { instance.onDisable() }
+                        logger.debug("Invoking onUnload on extension implementation {} of plugin '{}'", instance::class.java.name, pluginId)
+                        runCatching { instance.onUnload() }
+                    }
+                }
+            }
+        } catch (e: SandboxTimeoutException) {
+            logger.error(
+                "Plugin '{}' timed out invoking onDisable/onUnload; continuing anyway - its " +
+                    "abandoned worker thread may still be running in the background",
+                pluginId, e,
+            )
+        }
+    }
+
+    /**
+     * Ends the lifecycle of every instance of the previous aggregation ([lastAggregation]) that no other
+     * path has finished yet (see [finishedInstancePluginIds]) and forgets that aggregation together with
+     * [extensionsByKey], so the following [reaggregateExtensions] starts from a clean state and no
+     * instance is instantiated twice without having been unloaded.
+     *
+     * Must run while the class loaders and sandbox registrations of the affected plugins are still
+     * intact. Idempotent: a second call finds nothing left to tear down.
+     */
+    private fun tearDownPreviousInstances() {
+        val previous = lastAggregation.realInstancesByPlugin
+        lastAggregation = ExtensionAggregationResult(emptyList(), emptyMap())
+        extensionsByKey = emptyMap()
+        for ((pluginId, instances) in previous) {
+            if (pluginId in finishedInstancePluginIds) continue
+            val location = scanResults.firstOrNull { it.manifest?.id == pluginId }?.location
+            val policy = location?.let { effectiveSandboxPolicyFor(it) } ?: PluginSandboxPolicy.UNRESTRICTED
+            runLifecycleTeardown(pluginId, policy, instances)
+        }
+        finishedInstancePluginIds.clear()
+    }
+
     private fun reaggregateExtensions() {
+        tearDownPreviousInstances()
         val aggregator = ExtensionAggregator(
             registry = registry,
             classResolverFor = { pluginId -> PluginExtensionClassResolver(loadedPlugins.getValue(pluginId).classLoader) },
@@ -628,6 +701,7 @@ class PluginManager(val config: PluginManagerConfiguration) {
     private fun closeAfterRuntimeUnload(pluginId: String) {
         lock.withLock {
             val plugin = loadedPlugins[pluginId]
+            finishedInstancePluginIds += pluginId
             plugin?.close()
             sandbox.deactivate(pluginId, plugin?.classLoader)
             loadedPlugins = loadedPlugins - pluginId
@@ -640,11 +714,13 @@ class PluginManager(val config: PluginManagerConfiguration) {
      *
      * A category-attributed (i.e. potential-attack) [violation] forcibly unloads [pluginId]
      * immediately. A category-less (IP-03 time-limit) [violation] is counted per plugin id via
-     * [timeoutViolationCounts]; only once [MAX_TIMEOUT_VIOLATIONS] consecutive timeouts have been
-     * observed for the same plugin is it forcibly unloaded the same way - a single timeout alone is
+     * [timeoutViolationCounts]; only once [MAX_TIMEOUT_VIOLATIONS] timeouts have been observed for the
+     * same plugin - cumulatively, successful calls, [unload] and [reload] do not reset the count - is
+     * it forcibly unloaded the same way. A single timeout alone is
      * not evidence of an attack (see [org.pcsoft.framework.pluggiat.sandbox.ThreadWatchdog]), but a
      * plugin that keeps exceeding its timeout is treated the same as one that keeps attacking the
-     * sandbox, so it cannot be used to leak an unbounded number of abandoned worker threads.
+     * sandbox, so it cannot be used to leak an unbounded number of abandoned worker threads. The
+     * count is cleared only by a category-attributed violation or when the limit is reached.
      *
      * Either way, the forced unload does *not* invoke [PluginLifecycle] hooks (unlike [unload] - a
      * plugin that just attacked or persistently timed out is not trusted to run any more of its own
@@ -694,7 +770,8 @@ class PluginManager(val config: PluginManagerConfiguration) {
             config.persistenceStrategy.write(pluginId, ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY, reason)
             config.persistenceStrategy.write(pluginId, ExtensionAggregator.ENABLED_PERSISTENCE_KEY, "false")
             // SECURITY: no lifecycle hooks are invoked on the way out - a plugin that just attacked the sandbox
-            // SECURITY: does not get to run more of its own code.
+            // SECURITY: does not get to run more of its own code, not even during the next re-aggregation.
+            finishedInstancePluginIds += pluginId
             plugin?.close()
             // SECURITY: revokes the sandbox registration, so guarded calls from any surviving plugin thread are
             // SECURITY: blocked from here on (fail-closed).
@@ -734,16 +811,17 @@ class PluginManager(val config: PluginManagerConfiguration) {
 
         /**
          * [ExtensionAggregator.DISABLED_REASON_PERSISTENCE_KEY] value recorded when [handleSandboxViolation]
-         * forcibly unloads a plugin after [MAX_TIMEOUT_VIOLATIONS] consecutive category-less (IP-03
+         * forcibly unloads a plugin after [MAX_TIMEOUT_VIOLATIONS] cumulative category-less (IP-03
          * time-limit) sandbox violations.
          */
         const val SANDBOX_TIMEOUT_LIMIT_REASON: String = "SANDBOX_TIMEOUT_LIMIT"
 
         /**
-         * Number of consecutive category-less (timeout) sandbox violations for the same plugin id
+         * Number of cumulative category-less (timeout) sandbox violations for the same plugin id
          * after which [handleSandboxViolation] forcibly unloads it, exactly like a category-attributed
          * violation - bounds the otherwise unlimited number of abandoned watchdog threads a
-         * persistently timing-out plugin could accumulate.
+         * persistently timing-out plugin could accumulate. The count is not reset by successful calls,
+         * [unload] or [reload].
          */
         const val MAX_TIMEOUT_VIOLATIONS: Int = 3
     }

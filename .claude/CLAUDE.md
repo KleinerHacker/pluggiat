@@ -4,6 +4,8 @@
 * Create subagents chain IS LIMITED to a DEPTH of one agent - ONLY the top-level session ("main",
   never a subagent) MAY start an agent, of any subagent_type including "fork" and remote/isolated
   ones; resuming an already-running agent via SendMessage is not creation and stays allowed
+  * EVERY prompt of an agent created by the main session MUST state explicitly that this agent
+    is NOT allowed to create any further agent (no Agent tool, no fork, no remote/isolated agent)
 * In case of running tasks: ALWAYS run tasks with FULL QUALIFIED PATH
 
 ## Skills

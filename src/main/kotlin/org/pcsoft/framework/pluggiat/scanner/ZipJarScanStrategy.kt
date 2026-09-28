@@ -18,8 +18,8 @@ import java.nio.file.Path
 
 /**
  * Scans a location's directory for ZIP files, mounting each one as its own [java.nio.file.FileSystem]
- * (see [FileSystems.newFileSystem]) and treating its content like a [MultiJarWithOwnFolderScanStrategy]
- * folder candidate, without ever unpacking the ZIP's content onto disk.
+ * (see [FileSystems.newFileSystem]) and looking for the manifest among the JARs directly inside it,
+ * without ever unpacking the ZIP's content onto disk.
  *
  * The resulting [PluginScanResult.path] is the real `.zip` file on disk, not a path inside the
  * mounted filesystem, since the latter only exists for the duration of a single scan call.

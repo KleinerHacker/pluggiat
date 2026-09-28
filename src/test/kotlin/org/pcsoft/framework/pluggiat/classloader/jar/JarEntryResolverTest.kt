@@ -113,20 +113,4 @@ class JarEntryResolverTest {
         assertEquals(setOf("some/Class.class"), entries.keys)
         assertArrayEquals("class-bytes".toByteArray(Charsets.UTF_8), entries.getValue("some/Class.class"))
     }
-
-    /**
-     * Use case: [PinnedPluginContent.Multi] is resolved file by file in sorted file name order and
-     * merged, so a later (alphabetically) file's entry wins over an earlier file's entry of the same
-     * name - deterministic across the whole candidate, not just within one file.
-     */
-    @Test
-    fun `multi content merges files in sorted file name order`() {
-        val fileA = zipBytes("shared.txt" to "from-a")
-        val fileB = zipBytes("shared.txt" to "from-b")
-        val content = PinnedPluginContent.Multi(mapOf("b.jar" to fileB, "a.jar" to fileA))
-
-        val entries = resolveJarEntries(content)
-
-        assertArrayEquals("from-b".toByteArray(Charsets.UTF_8), entries.getValue("shared.txt"))
-    }
 }

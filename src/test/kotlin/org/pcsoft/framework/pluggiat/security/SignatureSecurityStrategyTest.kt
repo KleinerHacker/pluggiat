@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.pcsoft.framework.pluggiat.manifest.PluginManifest
-import org.pcsoft.framework.pluggiat.scanner.MultiJarWithOwnFolderScanStrategy
 import org.pcsoft.framework.pluggiat.scanner.PluginLocation
 import org.pcsoft.framework.pluggiat.scanner.PluginLocationType
 import org.pcsoft.framework.pluggiat.scanner.PluginScanResult
@@ -25,7 +24,6 @@ import org.pcsoft.framework.pluggiat.scanner.PluginScanStatus
 import org.pcsoft.framework.pluggiat.scanner.PluginScannerTestFixtures
 import org.pcsoft.framework.pluggiat.scanner.SingleJarScanStrategy
 import org.pcsoft.framework.pluggiat.scanner.ZipJarScanStrategy
-import org.pcsoft.framework.pluggiat.security.checksum.MessageDigestChecksumAlgorithm
 import org.pcsoft.framework.pluggiat.security.publickey.PublicKeyProviderStrategy
 import java.nio.file.Files
 import java.nio.file.Path
@@ -35,11 +33,8 @@ import java.util.zip.ZipOutputStream
 
 class SignatureSecurityStrategyTest {
     private val manifest = PluginManifest(id = "plugin-a", name = "plugin-a", version = "1.0.0", minVersion = "1.0.0", icon = "aWNvbg==")
-    private val checksumAlgorithm = MessageDigestChecksumAlgorithm("SHA-512")
 
     private fun providerFor(key: PublicKey) = PublicKeyProviderStrategy { key }
-
-    private fun sha512Hex(path: Path): String = checksumAlgorithm.digest(Files.readAllBytes(path))
 
     /**
      * Use case: a SINGLE_JAR candidate signed with the expected key passes the check.
@@ -181,95 +176,6 @@ class SignatureSecurityStrategyTest {
         val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
 
         assertEquals(PluginSecurityCheckResult.Success, checkResult)
-    }
-
-    /**
-     * Use case: a MULTI_JAR_WITH_OWN_FOLDER candidate whose manifest JAR is signed and carries a
-     * matching checksum list for the other JARs in the folder passes the check.
-     */
-    @Test
-    fun `accepts a MULTI_JAR_WITH_OWN_FOLDER candidate with signed manifest JAR and matching checksum list`(@TempDir tempDir: Path) {
-        val keystorePath = SignatureTestFixtures.generateSelfSignedKeystore(tempDir, "signer")
-        val folder = Files.createDirectory(tempDir.resolve("plugin-a"))
-        val libJarPath = folder.resolve("lib.jar")
-        PluginScannerTestFixtures.writeJar(libJarPath, mapOf("some/Class.class" to "not real bytecode"))
-        val checksumListEntry = "${sha512Hex(libJarPath)}  lib.jar\n"
-        val manifestJarPath = folder.resolve("plugin-a-manifest.jar")
-        PluginScannerTestFixtures.writeJar(
-            manifestJarPath,
-            mapOf(
-                "META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a"),
-                "META-INF/plugin-checksums.txt" to checksumListEntry,
-            ),
-        )
-        SignatureTestFixtures.signJar(manifestJarPath, keystorePath, "signer")
-        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, MultiJarWithOwnFolderScanStrategy())
-        val result = PluginScanResult(location, folder, manifest, PluginScanStatus.LOADED)
-
-        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
-
-        assertEquals(PluginSecurityCheckResult.Success, checkResult)
-    }
-
-    /**
-     * Use case: a MULTI_JAR_WITH_OWN_FOLDER candidate with an *additional* JAR that the signed checksum
-     * list does not mention at all fails the check. Every sibling JAR has to be listed, otherwise
-     * dropping one more JAR next to a properly signed manifest JAR would smuggle unsigned, unchecked code
-     * into the plugin's own class path.
-     */
-    @Test
-    fun `rejects a MULTI_JAR_WITH_OWN_FOLDER candidate with a JAR missing from the checksum list`(@TempDir tempDir: Path) {
-        val keystorePath = SignatureTestFixtures.generateSelfSignedKeystore(tempDir, "signer")
-        val folder = Files.createDirectory(tempDir.resolve("plugin-a"))
-        val libJarPath = folder.resolve("lib.jar")
-        PluginScannerTestFixtures.writeJar(libJarPath, mapOf("some/Class.class" to "not real bytecode"))
-        val checksumListEntry = "${sha512Hex(libJarPath)}  lib.jar\n"
-        val manifestJarPath = folder.resolve("plugin-a-manifest.jar")
-        PluginScannerTestFixtures.writeJar(
-            manifestJarPath,
-            mapOf(
-                "META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a"),
-                "META-INF/plugin-checksums.txt" to checksumListEntry,
-            ),
-        )
-        SignatureTestFixtures.signJar(manifestJarPath, keystorePath, "signer")
-        // Added only now: signed manifest JAR and checksum list stay exactly as they were.
-        PluginScannerTestFixtures.writeJar(folder.resolve("smuggled.jar"), mapOf("com/example/Smuggled.class" to "unsigned code"))
-        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, MultiJarWithOwnFolderScanStrategy())
-        val result = PluginScanResult(location, folder, manifest, PluginScanStatus.LOADED)
-
-        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
-
-        assertTrue(checkResult is PluginSecurityCheckResult.Failure)
-        assertTrue((checkResult as PluginSecurityCheckResult.Failure).reason.contains("smuggled.jar"))
-    }
-
-    /**
-     * Use case: a MULTI_JAR_WITH_OWN_FOLDER candidate whose checksum list no longer matches one of
-     * the other JARs (tampered after signing) fails the check.
-     */
-    @Test
-    fun `rejects a MULTI_JAR_WITH_OWN_FOLDER candidate with a checksum mismatch`(@TempDir tempDir: Path) {
-        val keystorePath = SignatureTestFixtures.generateSelfSignedKeystore(tempDir, "signer")
-        val folder = Files.createDirectory(tempDir.resolve("plugin-a"))
-        val libJarPath = folder.resolve("lib.jar")
-        PluginScannerTestFixtures.writeJar(libJarPath, mapOf("some/Class.class" to "not real bytecode"))
-        val wrongChecksumListEntry = "${"0".repeat(128)}  lib.jar\n"
-        val manifestJarPath = folder.resolve("plugin-a-manifest.jar")
-        PluginScannerTestFixtures.writeJar(
-            manifestJarPath,
-            mapOf(
-                "META-INF/plugin.yml" to PluginScannerTestFixtures.validManifestYaml("plugin-a"),
-                "META-INF/plugin-checksums.txt" to wrongChecksumListEntry,
-            ),
-        )
-        SignatureTestFixtures.signJar(manifestJarPath, keystorePath, "signer")
-        val location = PluginLocation(tempDir, PluginLocationType.EXTERNAL, MultiJarWithOwnFolderScanStrategy())
-        val result = PluginScanResult(location, folder, manifest, PluginScanStatus.LOADED)
-
-        val checkResult = SignatureSecurityStrategy(providerFor(SignatureTestFixtures.readPublicKey(keystorePath, "signer"))).check(result)
-
-        assertTrue(checkResult is PluginSecurityCheckResult.Failure)
     }
 
     /**

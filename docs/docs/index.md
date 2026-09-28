@@ -87,8 +87,8 @@ flowchart LR
   (`extensions.<key>`). Each implementation is resolved, type-checked against an annotated
   configuration class and instantiated as a factory/singleton.
 * **Plugin locations and load modes** - the host configures one or more locations to scan, each
-  with a scan strategy (`SingleJarScanStrategy`, `MultiJarWithOwnFolderScanStrategy` or
-  `ZipJarScanStrategy`, the default) and a builtin/external classification.
+  with a scan strategy (`SingleJarScanStrategy` or `ZipJarScanStrategy`, the default) and a
+  builtin/external classification.
 * **Security concepts** - each location is protected by an ordered fallback chain of
   `PluginSecurityStrategy` implementations, e.g. `InsecureSecurityStrategy` (no check),
   `SignatureSecurityStrategy` (signature against a host-provided public key) or

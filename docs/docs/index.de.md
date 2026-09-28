@@ -91,9 +91,8 @@ flowchart LR
   Schlüssel (`extensions.<key>`). Jede Implementierung wird aufgelöst, gegen eine annotierte
   Konfigurationsklasse typgeprüft und als Factory/Singleton instanziiert.
 * **Plugin-Verzeichnisse und Lademodi** - der Host konfiguriert ein oder mehrere zu scannende
-  Verzeichnisse, jeweils mit einer Scan-Strategie (`SingleJarScanStrategy`,
-  `MultiJarWithOwnFolderScanStrategy` oder `ZipJarScanStrategy`, letztere als Standard) und einer
-  Builtin-/External-Klassifizierung.
+  Verzeichnisse, jeweils mit einer Scan-Strategie (`SingleJarScanStrategy` oder
+  `ZipJarScanStrategy`, letztere als Standard) und einer Builtin-/External-Klassifizierung.
 * **Sicherheitskonzepte** - jedes Verzeichnis ist durch eine geordnete Fallback-Kette von
   `PluginSecurityStrategy`-Implementierungen geschützt, z. B. `InsecureSecurityStrategy` (keine
   Prüfung), `SignatureSecurityStrategy` (Signaturprüfung gegen einen host-seitig bereitgestellten

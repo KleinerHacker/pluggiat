@@ -16,7 +16,7 @@ val location = PluginLocation(
 * `path` - directory to scan for plugin candidates.
 * `type` - `BUILTIN` for locations shipped with the host application, `EXTERNAL` for
   locations contributed by someone else (e.g. a user's plugin folder).
-* `scanStrategy` - which of the three load modes below applies to this location; defaults to
+* `scanStrategy` - which of the two load modes below applies to this location; defaults to
   `ZipJarScanStrategy`.
 
 !!! tip "Security recommendation"
@@ -39,13 +39,6 @@ flowchart TD
         SDir --> SB["plugin-b.jar<br/><i>candidate</i><br/>META-INF/plugin.yml"]
     end
 
-    subgraph Multi["MultiJarWithOwnFolderScanStrategy"]
-        direction TB
-        MDir["plugins/"] --> MF["plugin-a/<br/><i>candidate</i>"]
-        MF --> MA["plugin-a.jar<br/>META-INF/plugin.yml"]
-        MF --> ML["plugin-a-lib.jar"]
-    end
-
     subgraph Zip["ZipJarScanStrategy (default)"]
         direction TB
         ZDir["plugins/"] --> ZZ["plugin-a.zip<br/><i>candidate</i><br/>mounted as a FileSystem,<br/>never unpacked"]
@@ -54,7 +47,7 @@ flowchart TD
     end
 ```
 
-The reported candidate is the node marked *candidate*: the JAR itself, the folder, or the ZIP file.
+The reported candidate is the node marked *candidate*: the JAR itself or the ZIP file.
 
 ### `SingleJarScanStrategy`
 
@@ -67,24 +60,12 @@ plugins/
 └── plugin-b.jar   (contains META-INF/plugin.yml)
 ```
 
-### `MultiJarWithOwnFolderScanStrategy`
-
-Every subfolder of the location's directory is one plugin candidate, made up of all `*.jar` files
-directly inside it. The manifest JAR among them is identified by the presence of a manifest entry:
-
-```text
-plugins/
-└── plugin-a/
-    ├── plugin-a.jar       (contains META-INF/plugin.yml)
-    └── plugin-a-lib.jar
-```
-
 ### `ZipJarScanStrategy` (default)
 
-Every `*.zip` file directly inside the location's directory is one plugin candidate. Its content is
-scanned exactly like a `MultiJarWithOwnFolderScanStrategy` folder, but without ever unpacking the
-ZIP onto disk - it is mounted as its own `java.nio.file.FileSystem` for the duration of the scan
-and read from directly:
+Every `*.zip` file directly inside the location's directory is one plugin candidate. A ZIP contains
+the plugin's JARs - the one carrying the manifest and any further ones. It is never unpacked onto
+disk: it is mounted as its own `java.nio.file.FileSystem` for the duration of the scan and read from
+directly:
 
 ```text
 plugins/

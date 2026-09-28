@@ -12,31 +12,35 @@
 
 package org.pcsoft.framework.pluggiat.sandbox.process
 
-import org.pcsoft.framework.pluggiat.classloader.PluginClassLoader
+import org.pcsoft.framework.pluggiat.PluginResourceLimits
+import org.pcsoft.framework.pluggiat.classloader.PinnedPluginClassLoader
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
 import org.pcsoft.framework.pluggiat.sandbox.SandboxApiCategory
 import org.pcsoft.framework.pluggiat.sandbox.agent.SandboxGuardRegistry
-import java.net.URL
-import java.nio.file.Path
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
+import java.io.DataInputStream
 
 /**
  * Entry point of a process-isolated plugin's JVM subprocess, started by [PluginProcessManager].
  *
  * Program arguments, in order:
- * 1. the plugin's classpath (platform-separated JAR paths, materialized from its security-checked
- *    bytes by [PluginProcessClasspath]),
- * 2. the plugin id (for violation reporting inside this subprocess),
- * 3. the IPC token every incoming call has to present (see [ProcessIpcServer]),
- * 4. the comma-separated names of the [SandboxApiCategory] values the plugin's effective policy allows
+ * 1. the plugin id (for violation reporting inside this subprocess),
+ * 2. the IPC token every incoming call has to present (see [ProcessIpcServer]),
+ * 3. the comma-separated names of the [SandboxApiCategory] values the plugin's effective policy allows
  *    (empty means: none).
+ *
+ * The plugin itself (a single JAR, or a ZIP of JARs - exactly the bytes the host's security chain
+ * accepted) arrives on standard input as an 8-byte big-endian length followed by that many bytes, and is
+ * only ever held in memory: no file of the plugin is written anywhere.
  *
  * The subprocess reproduces the host's two enforcement mechanisms rather than relying on process
  * separation alone:
  *
- * * the plugin is loaded through a [PluginClassLoader], so the agent (passed as `-javaagent` by
+ * * the plugin is loaded through a [PinnedPluginClassLoader] (a
+ *   [org.pcsoft.framework.pluggiat.classloader.PluginClassLoader]), so the agent (passed as `-javaagent` by
  *   [PluginProcessManager]) instruments its classes here just as it would in the host, and so
  *   pluggiat's own classes - above all [SandboxGuardRegistry], which the injected guard calls resolve
- *   against - always come from this subprocess's own copy instead of from the plugin's JARs;
+ *   against - always come from this subprocess's own copy instead of from the plugin's bytes;
  * * the plugin's policy is registered in this subprocess's [SandboxGuardRegistry], so a guarded call
  *   made in here is blocked by the same rules as in the host. Without it, the registry would hold no
  *   entry for the plugin's class loader and every guarded call would pass - process isolation would
@@ -45,30 +49,28 @@ import java.nio.file.Path
 object SubprocessBootstrapMain {
     @JvmStatic
     fun main(args: Array<String>) {
-        // SECURITY: all four arguments are mandatory - a subprocess started without a token or without its
+        // SECURITY: all three arguments are mandatory - a subprocess started without a token or without its
         // SECURITY: category list must not fall back to "no authentication" or "everything allowed".
-        require(args.size >= 4) {
-            "Usage: SubprocessBootstrapMain <classpath> <pluginId> <ipcToken> <allowedApiCategories>"
+        require(args.size >= 3) {
+            "Usage: SubprocessBootstrapMain <pluginId> <ipcToken> <allowedApiCategories> (plugin bytes on stdin)"
         }
-        val urls = args[0].split(java.io.File.pathSeparatorChar)
-            .filter { it.isNotBlank() }
-            .map { Path.of(it).toUri().toURL() }
-            .toTypedArray<URL>()
-        val pluginId = args[1]
-        val token = args[2]
+        val pluginId = args[0]
+        val token = args[1]
         // SECURITY: the policy is rebuilt here from the host's allow-list; it is what the injected guard
         // SECURITY: calls inside this subprocess enforce.
-        val policy = PluginSandboxPolicy(allowedApiCategories = parseCategories(args[3]))
+        val policy = PluginSandboxPolicy(allowedApiCategories = parseCategories(args[2]))
+
+        val pluginBytes = readPluginBytes()
 
         // hostClassLoader is this subprocess's own application class loader: it carries pluggiat itself
         // (the subprocess is started with the host's -cp), which is what the framework-package
         // delegation in PluginClassLoader resolves against. The SDK whitelist stays empty - a subprocess
         // has no host application to expose, so a process-isolated plugin must be self-contained.
-        // SECURITY: a PluginClassLoader (not a plain URLClassLoader): it is what the agent matches on, so the
+        // SECURITY: a PinnedPluginClassLoader (a PluginClassLoader): it is what the agent matches on, so the
         // SECURITY: plugin's classes get instrumented in here, and it keeps framework classes coming from this
-        // SECURITY: subprocess's own copy rather than from the plugin's JARs.
-        val classLoader = PluginClassLoader(
-            urls,
+        // SECURITY: subprocess's own copy rather than from the plugin's bytes.
+        val classLoader = PinnedPluginClassLoader(
+            PinnedPluginContent.Single(pluginBytes),
             SubprocessBootstrapMain::class.java.classLoader,
             // SECURITY: empty SDK whitelist - a subprocess exposes no host packages at all.
             emptyList(),
@@ -89,6 +91,27 @@ object SubprocessBootstrapMain {
 
         Runtime.getRuntime().addShutdownHook(Thread { server.close() })
         server.serveForever()
+    }
+
+    /**
+     * Reads the plugin's bytes from standard input and closes it. A length outside
+     * `1..`[PluginResourceLimits.MAX_CANDIDATE_FILE_SIZE_BYTES] or fewer bytes than announced fails the
+     * subprocess before any handshake, which the host reports as a failed start.
+     */
+    private fun readPluginBytes(): ByteArray {
+        DataInputStream(System.`in`).use { input ->
+            val length = input.readLong()
+            // SECURITY: the announced length is bounded before anything is read, so a forged header cannot
+            // SECURITY: make this subprocess allocate or wait for an arbitrary amount of data.
+            require(length in 1..PluginResourceLimits.MAX_CANDIDATE_FILE_SIZE_BYTES) {
+                "Announced plugin size $length is outside 1..${PluginResourceLimits.MAX_CANDIDATE_FILE_SIZE_BYTES}"
+            }
+            val bytes = input.readNBytes(length.toInt())
+            require(bytes.size.toLong() == length) {
+                "Plugin bytes on stdin are incomplete: expected $length but received ${bytes.size}"
+            }
+            return bytes
+        }
     }
 
     /**

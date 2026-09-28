@@ -67,15 +67,6 @@ internal object PluginManifestLookup {
         }
 
     /**
-     * Scans [folder] as a single plugin candidate consisting of all JARs directly inside it,
-     * identifying the manifest JAR among them by the presence of a manifest entry.
-     */
-    fun scanFolder(location: PluginLocation, folder: Path): PluginScanResult {
-        val jarPaths = Files.newDirectoryStream(folder, "*.jar").use { it.toList() }
-        return scanJars(location, jarPaths, folder, "folder '$folder'")
-    }
-
-    /**
      * Scans the JARs found directly inside [zipRoot] - the root [Path] of a ZIP file mounted as
      * its own [java.nio.file.FileSystem] (see [java.nio.file.FileSystems.newFileSystem]) - as a
      * single plugin candidate, identifying the manifest JAR among them by the presence of a
@@ -88,9 +79,9 @@ internal object PluginManifestLookup {
     }
 
     /**
-     * Shared implementation behind [scanFolder] and [scanZipFileSystem]: both scan a set of `*.jar`
-     * [Path]s for the one among them containing a manifest entry, reporting [resultPath] as the
-     * candidate's path either way. JARs are read as a stream rather than via [JarFile], since a
+     * Implementation behind [scanZipFileSystem]: scans a set of `*.jar` [Path]s for the one among
+     * them containing a manifest entry, reporting [resultPath] as the candidate's path.
+     * JARs are read as a stream rather than via [JarFile], since a
      * mounted ZIP filesystem's entries are not backed by a real [java.io.File].
      */
     private fun scanJars(location: PluginLocation, jarPaths: List<Path>, resultPath: Path, sourceDescription: String): PluginScanResult {

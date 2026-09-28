@@ -18,18 +18,18 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.pcsoft.framework.pluggiat.sandbox.PluginSandboxPolicy
-import org.pcsoft.framework.pluggiat.sandbox.process.fixture.FixturePerson
-import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixtureApi
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessCall
+import org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessResponse
+import org.pcsoft.framework.pluggiat.sandbox.process.der.SandboxValue
 import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixtureImpl
+import org.pcsoft.framework.pluggiat.sandbox.process.fixture.ProcessIsolationFixturePackaging
+import org.pcsoft.framework.pluggiat.scanner.PinnedPluginContent
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.jar.JarEntry
-import java.util.jar.JarOutputStream
 
 /**
  * Verifies [PluginProcessManager]'s own lifecycle (start/stop/isRunning/onCrash), as distinct from
@@ -40,30 +40,17 @@ class PluginProcessManagerTest {
     private val pluginId = "process-manager-fixture"
 
     /**
-     * Packages the already-compiled fixture classes into a temporary folder location, exactly like
-     * `ProcessIsolationStrategyTest.buildFixtureJar` - a real, startable process-isolated "plugin".
+     * Names of the entries of the JVM's temporary directory that look like the working directories the
+     * subprocess start used to create for every plugin (`pluggiat-plugin-<id>-...`).
      */
-    private fun buildFixtureJar(): Path {
-        val folder = Files.createTempDirectory("plugin-process-manager-fixture-")
-        val jarPath = folder.resolve("fixture.jar")
-        JarOutputStream(Files.newOutputStream(jarPath)).use { jar ->
-            for (fixtureClass in listOf(ProcessIsolationFixtureApi::class.java, ProcessIsolationFixtureImpl::class.java, FixturePerson::class.java)) {
-                val resourceName = fixtureClass.name.replace('.', '/') + ".class"
-                val bytes = requireNotNull(fixtureClass.classLoader.getResourceAsStream(resourceName)) {
-                    "Compiled class resource not found: $resourceName"
-                }.use { it.readBytes() }
-                jar.putNextEntry(JarEntry(resourceName))
-                jar.write(bytes)
-                jar.closeEntry()
-            }
-        }
-        val kotlinStdlibJar = System.getProperty("java.class.path")
-            .split(File.pathSeparatorChar)
-            .map { Path.of(it) }
-            .first { it.toString().contains("kotlin-stdlib") }
-        Files.copy(kotlinStdlibJar, folder.resolve(kotlinStdlibJar.fileName), StandardCopyOption.REPLACE_EXISTING)
-        return folder
-    }
+    private fun legacyWorkingDirectories(): Set<String> =
+        File(System.getProperty("java.io.tmpdir")).list().orEmpty().filter { it.startsWith("pluggiat-plugin-") }.toSet()
+
+    private fun echoCall(): ProcessCall = ProcessCall(
+        implementationClassName = ProcessIsolationFixtureImpl::class.java.name,
+        methodName = "echo",
+        arguments = listOf(SandboxValue.StringValue("hello")),
+    )
 
     /**
      * Use case: before a plugin's subprocess was ever started, [PluginProcessManager.isRunning]
@@ -77,37 +64,96 @@ class PluginProcessManagerTest {
     }
 
     /**
-     * Use case: [PluginProcessManager.start] launches a real subprocess and hands back a working
-     * [ProcessIpcClient]; [PluginProcessManager.isRunning] then reports it as running, and calling
+     * Use case: [PluginProcessManager.start] launches a real subprocess for a ZIP candidate that was never
+     * pinned (so it is read once from its path) and hands back a working [ProcessIpcClient];
+     * [PluginProcessManager.isRunning] then reports it as running, and calling
      * [PluginProcessManager.start] again for the same plugin id returns the very same client instead of
      * starting a second subprocess.
      */
     @Test
-    fun `start launches a subprocess and start is idempotent`() {
+    fun `start launches a subprocess from an unpinned zip and start is idempotent`() {
         val manager = PluginProcessManager()
-        val jar = buildFixtureJar()
+        val zip = ProcessIsolationFixturePackaging.writeZip()
         try {
-            val client = manager.start(pluginId, jar, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20))
+            val client = manager.start(pluginId, zip, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20))
 
             assertTrue(manager.isRunning(pluginId))
 
-            val response = client.call(
-                org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessCall(
-                    implementationClassName = ProcessIsolationFixtureImpl::class.java.name,
-                    methodName = "echo",
-                    arguments = listOf(org.pcsoft.framework.pluggiat.sandbox.process.der.SandboxValue.StringValue("hello")),
-                ),
-            )
-            assertEquals(
-                org.pcsoft.framework.pluggiat.sandbox.process.der.SandboxValue.StringValue("hello"),
-                (response as org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessResponse.Success).value,
-            )
+            val response = client.call(echoCall())
+            assertEquals(SandboxValue.StringValue("hello"), (response as ProcessResponse.Success).value)
 
-            val sameClient = manager.start(pluginId, jar, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20))
+            val sameClient = manager.start(pluginId, zip, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20))
             assertEquals(client, sameClient)
         } finally {
             manager.stop(pluginId)
         }
+    }
+
+    /**
+     * Use case: a single JAR whose security-checked bytes are handed over as [PinnedPluginContent.Single]
+     * is started from those bytes alone - the given path is never touched - and no working directory of
+     * the earlier `pluggiat-plugin-...` kind is created in the temporary directory, because the plugin
+     * reaches the subprocess through its standard input and stays in memory.
+     */
+    @Test
+    fun `start launches a subprocess from pinned jar bytes without creating a working directory`() {
+        val manager = PluginProcessManager()
+        val jarBytes = Files.readAllBytes(ProcessIsolationFixturePackaging.writeSingleJar())
+        val before = legacyWorkingDirectories()
+        try {
+            val client = manager.start(
+                pluginId, Path.of("does-not-exist.jar"), PinnedPluginContent.Single(jarBytes),
+                PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20),
+            )
+
+            val response = client.call(echoCall())
+            assertEquals(SandboxValue.StringValue("hello"), (response as ProcessResponse.Success).value)
+            assertEquals(before, legacyWorkingDirectories())
+        } finally {
+            manager.stop(pluginId)
+        }
+    }
+
+    /**
+     * Use case: a ZIP of JARs whose bytes are handed over as [PinnedPluginContent.Single] is resolved in
+     * memory inside the subprocess (the nested JARs are merged, exactly as in the host), so the plugin
+     * classes from one inner JAR and the Kotlin standard library from the other are both available.
+     */
+    @Test
+    fun `start launches a subprocess from pinned zip bytes`() {
+        val manager = PluginProcessManager()
+        val zipBytes = Files.readAllBytes(ProcessIsolationFixturePackaging.writeZip())
+        try {
+            val client = manager.start(
+                pluginId, Path.of("does-not-exist.zip"), PinnedPluginContent.Single(zipBytes),
+                PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20),
+            )
+
+            val response = client.call(echoCall())
+            assertEquals(SandboxValue.StringValue("hello"), (response as ProcessResponse.Success).value)
+        } finally {
+            manager.stop(pluginId)
+        }
+    }
+
+    /**
+     * Use case: an unpinned plugin whose path cannot be read (here: it does not exist) fails
+     * [PluginProcessManager.start] with a [ProcessIsolationStartupException] naming the plugin, before any
+     * subprocess is started.
+     */
+    @Test
+    fun `start throws ProcessIsolationStartupException when an unpinned plugin cannot be read`() {
+        val manager = PluginProcessManager()
+
+        val exception = assertThrows(ProcessIsolationStartupException::class.java) {
+            manager.start(
+                pluginId, Path.of("missing-plugin-file.jar"), null,
+                PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20),
+            )
+        }
+
+        assertTrue(exception.message!!.contains(pluginId))
+        assertFalse(manager.isRunning(pluginId))
     }
 
     /**
@@ -119,8 +165,8 @@ class PluginProcessManagerTest {
     fun `stop terminates the subprocess without reporting a crash`() {
         var crashReported = false
         val manager = PluginProcessManager(onCrash = { crashReported = true })
-        val jar = buildFixtureJar()
-        manager.start(pluginId, jar, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20))
+        val zip = ProcessIsolationFixturePackaging.writeZip()
+        manager.start(pluginId, zip, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20))
 
         manager.stop(pluginId)
 
@@ -138,12 +184,12 @@ class PluginProcessManagerTest {
     fun `a subprocess that crashes on its own is reported through onCrash`() {
         val crashLatch = CountDownLatch(1)
         val manager = PluginProcessManager(onCrash = { crashLatch.countDown() })
-        val jar = buildFixtureJar()
-        val client = manager.start(pluginId, jar, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20))
+        val zip = ProcessIsolationFixturePackaging.writeZip()
+        val client = manager.start(pluginId, zip, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofSeconds(20))
 
         assertThrows(Exception::class.java) {
             client.call(
-                org.pcsoft.framework.pluggiat.sandbox.process.der.ProcessCall(
+                ProcessCall(
                     implementationClassName = ProcessIsolationFixtureImpl::class.java.name,
                     methodName = "crash",
                     arguments = emptyList(),
@@ -159,15 +205,15 @@ class PluginProcessManagerTest {
      * Use case: when the subprocess does not complete its port handshake within the given
      * `startupTimeout` (here: effectively zero), [PluginProcessManager.start] throws
      * [ProcessIsolationStartupException] instead of hanging or returning a client for a subprocess that
-     * never announced its port.
+     * never announced its port - even though the plugin bytes are still being handed to it.
      */
     @Test
     fun `start throws ProcessIsolationStartupException when the handshake does not complete in time`() {
         val manager = PluginProcessManager()
-        val jar = buildFixtureJar()
+        val zip = ProcessIsolationFixturePackaging.writeZip()
 
         val exception = assertThrows(ProcessIsolationStartupException::class.java) {
-            manager.start(pluginId, jar, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofNanos(1))
+            manager.start(pluginId, zip, null, PluginSandboxPolicy.UNRESTRICTED, Duration.ofNanos(1))
         }
 
         assertTrue(exception.message!!.contains(pluginId))

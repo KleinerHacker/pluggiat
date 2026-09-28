@@ -20,6 +20,8 @@ import org.junit.jupiter.api.io.TempDir
 import org.pcsoft.framework.pluggiat.security.InsecureSecurityStrategy
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class PluginScannerTest {
 
@@ -41,19 +43,24 @@ class PluginScannerTest {
         )
         val singleJarLocation = PluginLocation(singleJarLocationDir, PluginLocationType.BUILTIN, SingleJarScanStrategy())
 
-        val multiJarLocationDir = Files.createDirectory(tempDir.resolve("multi-jar-location"))
-        val pluginBFolder = Files.createDirectory(multiJarLocationDir.resolve("plugin-b"))
+        val zipLocationDir = Files.createDirectory(tempDir.resolve("zip-location"))
+        val pluginBJar = tempDir.resolve("plugin-b.jar")
         PluginScannerTestFixtures.writeJar(
-            pluginBFolder.resolve("plugin-b.jar"),
+            pluginBJar,
             mapOf("META-INF/plugin.yml" to PluginScannerTestFixtures.invalidManifestYaml("plugin-b")),
         )
-        val multiJarLocation = PluginLocation(multiJarLocationDir, PluginLocationType.EXTERNAL, MultiJarWithOwnFolderScanStrategy())
+        ZipOutputStream(Files.newOutputStream(zipLocationDir.resolve("plugin-b.zip"))).use { zipStream ->
+            zipStream.putNextEntry(ZipEntry("plugin-b.jar"))
+            zipStream.write(Files.readAllBytes(pluginBJar))
+            zipStream.closeEntry()
+        }
+        val zipLocation = PluginLocation(zipLocationDir, PluginLocationType.EXTERNAL, ZipJarScanStrategy())
 
-        val results = PluginScanner(insecureDefaults).scan(listOf(singleJarLocation, multiJarLocation))
+        val results = PluginScanner(insecureDefaults).scan(listOf(singleJarLocation, zipLocation))
 
         assertEquals(2, results.size)
         assertTrue(results.any { it.location == singleJarLocation && it.status == PluginScanStatus.LOADED })
-        assertTrue(results.any { it.location == multiJarLocation && it.status == PluginScanStatus.MANIFEST_INVALID })
+        assertTrue(results.any { it.location == zipLocation && it.status == PluginScanStatus.MANIFEST_INVALID })
     }
 
     /**

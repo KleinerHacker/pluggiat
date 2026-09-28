@@ -89,6 +89,13 @@ of your host application, or the resolved dependency JAR directly):
 java -javaagent:/path/to/pluggiat-<version>.jar -jar my-host-app.jar
 ```
 
+Those manifest attributes (`Premain-Class` and `Agent-Class`, both
+`org.pcsoft.framework.pluggiat.sandbox.agent.PluginSandboxAgent`, plus `Can-Retransform-Classes: true`)
+belong to the manifest of *this module's own JAR* only. A fat/shadow JAR of your host application
+carries them only if your build writes them into that JAR's manifest - otherwise the JVM refuses to
+start with that JAR as its agent, and `-javaagent` has to point at the resolved pluggiat dependency JAR
+instead.
+
 Dynamic attachment after JVM start (the Attach API) is deliberately **not** supported - JDK 21+
 restricts it by default (JEP 451) and would require the host to additionally accept
 `-XX:+EnableDynamicAgentLoading`, trading one required flag for another with fewer guarantees (see
@@ -110,14 +117,14 @@ flowchart TD
     Run --> Timeout{"callTimeout<br/>exceeded?"}
     Timeout -->|no| Done["Result returned to the host"]
     Timeout -->|yes| TEx["SandboxTimeoutException<br/>worker thread interrupted and abandoned"]
-    TEx --> Count{"3rd consecutive<br/>timeout for this plugin?"}
+    TEx --> Count{"3rd timeout in total<br/>for this plugin?"}
     Count -->|no| Strategy["Resolved by ExceptionHandlingStrategy<br/>like any other exception"]
     Count -->|yes| Attack
 
     Block --> Attack["WARN logged, plugin forcibly unloaded<br/>without onDisable / onUnload"]
     Attack --> Status["scanResults entry: POTENTIAL_ATTACK"]
     Status --> Notify["SandboxViolationException reported to<br/>exceptionHandlingStrategy"]
-    Status --> NoOverride["No host override:<br/>forceLoad refused, cannot win an id collision"]
+    Status --> NoOverride["No host override:<br/>forceLoad / reload / reactivate refused,<br/>cannot win an id collision"]
 ```
 
 A blocked call does not just fail silently:
@@ -132,9 +139,10 @@ A blocked call does not just fail silently:
 4. The violation is forwarded to `PluginManagerConfiguration.exceptionHandlingStrategy` as a
    `SandboxViolationException`, so the host is notified.
 
-A `POTENTIAL_ATTACK` candidate can **never** be force-loaded again (`PluginManager.forceLoad` throws
-`IllegalStateException`) and can never displace a `LOADED` candidate of the same plugin id via
-`IdCollisionResolver` - unlike every other non-`LOADED` status, there is no host override for it.
+A `POTENTIAL_ATTACK` candidate can **never** be loaded again: `PluginManager.forceLoad`, `reload` and
+`reactivate` all throw `IllegalStateException` for it - `reload` and `reactivate` before any security
+re-check - and it can never displace a `LOADED` candidate of the same plugin id via
+`IdCollisionResolver`. Unlike every other non-`LOADED` status, there is no host override for it.
 
 Unloading a plugin does not merely forget its policy, it **revokes** it: a thread the plugin left
 running has every guarded call blocked from then on, and the violation is still marked, persisted and
@@ -181,11 +189,16 @@ policy = PluginSandboxPolicy(
 ### Escalation on repeated timeouts
 
 A single timeout is treated as a performance problem, not an attack. Three (`PluginManager.MAX_TIMEOUT_VIOLATIONS`)
-*consecutive* timeouts for the same plugin id are treated differently: the plugin is forcibly unloaded
+timeouts for the same plugin id are treated differently: the plugin is forcibly unloaded
 through the same path as a category-attributed violation - marked `POTENTIAL_ATTACK`, persisted with
 reason `SANDBOX_TIMEOUT_LIMIT`, and reported to `exceptionHandlingStrategy` - so a plugin that keeps
 exceeding its timeout cannot be used to accumulate an unbounded number of abandoned worker threads, even
 under a host `ExceptionHandlingStrategy` that would otherwise never react to a `RuntimeException`.
+
+The count is cumulative, not a streak of back-to-back timeouts: a successful call in between,
+`PluginManager.unload()` or `PluginManager.reload()` do not reset it, so three timeouts spread over any
+length of time are enough. Only a category-attributed violation or reaching the limit itself (which
+force-unloads the plugin) resets the count.
 
 ## Security recommendations
 
@@ -219,7 +232,8 @@ under a host `ExceptionHandlingStrategy` that would otherwise never react to a `
   guarded as `PROCESS_START`, but a plugin permitted to load native code is effectively unsandboxed.
 * **`callTimeout` cannot forcibly stop a running call**, only abandon it (see above) - a plugin that
   ignores interruption keeps consuming whatever resources it held for as long as it keeps running.
-* **Process isolation** is a separate, later part of the runtime sandbox, giving a plugin's code no
+* **Process isolation** is a separate isolation level of the runtime sandbox (see
+  [Process isolation](#process-isolation-sandboxisolationlevelprocess) below), giving a plugin's code no
   way to outlive a hard OS-level boundary the way an abandoned in-VM thread can.
 
 ## Process isolation (`SandboxIsolationLevel.PROCESS`)
@@ -240,10 +254,13 @@ A subprocess crash or hang can therefore never take down the host process, unlik
 abandoned thread (`callTimeout`, see above) or an unmediated native call.
 
 The subprocess is started lazily, on the first call into a process-isolated plugin's extensions, as
-a plain `java` JVM (resolved from the host's own `java.home`) with its own, fresh, empty working
-directory - it never sees the host's current working directory. It is torn down on unload/reload
+a plain `java` JVM (resolved from the host's own `java.home`). Its working directory is the system's
+temporary directory (`java.io.tmpdir`) - it never sees the host's current working directory. Both
+plugin layouts work, a single JAR and a ZIP of JARs (`ZipJarScanStrategy`): the plugin's security-checked
+bytes are handed to the subprocess over its stdin pipe (see step 2 below), so nothing of the plugin is
+ever written to disk. The subprocess is torn down on unload/reload
 (`destroy()`, escalating to `destroyForcibly()` after a short grace period) and its unexpected exit
-is reported as a sandbox violation exactly like an IP-03 timeout (no `SandboxApiCategory` attached -
+is reported as a sandbox violation exactly like a `callTimeout` timeout (no `SandboxApiCategory` attached -
 see [Escalation on repeated timeouts](#escalation-on-repeated-timeouts) above, which applies here
 too).
 
@@ -259,8 +276,9 @@ sequenceDiagram
     Host->>Host: first call on the proxy
     alt subprocess not yet running
         Host->>Mgr: start(pluginId, pinnedContent, policy)
-        Mgr->>Sub: launch java -javaagent:<pluggiat.jar> ... SubprocessBootstrapMain<br/>(classpath, pluginId, IPC token, allowed categories)
-        Sub->>Sub: register policy for the plugin's class loader
+        Mgr->>Sub: launch java -javaagent:<pluggiat.jar> ... SubprocessBootstrapMain<br/>(pluginId, IPC token, allowed categories)
+        Mgr->>Sub: stdin: 8-byte length + the plugin's checked bytes
+        Sub->>Sub: build in-memory class loader, register policy for it
         Sub-->>Mgr: stdout "PLUGGIAT-PORT:<port>"
     end
     Host->>Sub: open loopback socket, write DER-encoded call (with IPC token)
@@ -278,26 +296,40 @@ sequenceDiagram
 2. **The subprocess starts lazily, on the first call.** The very first invocation on that proxy (once
    its argument/return types pass the [supported-type check](#supported-extension-signatures) below)
    triggers `PluginProcessManager` to launch a plain `java` JVM (resolved from the host's own
-   `java.home`) running `SubprocessBootstrapMain` as its main class, with the plugin's JAR path(s)
-   passed as its single program argument and a fresh, empty temporary working directory. Every later
-   call for the same plugin id reuses this same subprocess.
+   `java.home`, with the host's own `java.class.path` as its classpath so that pluggiat itself is
+   available there) running `SubprocessBootstrapMain` as its main class. It receives three program
+   arguments, in this order: the plugin id, the IPC token and the comma-separated names of the plugin's
+   allowed `SandboxApiCategory` values. The plugin itself does not travel as an argument: the host writes
+   the plugin's security-checked bytes - a single JAR or a ZIP of JARs, exactly as pinned by the security
+   chain - to the subprocess's stdin, as an 8-byte length followed by the bytes, at most
+   `PluginResourceLimits.MAX_CANDIDATE_FILE_SIZE_BYTES` (256 MiB). The subprocess reads them before it
+   opens its IPC server; a missing or out-of-range length makes it exit, and the start then fails with a
+   `ProcessIsolationStartupException`. The host writes on a separate daemon thread, so a subprocess that
+   never reads its stdin cannot block the host beyond the startup timeout. Only a candidate that was never
+   pinned is read from its path instead (once), which is logged as a `WARN`. Every later call for the same
+   plugin id reuses this same subprocess.
 3. **The subprocess enforces the same policy as the host.** It is started with pluggiat's own JAR as
-   its `-javaagent` and with the plugin's effective set of allowed `SandboxApiCategory` values as a
-   program argument, which it registers for the plugin's class loader - so a guarded call made inside
-   the subprocess is blocked by exactly the rules that would apply in-VM. Activating a *restricted*
-   process-isolated policy fails with `SandboxAgentNotActiveException` when no agent JAR is available
-   to hand over (e.g. when the framework itself runs from an exploded class directory), rather than
-   running the plugin unmediated.
+   its `-javaagent` and with the plugin's effective set of allowed `SandboxApiCategory` values as its
+   third program argument, which it registers for the plugin's class loader - so a guarded call made
+   inside the subprocess is blocked by exactly the rules that would apply in-VM. The agent JAR handed
+   over is the JAR the framework's own agent class was loaded from: activating a *restricted*
+   process-isolated policy fails with `SandboxAgentNotActiveException` when there is no such JAR
+   (e.g. when the framework itself runs from an exploded class directory), rather than running the
+   plugin unmediated, and when pluggiat is repackaged into a fat/shadow JAR that JAR needs the agent
+   manifest attributes described under [Enabling API mediation](#enabling-api-mediation-javaagent) -
+   otherwise the subprocess exits during startup and the call fails with a
+   `ProcessIsolationStartupException`.
 4. **Every call is authenticated.** The subprocess listens on a loopback port, which every process on
    the machine can reach - a port is not a credential. Each call therefore carries a per-subprocess
    token generated with `SecureRandom`, compared in constant time; a call without it is rejected and
    never dispatched. One decoded message is additionally bounded to 16 MiB.
-5. **The subprocess builds its own, plugin-only classloader.** `SubprocessBootstrapMain` opens a
-   `PluginClassLoader` over the plugin's JAR(s) - so the agent instruments the plugin's classes there
-   and the framework's own classes always come from the subprocess's own copy - with no SDK whitelist
-   at all, so the subprocess can only ever see the plugin's own classes plus the JDK, mirroring what
-   `PluginClassLoader` already
-   enforces in-VM.
+5. **The subprocess builds its own, plugin-only classloader.** `SubprocessBootstrapMain` builds a
+   `PinnedPluginClassLoader` over the bytes it received - resolved in memory, a ZIP's JARs exactly as in
+   the host, so the agent instruments the plugin's classes there and the framework's own classes always
+   come from the subprocess's own copy - with no SDK whitelist at all, so the subprocess can only ever
+   see the plugin's own classes, the JDK and pluggiat's own classes, mirroring what `PluginClassLoader`
+   already enforces in-VM. None of the host's own SDK types is visible there (see
+   [Known limitations](#known-limitations)).
 6. **A one-line handshake hands back the port.** The subprocess opens a `ProcessIpcServer` on an
    OS-assigned loopback port and prints exactly one `PLUGGIAT-PORT:<port>` line to stdout;
    `PluginProcessManager` reads that line back (bounded by a startup timeout) to learn which port to
@@ -320,10 +352,11 @@ sequenceDiagram
    host thread forever, exactly like an in-VM governed call (see
    [Thread and time-limit governance](#thread-and-time-limit-governance) above).
 10. **Teardown is orderly, then forced.** Unloading/reloading the plugin calls `destroy()` on the
-   subprocess, escalating to `destroyForcibly()` if it has not exited within a short grace period; its
-   temporary working directory is deleted afterwards. An *unexpected* exit (the subprocess dies on its
-   own) is detected via `Process.onExit()` and reported as a sandbox violation exactly like a IP-03
-   timeout (see [Escalation on repeated timeouts](#escalation-on-repeated-timeouts) above).
+   subprocess, escalating to `destroyForcibly()` if it has not exited within a short grace period; the
+   plugin's bytes only ever lived in the subprocess's memory, so there is nothing to clean up on disk.
+   An *unexpected* exit (the subprocess dies on its own) is detected via `Process.onExit()` and reported
+   as a sandbox violation exactly like a `callTimeout` timeout (see
+   [Escalation on repeated timeouts](#escalation-on-repeated-timeouts) above).
 
 ### Supported extension signatures
 
@@ -367,6 +400,25 @@ A field's `fieldValue` may recursively be another `ObjectValue` (a nested data c
 (tag 5, itself a `SEQUENCE OF Value`), so an arbitrarily deep - but still statically typed - object
 graph can be transported, as long as every leaf is one of the base cases above.
 
+One call and its response are each a single, self-delimiting DER `SEQUENCE` (no separate length
+prefix; one decoded message is bounded to 16 MiB). The IPC token is deliberately the first field of a
+call, so the subprocess can authenticate the sender before it interprets a class name or a method
+name:
+
+```text
+ProcessCall ::= SEQUENCE {
+    token                UTF8String,   -- per-subprocess IPC token
+    implementationClass  UTF8String,   -- fully qualified name of the extension implementation
+    methodName           UTF8String,
+    arguments            SEQUENCE OF Value
+}
+
+ProcessResponse ::= SEQUENCE {
+    outcome  INTEGER,                  -- 0=success, 1=failure
+    payload  ANY DEFINED BY outcome    -- success: Value, failure: UTF8String (the exception's message)
+}
+```
+
 ### Known limitations
 
 * **No OS-level user/process separation.** The subprocess runs as the *same* OS user as the host,
@@ -375,15 +427,22 @@ graph can be transported, as long as every leaf is one of the base cases above.
   network) the way a sandboxed OS user/container would. Combine this with a restrictive
   `allowedApiCategories`/`-javaagent` policy and/or OS-level sandboxing of the whole host process if
   that additional isolation is required.
-* A process-isolated plugin must be loaded from a plain JAR or folder location - not a `ZIP_JAR`
-  location, since the subprocess needs a real file system path for its own classpath.
+* **The plugin's bytes live in the subprocess's memory.** Since nothing is written to disk, the
+  subprocess holds the whole candidate (a single JAR or a ZIP of JARs, at most 256 MiB) and, lazily,
+  its unpacked entries on its own heap.
+* **A process-isolated plugin must be self-contained.** The subprocess exposes none of the host's SDK
+  packages (its SDK whitelist is empty), so the extension point's plugin API interface and every other
+  type an implementation class or an extension method signature refers to has to be bundled inside the
+  plugin's own bytes - the subprocess sees only those, the JDK and pluggiat's own classes. This includes
+  the Kotlin standard library for a Kotlin plugin: bundle it in the plugin's JAR, or as a further JAR
+  inside the plugin's ZIP.
 * The IPC token is passed to the subprocess as a program argument, which other processes of the *same
   OS user* can read (e.g. via `ps`). It separates the host's calls from unrelated local processes, not
   from a local attacker who can already enumerate this user's process arguments.
 * A candidate that was never pinned by the security chain (i.e. loaded outside the regular scan path)
-  still has its JAR(s) re-read from disk for the subprocess's classpath, which reopens the
+  still has its file re-read from disk once, for the bytes handed to the subprocess, which reopens the
   check-to-load window for that case; a regularly scanned candidate is started from its
-  security-checked bytes, written into the subprocess's own temporary working directory.
+  security-checked bytes.
 
 ### Security recommendations
 

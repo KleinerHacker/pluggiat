@@ -7,6 +7,7 @@ metadata used by the host.
 ## Example
 
 ```yaml
+$version: 1
 id: com.example.sample-plugin
 name: Sample Plugin
 version: "1.2.3"
@@ -36,13 +37,14 @@ extensions:
 
 ### Required
 
-| Field        | Type   | Description                                                    |
-|--------------|--------|------------------------------------------------------------------|
-| `id`         | string | Unique id of the plugin                                          |
-| `name`       | string | Human-readable display name                                      |
-| `version`    | string | Version of the plugin, following the Maven version scheme        |
-| `minVersion` | string | Minimum required host version, following the Maven version scheme |
-| `icon`       | string | Base64-encoded icon; the format is auto-detected (any `ImageIO`-supported raster format, or SVG) |
+| Field        | Type    | Description                                                    |
+|--------------|---------|------------------------------------------------------------------|
+| `$version`   | integer | Internal manifest schema revision, an integer of at least `0` (the examples use `1`); a manifest without it is rejected, see the note below |
+| `id`         | string  | Unique id of the plugin; only letters, digits, `.`, `_` and `-`, starting and ending with a letter or digit, at most 128 characters |
+| `name`       | string  | Human-readable display name                                      |
+| `version`    | string  | Version of the plugin, following the Maven version scheme        |
+| `minVersion` | string  | Minimum required host version, following the Maven version scheme; only enforced if the host has configured its own `hostVersion`, otherwise the check is skipped |
+| `icon`       | string  | Base64-encoded icon; the format is detected on a best-effort basis (any `ImageIO`-supported raster format, or SVG). An unrecognised format or invalid Base64 content is only logged as a warning and never rejects the plugin |
 
 ### Optional
 
@@ -54,13 +56,22 @@ extensions:
 | `links.documentation` | string | URL to the plugin's documentation                          |
 | `links.sourceCode`    | string | URL to the plugin's source code repository                 |
 | `legal.copyright`     | string | Free-form copyright notice                                 |
-| `legal.license`       | string | License identifier; ideally an [SPDX identifier](https://spdx.org/licenses/), matched on a best-effort basis without rejecting unrecognised values |
+| `legal.license`       | string | License identifier; ideally an [SPDX identifier](https://spdx.org/licenses/), matched on a best-effort basis: an SPDX expression (`AND`, `OR`, `WITH`, parentheses, a trailing `+`) is split into its individual identifiers, and an unrecognised value is only logged as a warning, it never rejects the plugin |
 | `dependencies[]`      | array  | Dependencies on other plugins, see below                   |
 | `extensions.<key>[]`  | array  | Extension point contributions, see [Extension points](extension-points.md) |
 
+### Unknown fields
+
+The manifest schema does not tolerate unknown fields: a field that is not listed above is rejected
+at the top level as well as inside `author`, `links`, `legal` and every `dependencies[]` entry, and
+the plugin is reported as having an invalid manifest. Only the entries under `extensions.<key>[]`
+may carry additional, extension-point-specific fields next to `implementation`.
+
 ### Dependencies
 
-Each entry of `dependencies` declares a dependency on another plugin by id:
+Each entry of `dependencies` declares a dependency on another plugin by id. Both `id` and
+`required` are mandatory for every entry, and `id` follows the same format rules as a plugin's own
+`id`:
 
 ```yaml
 dependencies:
@@ -73,5 +84,6 @@ marks it as optional, allowing reduced functionality when the dependency is abse
 
 !!! note "Internal `$version` field"
 
-    Manifests also carry an internal `$version` field used exclusively for migrating older manifest
-    formats. It is not part of the fields listed above and is not exposed to plugin or host code.
+    Every manifest must also carry an internal `$version` field (an integer), used exclusively for
+    migrating older manifest formats. It is listed among the required fields above because a
+    manifest without it is rejected, but its value is not exposed to plugin or host code.

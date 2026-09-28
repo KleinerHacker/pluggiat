@@ -36,7 +36,8 @@ flowchart LR
 ```
 
 Mit `exclusive = true` darf höchstens ein Plugin den Schlüssel belegen - würden beide Plugins oben
-zu einem exklusiven Schlüssel beitragen, würden **beide** abgelehnt.
+zu einem exklusiven Schlüssel beitragen, würden die Erweiterungen **beider** verworfen (siehe
+[Konflikt an einem exklusiven Erweiterungspunkt](troubleshooting.de.md#konflikt-an-einem-exklusiven-erweiterungspunkt)).
 
 ## Einen Erweiterungspunkt definieren
 
@@ -62,7 +63,7 @@ weitere Konstruktoreigenschaft der Konfigurationsklasse (außer `implementation`
 passenden Feld des Erweiterungseintrags im Plugin-Manifest abgebildet.
 
 Setzen Sie `exclusive = true`, wenn höchstens ein Plugin diesen Erweiterungspunkt jemals befüllen
-darf; tun dies zwei Plugins, werden beide vollständig abgelehnt (siehe
+darf; tun dies zwei Plugins, werden die Erweiterungen beider verworfen (siehe
 [Erweiterungspunkte](../plugin-development/extension-points.de.md) für die Sicht des
 Plugin-Entwicklers).
 
@@ -73,7 +74,7 @@ Registrieren Sie alle Ihre `ExtensionConfiguration`-Klassen einmalig beim Start 
 
 ```kotlin
 val registry = ExtensionPointRegistry(
-    listOf(ExporterConfig::class /* , ... Ihre weiteren Erweiterungspunkte */)
+    listOf(ExporterConfig::class /* , ... your other extension points */)
 )
 ```
 
@@ -105,4 +106,13 @@ for (extension in exporters) {
 ```
 
 `result.pluginResults` meldet pro Plugin dessen ID, dessen `Path` (unverändert vom Kandidaten
-übernommen) und dessen Status (`LOADED` oder `REJECTED_EXCLUSIVE_CONFLICT`).
+übernommen) und dessen Status:
+
+* `LOADED` - die Erweiterungen des Plugins wurden aufgelöst und sind aktiv.
+* `REJECTED_EXCLUSIVE_CONFLICT` - das Plugin hat zusammen mit mindestens einem anderen Plugin zu einem
+  exklusiven Erweiterungspunkt-Schlüssel beigetragen; seine Erweiterungen sind nicht Teil von
+  `extensionsByKey`.
+* `DISABLED` - das Plugin ist als deaktiviert persistiert (es wurde überhaupt keine
+  Erweiterungsklasse aufgelöst oder instanziiert), oder sein `onLoad`/`onEnable` hat beim Auflösen
+  seiner Erweiterungen das Sandbox-Timeout überschritten (es wird dann ebenfalls als deaktiviert
+  persistiert).

@@ -1,4 +1,4 @@
-# Feature Status: GraalVM Native-Image-Kompatibilität
+# Feature Status: GraalVM Native Image Compatibility
 
 Status: NOT_STARTED
 
@@ -6,9 +6,9 @@ Status: NOT_STARTED
 
 | ID | Implementation Plan | Status |
 |----|---------------------|--------|
-| IP-01 | Reachability-Metadata für Manifest-Parsing | NOT_STARTED |
-| IP-02 | Laufzeit-Guard gegen nicht unterstützte Modi | NOT_STARTED |
-| IP-03 | CI-Verifikation & Dokumentation | NOT_STARTED |
+| IP-01 | Reachability metadata for manifest parsing | NOT_STARTED |
+| IP-02 | Runtime guard against unsupported modes | NOT_STARTED |
+| IP-03 | CI verification & documentation | NOT_STARTED |
 
 ## Overall Progress
 
@@ -16,5 +16,5 @@ Status: NOT_STARTED
 
 ## Notes
 
-Feature Plan erstellt. Es wurde noch kein Implementation Plan gestartet. Die neue Fremdabhängigkeit
-`org.graalvm.sdk:nativeimage` für die `native-image`-Erkennung (IP-02) wurde vom Nutzer bestätigt.
+Feature plan created. No implementation plan has been started yet. The new third-party dependency
+`org.graalvm.sdk:nativeimage` for `native-image` detection (IP-02) has been confirmed by the user.

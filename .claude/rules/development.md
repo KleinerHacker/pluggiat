@@ -7,9 +7,16 @@ name: development
 ## Planning
 
 * EACH plan MUST be created for EVERY change, ALWAYS ask the user to create a plan or not
+    * The question whether a plan is to be created MUST ALWAYS be asked to the user, EVERY time,
+      for EVERY change - NEVER decide it alone, NEVER derive the answer from an earlier answer
+      and NEVER skip it because a change looks small or the user's request sounds direct
     * A switch to plan mode MUST happen
 * EACH PLAN MUST ALWAYS be written in GERMAN - both the plan file and the console output
     * This applies to headings, bullet points and every other text of the plan
+    * EXCEPTION: FEATURE PLANS (the files in `.claude/plans/features`, including their status
+      files) MUST ALWAYS be written in ENGLISH - the plan file only; when a feature plan is printed
+      on the console, the console output stays in GERMAN
+    * Implementation plans (`.claude/plans/implementation`) stay in GERMAN, without exception
 * EACH PLAN MUST NOT contain a summary or explanation of the changes
     * FORBIDDEN sections: "Context", "Background", "Summary", "Overview", "Rationale", "Trade-offs"
     * FORBIDDEN: prose paragraphs of any kind - the plan consists of bullet points ONLY

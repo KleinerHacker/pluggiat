@@ -1,118 +1,126 @@
 # Feature Plan: Plugin Management System (COMPLETED)
 
-## 1. Ziel
+## 1. Objective
 
-* Dynamisches Plugin-System für JVM-Anwendungen
-* JAR/ZIP-basierte Plugins mit YAML-Manifest, Extension-Points und isolierten ClassLoadern
-* Konfigurierbares Sicherheitskonzept pro Plugin-Ort (Signatur, Checksum, unsicher)
-* Ladevorgang so gestaltet, dass der Host ihn selbst asynchron/nicht-blockierend betreiben kann
-* Lifecycle-Verwaltung inkl. Enable/Disable und Laufzeit-Fehlerisolation je Plugin
+* Dynamic plugin system for JVM applications
+* JAR/ZIP-based plugins with a YAML manifest, extension points and isolated class loaders
+* Configurable security concept per plugin location (signature, checksum, insecure)
+* Loading process designed so that the host can run it asynchronously/non-blockingly itself
+* Lifecycle management including enable/disable and runtime error isolation per plugin
 
-## 2. Ausgangslage
+## 2. Initial Situation
 
-* Repository `pluggiat` war ein leeres Kotlin/Gradle-Grundgerüst ohne Quellcode
-* Single-Module-Setup (`build.gradle.kts`, `settings.gradle.kts`), Gruppe `org.pcsoft.framework`
-* Kotlin 2.4.20, JVM Toolchain 25, Dokka, Kover, License-Report, CycloneDX-BOM vorhanden
-* Projekt blieb für dieses Feature als Single-Module-Setup bestehen, keine Aufteilung in z. B. `api`/`core`
+* The `pluggiat` repository was an empty Kotlin/Gradle skeleton without source code
+* Single-module setup (`build.gradle.kts`, `settings.gradle.kts`), group `org.pcsoft.framework`
+* Kotlin 2.4.20, JVM toolchain 25, Dokka, Kover, license report, CycloneDX BOM already present
+* For this feature the project remained a single-module setup, no split into e.g. `api`/`core`
 
-## 3. Erreichter Zustand
+## 3. Achieved State
 
-* Plugins liegen als JAR/ZIP an konfigurierbaren Orten und werden zur Laufzeit gescannt
-* Jedes Plugin besitzt ein Manifest `META-INF/plugin.yml` bzw. `plugin.yaml`, validiert gegen ein synchronisiertes JSON-Schema und gemappt auf synchronisierte Data Classes
-* Extension-Points werden generisch über `extensions.<key>[]` deklariert; der Host definiert jeden Extension-Point über eine `@ExtensionPoint`-annotierte Konfigurationsklasse (Key, `exclusive`-Flag), die `ExtensionConfiguration<T>` implementiert; ein Decorator mappt die YAML-Rohdaten inkl. instanziierter Implementierung darauf; Plugin-Entwickler kennen dabei ausschließlich das Host-Plugin-API-Interface `T`
-* Scanner unterstützt drei Lademodi (`SINGLE_JAR`, `MULTI_JAR_WITH_OWN_FOLDER`, `ZIP_JAR`, Default `ZIP_JAR`) und liefert gültige sowie ungültige Plugins mit Fehlermeldungen zurück
-* Jeder Plugin-Ort ist als `BUILTIN` oder extern klassifiziert und besitzt ein Sicherheitskonzept in Form einer geordneten, frei erweiterbaren Fallback-Kette von `PluginSecurityStrategy`-Strategien, mit ortsbezogenem Override der gesamten Kette; mitgelieferte Strategien: kein Check, Signatur, Checksum
-* Die Signatur-Strategie bezieht den zu prüfenden Public Key über eine eigene, austauschbare `PublicKeyProviderStrategy`: Truststore (Java `KeyStore`), direkter `java.security.PublicKey`, Online-Plattform OpenPGP (RFC 9580, z. B. `keys.openpgp.org`)
-* Der Host kann für ein einzelnes Plugin explizit einen Force-Load anfordern, der eine fehlgeschlagene Sicherheitsprüfung gezielt und nachvollziehbar protokolliert übergeht
-* Plugins werden über isolierte `URLClassLoader` geladen, die den Zugriff auf den Code der Host-Anwendung per Reflection unterbinden, aber gezielt eine vom Host konfigurierte SDK-Whitelist freigeben
-* Plugin-Abhängigkeiten (`required`/`optional`) bilden einen ClassLoader-Abhängigkeitsgraphen zur gezielten Klassensichtbarkeit zwischen Plugins
-* ID-Kollisionen zwischen Orten werden über Versionsvergleich (Maven-Schema) und nachgelagerte Checksum-Prüfung aufgelöst
-* Jedes Plugin durchläuft definierte Lifecycle-Phasen (`onLoad`/`onEnable`/`onDisable`/`onUnload`); ein Deaktivieren schließt immer das Verwerfen des Plugin-ClassLoaders ein, eine Reaktivierung erfordert einen vollständigen Neu-Ladevorgang inkl. erneuter Sicherheitsprüfung
-* Jedes Plugin besitzt einen persistenten Enabled/Disabled-Status, verwaltet über eine austauschbare `PluginPersistenceStrategy` (mitgelieferte Implementierungen: kein Persistieren, Host-Callback, Datei, Datenbank via JDBC)
-* Eine zur Laufzeit von einer Extension nach außen dringende Exception wird über eine konfigurierbare `ExceptionHandlingStrategy` (IGNORE/UNLOAD/CRASH je Exception-Typ, mit Standard-Matrix) behandelt; UNLOAD deaktiviert dauerhaft genau dieses eine Plugin, nicht die gesamte Anwendung
-* Jede an den Host ausgelieferte Extension-Instanz ist ein Proxy (JDK-Proxy für Interfaces, ByteBuddy-Subklasse für offene Klassen) über das Host-Plugin-API; dadurch dringen aus einem Extension-Aufruf ausschließlich `PluginExecutionException`/`PluginFatalException` nach außen, nie eine rohe Plugin-Exception
-* Ein zentraler, per Kotlin-Builder konfigurierbarer Einstiegspunkt `PluginManager` (Root-Paket) bündelt die host-weite Konfiguration und liefert vorkonfigurierte Kernkomponenten (`PluginScanner`, `PluginSecurity`, `PluginLoader`)
+* Plugins reside as JAR/ZIP at configurable locations and are scanned at runtime
+* Every plugin has a manifest `META-INF/plugin.yml` or `plugin.yaml`, validated against a synchronized JSON schema and mapped onto synchronized data classes
+* Extension points are declared generically via `extensions.<key>[]`; the host defines every extension point through a configuration class annotated with `@ExtensionPoint` (key, `exclusive` flag) that implements `ExtensionConfiguration<T>`; a decorator maps the raw YAML data, including the instantiated implementation, onto it; plugin developers only ever know the host plugin API interface `T`
+* The scanner supports three load modes (`SINGLE_JAR`, `MULTI_JAR_WITH_OWN_FOLDER`, `ZIP_JAR`, default `ZIP_JAR`) and returns valid as well as invalid plugins with error messages
+* Every plugin location is classified as `BUILTIN` or external and has a security concept in the form of an ordered, freely extensible fallback chain of `PluginSecurityStrategy` strategies, with a location-specific override of the whole chain; strategies shipped: no check, signature, checksum
+* The signature strategy obtains the public key to check through its own, exchangeable `PublicKeyProviderStrategy`: truststore (Java `KeyStore`), direct `java.security.PublicKey`, online platform OpenPGP (RFC 9580, e.g. `keys.openpgp.org`)
+* The host can explicitly request a force-load for a single plugin, which bypasses a failed security check in a targeted and traceable, logged way
+* Plugins are loaded through isolated `URLClassLoader`s that prevent access to the host application's code via reflection, but deliberately expose an SDK whitelist configured by the host
+* Plugin dependencies (`required`/`optional`) form a class loader dependency graph for targeted class visibility between plugins
+* ID collisions between locations are resolved through a version comparison (Maven scheme) and a subsequent checksum check
+* Every plugin goes through defined lifecycle phases (`onLoad`/`onEnable`/`onDisable`/`onUnload`); a deactivation always includes discarding the plugin class loader, a reactivation requires a complete reload including a renewed security check
+* Every plugin has a persistent enabled/disabled status, managed through an exchangeable `PluginPersistenceStrategy` (implementations shipped: no persistence, host callback, file, database via JDBC)
+* An exception escaping from an extension at runtime is handled by a configurable `ExceptionHandlingStrategy` (IGNORE/UNLOAD/CRASH per exception type, with a default matrix); UNLOAD permanently deactivates exactly this one plugin, not the whole application
+* Every extension instance handed to the host is a proxy (JDK proxy for interfaces, ByteBuddy subclass for open classes) over the host plugin API; as a result only `PluginExecutionException`/`PluginFatalException` escape from an extension call, never a raw plugin exception
+* A central entry point `PluginManager` (root package), configurable via a Kotlin builder, bundles the host-wide configuration and provides preconfigured core components (`PluginScanner`, `PluginSecurity`, `PluginLoader`)
 
-## 4. Anforderungen
+**Subsequent deviation (after feature completion)**: The load mode `MULTI_JAR_WITH_OWN_FOLDER`
+(`MultiJarWithOwnFolderScanStrategy`) was dropped. The scanner only knows `SINGLE_JAR` and
+`ZIP_JAR` (default `ZIP_JAR`) any more; a plugin is a single JAR or a ZIP file holding its JARs.
+As a result, the checksum list (`META-INF/plugin-checksums.txt`) of the signature strategy and the
+multi-JAR handling of the checksum strategy were dropped as well. ZIP plugins are read directly and
+not unpacked, no temp directory exists. The statements "three load modes" (sections 3 and 6) and
+"unpacked ZIP plugins reside in the temp directory" (section 5) accordingly no longer apply.
 
-### Funktionale Anforderungen
+## 4. Requirements
 
-* Manifest-Pflichtfelder: `$version`, `id`, `name`, `version`, `minVersion`, `icon`
-* Manifest-Optionalfelder: `description`, `author` (`name` Pflicht, `mail` optional), `documentationUrl`, `sourceCodeUrl`, `copyright`, `license`
-* `icon`: Base64-kodiert, Format per Magic-Bytes erkannt (SVG, PNG, JPG, ...)
-* `license`: freier String, optional gegen SPDX-Identifier-Liste abgeglichen
-* `version` und `minVersion`: Maven-Versionsschema, vergleichbar
-* Plugin-Abhängigkeiten im Manifest, je Abhängigkeit `required` oder `optional`
-* Scanner-Ergebnis enthält gültige und ungültige Plugins (mit Fehlermeldungen) sowie Plugins im Status `PENDING_APPROVAL`
-* Extension-Points ohne `exclusive`-Flag: mehrere Einträge gleichen Keys aus verschiedenen Plugins werden einfach zu einer Liste zusammengefügt
-* Extension-Points mit `exclusive`-Flag: Befüllen zwei Plugins denselben Key, werden **beide Plugins vollständig** nicht geladen, mit Log-Warnung inkl. beider Plugin-IDs und Key
-* ID-Kollision zwischen Orten: Log-Warnung, höhere Version gewinnt; bei Versionsgleichheit Checksum-Vergleich; bei Checksum-Gleichheit beliebige Auswahl, bei Checksum-Ungleichheit Sicherheitswarnung und keines der beiden laden
-* `minVersion`-Prüfung gegen die Version der Host-Software, zu neue Plugins werden nicht geladen
-* Persistenter Enabled/Disabled-Status je Plugin-ID; Status-Prüfung erfolgt VOR jedem Klassenladen der Extension, ein deaktiviertes Plugin bleibt gescannt, aber keine seiner Extension-Klassen wird geladen/instanziiert
-* Laufzeit-Fehlerisolation über eine konfigurierbare `ExceptionHandlingStrategy`; `UNLOAD` deaktiviert das betroffene Plugin dauerhaft und muss manuell reaktiviert werden
-* Force-Load: der Framework-Nutzer kann pro Plugin explizit das Laden trotz fehlgeschlagener Sicherheitsprüfung erzwingen; der Vorgang wird mit Plugin-ID und Grund der ursprünglich fehlgeschlagenen Prüfung protokolliert
-* Reaktivierung eines deaktivierten Plugins löst zwingend einen erneuten Sicherheitsprüfungslauf vor dem eigentlichen Neu-Laden aus
+### Functional Requirements
 
-### Technische Anforderungen
+* Mandatory manifest fields: `$version`, `id`, `name`, `version`, `minVersion`, `icon`
+* Optional manifest fields: `description`, `author` (`name` mandatory, `mail` optional), `documentationUrl`, `sourceCodeUrl`, `copyright`, `license`
+* `icon`: Base64-encoded, format detected via magic bytes (SVG, PNG, JPG, ...)
+* `license`: free string, optionally matched against the SPDX identifier list
+* `version` and `minVersion`: Maven version scheme, comparable
+* Plugin dependencies in the manifest, each dependency `required` or `optional`
+* Scanner result contains valid and invalid plugins (with error messages) as well as plugins in the status `PENDING_APPROVAL`
+* Extension points without the `exclusive` flag: several entries of the same key from different plugins are simply merged into one list
+* Extension points with the `exclusive` flag: if two plugins fill the same key, **both plugins are not loaded at all**, with a log warning including both plugin IDs and the key
+* ID collision between locations: log warning, higher version wins; on equal versions a checksum comparison; on equal checksums an arbitrary choice, on differing checksums a security warning and neither of the two is loaded
+* `minVersion` check against the version of the host software, plugins that are too new are not loaded
+* Persistent enabled/disabled status per plugin ID; the status check happens BEFORE any class loading of the extension, a disabled plugin stays scanned, but none of its extension classes is loaded/instantiated
+* Runtime error isolation via a configurable `ExceptionHandlingStrategy`; `UNLOAD` permanently deactivates the affected plugin and it must be reactivated manually
+* Force-load: the framework user can explicitly force loading per plugin despite a failed security check; the operation is logged with the plugin ID and the reason of the originally failed check
+* Reactivation of a deactivated plugin mandatorily triggers a renewed security check run before the actual reload
 
-* Kotlin, Gradle (siehe `development.md`)
-* Manifest-Parsing über YAML mit synchronisiertem JSON-Schema und Data Classes; beide werden manuell parallel gepflegt, Konsistenz wird über Tests abgesichert
-* ClassLoader-Isolation: Parent-Last-Strategie gegenüber der Host-Anwendung mit gezielt freigegebener SDK-Schicht, vom Host als Konfiguration übergeben
-* Sicherheitskonzept als Strategy-Pattern: `PluginSecurityStrategy`-Interface, ausschließlich über neue Implementierungen erweiterbar, kein Enum; die Kette wird strikt in Konfigurationsreihenfolge geprüft, ein Sicherheitsproblem wird erst gemeldet, wenn ALLE Strategien der Kette fehlgeschlagen sind
-* Das Framework legt sich nicht auf eine konkrete Async-API fest; alle Einstiegspunkte sind so gestaltet, dass der Host sie in dem von ihm gewählten Nebenläufigkeitsmodell blockierend oder nicht-blockierend aufrufen kann
-* Persistenz-Strategie als Strategy-Pattern (`PluginPersistenceStrategy`), Exception-Handling als Strategy-Pattern (`ExceptionHandlingStrategy`), Durchsetzung der Fehlerisolation über einen Proxy
-* Zentraler Einstiegspunkt `PluginManager` (Root-Paket) mit Kotlin-Builder-DSL
-* Durchgängiges Logging des Scan-/Ladeprozesses mit den Log-Levels `INFO`/`WARN`/`DEBUG`/`ERROR`
+### Technical Requirements
 
-## 5. Architektur
+* Kotlin, Gradle (see `development.md`)
+* Manifest parsing via YAML with a synchronized JSON schema and data classes; both are maintained manually in parallel, consistency is secured through tests
+* Class loader isolation: parent-last strategy towards the host application with a deliberately exposed SDK layer, passed in by the host as configuration
+* Security concept as a strategy pattern: `PluginSecurityStrategy` interface, extensible exclusively through new implementations, no enum; the chain is checked strictly in configuration order, a security problem is only reported once ALL strategies of the chain have failed
+* The framework does not commit to a concrete async API; all entry points are designed so that the host can call them blockingly or non-blockingly in the concurrency model of its choice
+* Persistence strategy as a strategy pattern (`PluginPersistenceStrategy`), exception handling as a strategy pattern (`ExceptionHandlingStrategy`), enforcement of the error isolation through a proxy
+* Central entry point `PluginManager` (root package) with a Kotlin builder DSL
+* Consistent logging of the scan/load process with the log levels `INFO`/`WARN`/`DEBUG`/`ERROR`
 
-* Komponenten:
-    * **Manifest-Modul**: YAML-Parsing, JSON-Schema, Data Classes, Validierung
-    * **Extension-Modul**: `ExtensionConfiguration<T>`-Interface, `@ExtensionPoint`-Annotation, Host-Registry, Decorator-Mapping mit Proxy-Auslieferung
-    * **Scanner-Modul**: Orte-Konfiguration, Scan-Strategien je Lademodus, Ergebnis-Modell
-    * **Security-Modul**: `PluginSecurityStrategy`-Interface, Fallback-Ketten-Auswertung, mitgelieferte Strategien
-    * **Public-Key-Provider-Modul**: `PublicKeyProviderStrategy`-Interface, mitgelieferte Implementierungen
-    * **ClassLoader-Modul**: `PluginLoader`-Klasse, vom Host konfigurierte SDK-Whitelist, Abhängigkeitsgraph zwischen Plugin-ClassLoadern
-    * **Persistence-Modul**: `PluginPersistenceStrategy`-Interface, mitgelieferte Implementierungen
-    * **Lifecycle-Modul**: Lifecycle-Hooks, persistenter Enabled/Disabled-Status, Laufzeit-Fehlerisolation, Proxy-Durchsetzung
-    * **PluginManager-Modul**: zentraler, per Kotlin-Builder konfigurierbarer Einstiegspunkt im Root-Paket
-    * **Orchestrierung/Runtime-Modul**: Zusammenspiel Scanner → Security → ClassLoader → Manifest/Extension-Mapping → Lifecycle, host-gesteuerte Nebenläufigkeit, ID-Kollisionsauflösung, `minVersion`-Prüfung, Force-Load-Einstiegspunkt
-* Datenfluss: Plugin-Orte → Scanner → Security-Prüfung → ClassLoader-Erzeugung → Manifest-Deserialisierung + Validierung → Enabled/Disabled-Status-Prüfung → Extension-Decorator-Mapping mit Proxy-Auslieferung → Lifecycle-Aktivierung → Ergebnis
-* Externe Schnittstellen (durch Framework-Nutzer bereitzustellen): Public-Key-Callback, Soll-Checksum-Callback, `PluginPersistenceStrategy`, `ExceptionHandlingStrategy` (optional, sonst Default-Matrix), SDK-Whitelist-Konfiguration, Force-Load-Aufruf je Plugin
-* Persistenz: über die austauschbare `PluginPersistenceStrategy` (Default `NoPersistenceStrategy`); entpackte ZIP-Plugins liegen im Temp-Verzeichnis und werden per `deleteOnExit` entfernt
-* MkDocs-Struktur (Zielgruppentrennung Plugin-Entwickler/Host-Integratoren):
-    * `index.md` — Übersicht/Kernkonzepte
-    * `plugin-development/manifest.md` — Manifest-Felder + Beispiel
-    * `plugin-development/extension-points.md` — Extension-Point erstellen/konsumieren + Beispiel
-    * `plugin-development/dependencies.md` — required/optional Abhängigkeiten, Helper-Klassen-Pattern
-    * `plugin-development/lifecycle.md` — Lifecycle-Hooks aus Plugin-Sicht
-    * `plugin-development/error-handling.md` — empfohlene Exceptions, Standard-Matrix, Proxy-Design-Regel, Debugging-Hinweise
-    * `host-integration/setup.md` — Plugin-Orte, Lademodi, Start-/Reload-API
-    * `host-integration/security.md` — Sicherheitskonzepte, Strategy-Kette + Beispiel
-    * `host-integration/public-key-providers.md` — Public-Key-Provider-Strategien + Beispiel
-    * `host-integration/sdk-whitelist.md` — SDK-Whitelist-Konfiguration des Hosts
-    * `host-integration/plugin-lifecycle-management.md` — Enabled/Disabled-Status, Deaktivierungsgründe, Reaktivierungsablauf
-    * `host-integration/persistence.md` — `PluginPersistenceStrategy`, Implementierungen, Produktiv-Empfehlung
-    * `host-integration/plugin-manager.md` — `PluginManager`, Builder-DSL, vorkonfigurierte Instanzen
-    * `troubleshooting.md` — Log-Level-Übersicht, Fehlerfälle (ID-Kollision, exklusiver Konflikt, minVersion)
+## 5. Architecture
 
-## 6. Kriterien für den Feature-Abschluss
+* Components:
+    * **Manifest module**: YAML parsing, JSON schema, data classes, validation
+    * **Extension module**: `ExtensionConfiguration<T>` interface, `@ExtensionPoint` annotation, host registry, decorator mapping with proxy delivery
+    * **Scanner module**: location configuration, scan strategies per load mode, result model
+    * **Security module**: `PluginSecurityStrategy` interface, fallback chain evaluation, strategies shipped
+    * **Public key provider module**: `PublicKeyProviderStrategy` interface, implementations shipped
+    * **Class loader module**: `PluginLoader` class, SDK whitelist configured by the host, dependency graph between plugin class loaders
+    * **Persistence module**: `PluginPersistenceStrategy` interface, implementations shipped
+    * **Lifecycle module**: lifecycle hooks, persistent enabled/disabled status, runtime error isolation, proxy enforcement
+    * **PluginManager module**: central entry point in the root package, configurable via a Kotlin builder
+    * **Orchestration/runtime module**: interplay of scanner → security → class loader → manifest/extension mapping → lifecycle, host-controlled concurrency, ID collision resolution, `minVersion` check, force-load entry point
+* Data flow: plugin locations → scanner → security check → class loader creation → manifest deserialization + validation → enabled/disabled status check → extension decorator mapping with proxy delivery → lifecycle activation → result
+* External interfaces (to be provided by the framework user): public key callback, expected checksum callback, `PluginPersistenceStrategy`, `ExceptionHandlingStrategy` (optional, otherwise default matrix), SDK whitelist configuration, force-load call per plugin
+* Persistence: via the exchangeable `PluginPersistenceStrategy` (default `NoPersistenceStrategy`); unpacked ZIP plugins reside in the temp directory and are removed via `deleteOnExit`
+* MkDocs structure (separation of audiences plugin developers/host integrators):
+    * `index.md` — overview/core concepts
+    * `plugin-development/manifest.md` — manifest fields + example
+    * `plugin-development/extension-points.md` — creating/consuming an extension point + example
+    * `plugin-development/dependencies.md` — required/optional dependencies, helper class pattern
+    * `plugin-development/lifecycle.md` — lifecycle hooks from the plugin's point of view
+    * `plugin-development/error-handling.md` — recommended exceptions, default matrix, proxy design rule, debugging hints
+    * `host-integration/setup.md` — plugin locations, load modes, start/reload API
+    * `host-integration/security.md` — security concepts, strategy chain + example
+    * `host-integration/public-key-providers.md` — public key provider strategies + example
+    * `host-integration/sdk-whitelist.md` — SDK whitelist configuration of the host
+    * `host-integration/plugin-lifecycle-management.md` — enabled/disabled status, deactivation reasons, reactivation flow
+    * `host-integration/persistence.md` — `PluginPersistenceStrategy`, implementations, production recommendation
+    * `host-integration/plugin-manager.md` — `PluginManager`, builder DSL, preconfigured instances
+    * `troubleshooting.md` — log level overview, error cases (ID collision, exclusive conflict, minVersion)
 
-* Ein Plugin mit gültigem Manifest wird über alle drei Lademodi korrekt erkannt, geladen und seine Extensions stehen typisiert mit instanziierter Implementierung zur Verfügung
-* Ein Plugin mit ungültigem Manifest oder fehlgeschlagener Sicherheitsprüfung wird nicht geladen und erscheint mit nachvollziehbarer Fehlermeldung im Scan-Ergebnis
-* Ein Plugin mit geänderter Checksum landet im Status `PENDING_APPROVAL` und wird erst nach Freigabe geladen, ohne dass das Framework selbst den Scan blockiert
-* Zwei Plugin-Orte mit kollidierender ID werden gemäß der definierten Versions-/Checksum-Regeln eindeutig aufgelöst
-* Ein Plugin-Ort kann eine geordnete Kette aus mehreren Sicherheitsstrategien konfigurieren; ein Plugin gilt als sicherheitsgeprüft, sobald eine Strategie der Kette erfolgreich ist, und wird erst abgelehnt, wenn ALLE Strategien der Kette fehlschlagen
-* Neue Sicherheitsstrategien lassen sich als reine Implementierung des `PluginSecurityStrategy`-Interfaces ergänzen, ohne Framework-Code zu ändern (kein Enum)
-* Die Signatur-Strategie kann wahlweise mit Truststore-, Direkt- oder OpenPGP-Public-Key-Provider betrieben werden; ein nicht auflösbarer OpenPGP-Key führt zu einem nachvollziehbaren Fehlschlag, nicht zum Absturz
-* Ein Plugin kann nicht per Reflection auf Host-internen Code zugreifen, wohl aber auf die vom Host konfigurierte SDK-Whitelist
-* Plugin-Abhängigkeiten (`required`/`optional`) werden beim Laden korrekt berücksichtigt, inklusive Zyklenerkennung
-* Ein Plugin mit `minVersion` über der aktuellen Host-Version wird nicht geladen
-* Ein über `PluginPersistenceStrategy` dauerhaft deaktiviertes Plugin lädt keine Extension-Klassen und besitzt keinen aktiven ClassLoader, bleibt aber im Scan-Ergebnis sichtbar
-* Eine aus einem Extension-Aufruf nach außen dringende Exception wird gemäß `ExceptionHandlingStrategy` behandelt; `UNLOAD` deaktiviert automatisch nur das betroffene Plugin dauerhaft (muss manuell reaktiviert werden), ohne die übrige Anwendung zu beeinträchtigen
-* Jede an den Host ausgelieferte Extension-Instanz ist eine Proxy-Instanz; aus dem Host-Plugin-API dringen ausschließlich `PluginExecutionException`/`PluginFatalException` nach außen, nie eine rohe Plugin-Exception
-* Eine Reaktivierung eines deaktivierten Plugins führt nur nach erneut erfolgreicher Sicherheitsprüfung zu einem tatsächlichen Neu-Laden
-* Befüllen zwei Plugins denselben exklusiven Extension-Point, werden beide vollständig nicht geladen und eine nachvollziehbare Log-Warnung ausgegeben
-* Die öffentliche API des Frameworks lässt sich sowohl blockierend als auch aus einem vom Host gewählten nebenläufigen Kontext heraus verwenden
-* Ein Plugin mit fehlgeschlagener Sicherheitsprüfung kann über einen expliziten Force-Load-Aufruf des Hosts dennoch geladen werden, wobei der Vorgang nachvollziehbar protokolliert wird
-* `PluginManager` liefert per Kotlin-Builder-DSL vorkonfigurierte `scanner`/`security`/`loader`-Instanzen aus einer einzigen host-weiten Konfiguration
+## 6. Feature Completion Criteria
+
+* A plugin with a valid manifest is correctly detected and loaded through all three load modes and its extensions are available typed with an instantiated implementation
+* A plugin with an invalid manifest or a failed security check is not loaded and appears with a comprehensible error message in the scan result
+* A plugin with a changed checksum ends up in the status `PENDING_APPROVAL` and is only loaded after approval, without the framework itself blocking the scan
+* Two plugin locations with a colliding ID are resolved unambiguously according to the defined version/checksum rules
+* A plugin location can configure an ordered chain of several security strategies; a plugin counts as security-checked as soon as one strategy of the chain succeeds, and is only rejected once ALL strategies of the chain fail
+* New security strategies can be added as a pure implementation of the `PluginSecurityStrategy` interface without changing framework code (no enum)
+* The signature strategy can be operated optionally with a truststore, direct or OpenPGP public key provider; an unresolvable OpenPGP key leads to a comprehensible failure, not to a crash
+* A plugin cannot access host-internal code via reflection, but can access the SDK whitelist configured by the host
+* Plugin dependencies (`required`/`optional`) are considered correctly during loading, including cycle detection
+* A plugin with a `minVersion` above the current host version is not loaded
+* A plugin permanently deactivated via `PluginPersistenceStrategy` loads no extension classes and has no active class loader, but stays visible in the scan result
+* An exception escaping from an extension call is handled according to the `ExceptionHandlingStrategy`; `UNLOAD` automatically permanently deactivates only the affected plugin (must be reactivated manually), without impairing the rest of the application
+* Every extension instance handed to the host is a proxy instance; only `PluginExecutionException`/`PluginFatalException` escape from the host plugin API, never a raw plugin exception
+* A reactivation of a deactivated plugin only leads to an actual reload after a renewed successful security check
+* If two plugins fill the same exclusive extension point, both are not loaded at all and a comprehensible log warning is issued
+* The public API of the framework can be used both blockingly and from a concurrent context chosen by the host
+* A plugin with a failed security check can still be loaded through an explicit force-load call of the host, the operation being logged comprehensibly
+* `PluginManager` provides preconfigured `scanner`/`security`/`loader` instances from a single host-wide configuration via the Kotlin builder DSL

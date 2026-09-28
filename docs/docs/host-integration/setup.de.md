@@ -16,7 +16,7 @@ val location = PluginLocation(
 * `path` - Verzeichnis, das nach Plugin-Kandidaten durchsucht wird.
 * `type` - `BUILTIN` für mit der Host-Anwendung ausgelieferte Verzeichnisse, `EXTERNAL` für von
   Dritten beigetragene Verzeichnisse (z. B. den Plugin-Ordner eines Benutzers).
-* `scanStrategy` - welcher der drei unten stehenden Lademodi für dieses Verzeichnis gilt; Standard
+* `scanStrategy` - welcher der beiden unten stehenden Lademodi für dieses Verzeichnis gilt; Standard
   ist `ZipJarScanStrategy`.
 
 !!! tip "Sicherheitsempfehlung"
@@ -40,13 +40,6 @@ flowchart TD
         SDir --> SB["plugin-b.jar<br/><i>Kandidat</i><br/>META-INF/plugin.yml"]
     end
 
-    subgraph Multi["MultiJarWithOwnFolderScanStrategy"]
-        direction TB
-        MDir["plugins/"] --> MF["plugin-a/<br/><i>Kandidat</i>"]
-        MF --> MA["plugin-a.jar<br/>META-INF/plugin.yml"]
-        MF --> ML["plugin-a-lib.jar"]
-    end
-
     subgraph Zip["ZipJarScanStrategy (Standard)"]
         direction TB
         ZDir["plugins/"] --> ZZ["plugin-a.zip<br/><i>Kandidat</i><br/>als FileSystem eingebunden,<br/>nie entpackt"]
@@ -55,8 +48,7 @@ flowchart TD
     end
 ```
 
-Der gemeldete Kandidat ist der als *Kandidat* markierte Knoten: das JAR selbst, der Ordner oder die
-ZIP-Datei.
+Der gemeldete Kandidat ist der als *Kandidat* markierte Knoten: das JAR selbst oder die ZIP-Datei.
 
 ### `SingleJarScanStrategy`
 
@@ -69,25 +61,12 @@ plugins/
 └── plugin-b.jar   (enthält META-INF/plugin.yml)
 ```
 
-### `MultiJarWithOwnFolderScanStrategy`
-
-Jeder Unterordner des Verzeichnisses ist ein Plugin-Kandidat, bestehend aus allen `*.jar`-Dateien
-direkt darin. Die Manifest-JAR unter ihnen wird durch das Vorhandensein eines Manifest-Eintrags
-identifiziert:
-
-```text
-plugins/
-└── plugin-a/
-    ├── plugin-a.jar       (enthält META-INF/plugin.yml)
-    └── plugin-a-lib.jar
-```
-
 ### `ZipJarScanStrategy` (Standard)
 
-Jede `*.zip`-Datei direkt im Verzeichnis ist ein Plugin-Kandidat. Ihr Inhalt wird genau wie ein
-`MultiJarWithOwnFolderScanStrategy`-Ordner gescannt, jedoch ohne die ZIP jemals auf die Festplatte
-zu entpacken - sie wird für die Dauer des Scans als eigenes `java.nio.file.FileSystem` eingehängt
-und direkt daraus gelesen:
+Jede `*.zip`-Datei direkt im Verzeichnis ist ein Plugin-Kandidat. Eine ZIP enthält die JARs des
+Plugins - diejenige mit dem Manifest und beliebige weitere. Sie wird nie auf die Festplatte
+entpackt: Sie wird für die Dauer des Scans als eigenes `java.nio.file.FileSystem` eingehängt und
+direkt daraus gelesen:
 
 ```text
 plugins/

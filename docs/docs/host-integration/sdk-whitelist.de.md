@@ -51,13 +51,18 @@ unabhängig von der Whitelist - Plugin-Bytecode referenziert unbedingt zentrale 
 bei `java.lang.Object`), sodass diese bedingungslos an den eigenen Plattform-Classloader der JDK
 delegiert werden, noch bevor die Whitelist überhaupt konsultiert wird.
 
+Ein `java.*`-/`javax.*`-Name, den der Plattform-Classloader nicht kennt (zum Beispiel eine
+`javax.*`-API, die nicht Teil der JDK ist), ist kein Fehler: Die Auflösung setzt einfach mit den
+übrigen Schritten fort - der Whitelist, dann den eigenen JARs des Plugins, dann den Classloadern
+seiner Abhängigkeiten.
+
 ## Was nicht auf die Whitelist gesetzt werden kann - und nicht überschrieben werden kann
 
 Zwei Gruppen von Klassen werden aufgelöst, *bevor* die Whitelist konsultiert wird; sie dort
 aufzuführen ändert nichts:
 
 * **JDK-Plattformklassen** (`java.*`, `javax.*`) kommen immer vom eigenen Plattform-Classloader der
-  JDK.
+  JDK, sofern dieser sie kennt.
 * **Die eigenen Klassen von pluggiat** (`org.pcsoft.framework.pluggiat.*`) kommen immer vom Host. Das
   ist eine Sicherheitsgrenze, keine Bequemlichkeit: Die Guard-Aufrufe der Sandbox, die in den eigenen
   Bytecode eines Plugins eingefügt werden, lösen die Guard-Registry des Frameworks über den Namen auf,

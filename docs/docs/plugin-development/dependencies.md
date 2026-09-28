@@ -20,7 +20,11 @@ dependencies:
   without that dependency's classes being visible to it.
 
 A dependency cycle (through `required` or `optional` edges alike) is always rejected, regardless of
-whether every edge in the cycle is optional.
+whether every edge in the cycle is optional. The cycle check covers all candidates of one `scan()`
+at once: as soon as a cycle is found, no candidate of that scan is loaded. Every candidate that was
+still loadable at that point - not only the members of the cycle - is reported as `LOAD_FAILED`
+with the message `Cyclic plugin dependency: a -> b -> a`. Remove the cycle and scan again to load
+them.
 
 ## Visibility
 
@@ -87,13 +91,19 @@ The fix is to push every direct use of an optional dependency's types into its o
 loaded only from inside the guarded branch:
 
 ```kotlin
-// BAD: references the optional dependency's type directly in this class's own signature
+// BAD: references the optional dependency's type directly in this class's own field and method signature
 class MyExtension {
+    private var other: OtherPluginApi? = null // OtherPluginApi is needed as soon as MyExtension itself is loaded and verified
+
     fun onLoad() {
         if (isOtherPluginPresent()) {
-            val other: OtherPluginApi = OtherPluginApiImpl() // OtherPluginApi type is resolved when MyExtension itself loads
-            other.doSomething()
+            other = OtherPluginApiImpl()
+            useOther(other!!)
         }
+    }
+
+    private fun useOther(api: OtherPluginApi) { // OtherPluginApi in a method signature has the same effect
+        api.doSomething()
     }
 }
 

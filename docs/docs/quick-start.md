@@ -41,6 +41,8 @@ required GitHub Packages credentials.
 Your own plugin API - the only pluggiat-unrelated type a plugin author needs to know:
 
 ```kotlin
+package com.example.host.api
+
 interface Greeter {
     fun greet(): String
 }
@@ -77,6 +79,9 @@ val manager = pluginManager {
         type = PluginLocationType.EXTERNAL
         addStrategy(InsecureSecurityStrategy()) // local development only, see Security
     }
+    sdkWhitelistEntry {
+        packageName = "com.example.host.api" // the package of Greeter, visible to the plugins
+    }
     extensionPoint(GreeterConfig::class)
 }
 ```
@@ -84,6 +89,10 @@ val manager = pluginManager {
 `InsecureSecurityStrategy` performs no check at all - fine for a first run against plugins you wrote
 yourself, but replace it before accepting plugins from anyone else; see
 [Security](host-integration/security.md).
+
+`sdkWhitelistEntry` exposes the package of your plugin API to the plugins' isolated class loaders.
+Without it a plugin cannot see `Greeter`, its implementation cannot be linked against it, and
+`scan()` fails; see [SDK whitelist](host-integration/sdk-whitelist.md).
 
 ## 4. Scan, load and use plugins
 

@@ -23,8 +23,8 @@ import java.util.zip.ZipInputStream
  * Resolves [content] into a single, flat map of ZIP/JAR entry name to entry bytes.
  *
  * This is the one shared entry-resolution function used both by
- * `org.pcsoft.framework.pluggiat.security.SignatureSecurityStrategy` (to locate the manifest entry
- * and checksum list of a pinned candidate) and by
+ * `org.pcsoft.framework.pluggiat.scanner.PluginManifestLookup` (to locate the manifest entry
+ * of a pinned candidate) and by
  * `org.pcsoft.framework.pluggiat.classloader.PinnedPluginClassLoader` (to load classes/resources) -
  * so both sides interpret duplicate ZIP entry names identically and can never diverge on which entry
  * "wins" ("verify one entry, load another").
@@ -33,9 +33,8 @@ import java.util.zip.ZipInputStream
  *   itself unpacked and merged in (recursively), so a `ZIP_JAR` candidate - whose outer `.zip` simply
  *   contains further JARs, see `org.pcsoft.framework.pluggiat.scanner.ZipJarScanStrategy` - resolves
  *   directly to the class/resource entries inside those inner JARs.
- * - [PinnedPluginContent.Multi] is resolved file by file, in sorted file name order, and merged.
  *
- * A duplicate entry name (within one ZIP, or across merged files) resolves to its *last* occurrence,
+ * A duplicate entry name (within one ZIP, or across merged inner JARs) resolves to its *last* occurrence,
  * matching the JDK's own `java.util.zip.ZipFile` "last entry wins" behavior for duplicate names.
  *
  * Unpacking is bounded by [PluginResourceLimits]: per entry, over the whole candidate, and in nesting
@@ -52,13 +51,6 @@ fun resolveJarEntries(content: PinnedPluginContent): Map<String, ByteArray> {
     val budget = UnpackBudget()
     return when (content) {
         is PinnedPluginContent.Single -> resolveEntriesFromZipBytes(content.bytes, depth = 0, budget = budget)
-        is PinnedPluginContent.Multi -> {
-            val merged = linkedMapOf<String, ByteArray>()
-            for (fileName in content.filesByName.keys.sorted()) {
-                merged.putAll(resolveEntriesFromZipBytes(content.filesByName.getValue(fileName), depth = 0, budget = budget))
-            }
-            merged
-        }
     }
 }
 

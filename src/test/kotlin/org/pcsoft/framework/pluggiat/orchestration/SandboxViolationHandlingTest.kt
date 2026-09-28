@@ -34,7 +34,7 @@ import java.nio.file.Path
 /**
  * Verifies [PluginManager]'s real handling behind [org.pcsoft.framework.pluggiat.sandbox.PluginSandbox.reportViolation]
  * for a category-attributed sandbox violation (IP-02): immediate unload, `POTENTIAL_ATTACK` status,
- * persisted disable reason, and the resulting `forceLoad` block.
+ * persisted disable reason, and the resulting `reload`/`reactivate`/`forceLoad` block.
  */
 class SandboxViolationHandlingTest {
 
@@ -100,9 +100,58 @@ class SandboxViolationHandlingTest {
     }
 
     /**
+     * Use case: once a plugin is marked `POTENTIAL_ATTACK`, `PluginManager.reload` refuses to bring it
+     * back even though its security chain (insecure, always accepting) would pass the re-check - the
+     * refusal happens before anything is re-checked, and the loaded plugins, the scan results and
+     * the persisted state all stay exactly as the forced unload left them.
+     */
+    @Test
+    fun `reload refuses a plugin marked POTENTIAL_ATTACK and leaves the state unchanged`(@TempDir tempDir: Path) {
+        val store = mutableMapOf<String, String>()
+        val manager = managerWithLoadedPlugin(tempDir, store)
+        manager.sandbox.reportViolation("plugin-a", SandboxViolation("plugin-a", SandboxApiCategory.NETWORK, "blocked network access"))
+        val loadedBefore = manager.loadedPlugins
+        val scanResultsBefore = manager.scanResults
+        val storeBefore = store.toMap()
+
+        val exception = assertThrows(IllegalStateException::class.java) {
+            manager.reload("plugin-a")
+        }
+
+        assertTrue(exception.message!!.contains("POTENTIAL_ATTACK"))
+        assertEquals(loadedBefore, manager.loadedPlugins)
+        assertFalse("plugin-a" in manager.loadedPlugins)
+        assertEquals(scanResultsBefore, manager.scanResults)
+        assertEquals(PluginScanStatus.POTENTIAL_ATTACK, manager.scanResults.single().status)
+        assertEquals(storeBefore, store.toMap())
+    }
+
+    /**
+     * Use case: `PluginManager.reactivate` is public and takes a location, path and manifest instead of
+     * a plugin id, so it must not be a way around the block - called with the manifest of a plugin marked
+     * `POTENTIAL_ATTACK` it throws before the security re-check, and never persists the plugin as enabled again.
+     */
+    @Test
+    fun `reactivate refuses a plugin marked POTENTIAL_ATTACK and never persists it as enabled`(@TempDir tempDir: Path) {
+        val store = mutableMapOf<String, String>()
+        val manager = managerWithLoadedPlugin(tempDir, store)
+        val entry = manager.scanResults.single()
+        manager.sandbox.reportViolation("plugin-a", SandboxViolation("plugin-a", SandboxApiCategory.NETWORK, "blocked network access"))
+        val storeBefore = store.toMap()
+
+        assertThrows(IllegalStateException::class.java) {
+            manager.reactivate(entry.location, entry.path, entry.manifest!!)
+        }
+
+        assertFalse("plugin-a" in manager.loadedPlugins)
+        assertEquals("false", store["plugin-a.${ExtensionAggregator.ENABLED_PERSISTENCE_KEY}"])
+        assertEquals(storeBefore, store.toMap())
+    }
+
+    /**
      * Use case: a single category-less violation (an IP-03 time-limit violation) does not yet unload
      * the plugin - [PluginManager.handleSandboxViolation] only escalates to a forced unload once
-     * [PluginManager.MAX_TIMEOUT_VIOLATIONS] consecutive category-less violations are reported for the
+     * [PluginManager.MAX_TIMEOUT_VIOLATIONS] cumulative category-less violations are reported for the
      * same plugin id (see `PluginManagerOrchestrationTest`'s escalation test), so a lone violation
      * leaves the plugin loaded with no status change.
      */

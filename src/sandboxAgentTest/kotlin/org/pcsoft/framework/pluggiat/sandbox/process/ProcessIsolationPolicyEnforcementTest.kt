@@ -59,14 +59,14 @@ class ProcessIsolationPolicyEnforcementTest {
      */
     @Test
     fun `subprocess blocks a category its policy does not allow`() {
-        val folder = SandboxAgentFixtureJar.writeFolderWithKotlinStdlib()
+        val zip = SandboxAgentFixtureJar.writeZipWithKotlinStdlib()
         val policy = PluginSandboxPolicy(
             allowedApiCategories = emptySet(),
             isolationLevel = SandboxIsolationLevel.PROCESS,
             callTimeout = Duration.ofSeconds(30),
         )
         val proxy = newStrategy().createExtensionProxy(
-            pluginId, folder, null, SandboxAgentFixtureApi::class.java,
+            pluginId, zip, null, SandboxAgentFixtureApi::class.java,
             SandboxAgentFixtureJar.IMPLEMENTATION_CLASS_NAME, policy,
         ) as SandboxAgentFixtureApi
 

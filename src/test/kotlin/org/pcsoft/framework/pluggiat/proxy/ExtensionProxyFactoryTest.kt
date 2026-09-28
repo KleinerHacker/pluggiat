@@ -323,4 +323,61 @@ class ExtensionProxyFactoryTest {
 
         assertTrue(thrown.cause is SandboxTimeoutException)
     }
+
+    /**
+     * Use case: a `Set<Greeter>` return value stays a `Set` after wrapping - rebuilding it as a `List`
+     * would make the JDK proxy fail with a `ClassCastException` at the caller - and its elements are
+     * still wrapped and enforced.
+     */
+    @Test
+    fun `Set return values keep their Set type and wrap the elements`() {
+        val proxy = ExtensionProxyFactory.create(CollectionGreeter::class.java, CollectionGreeterImpl(), strategy) {}
+
+        val set: Set<CollectionGreeter> = proxy.greeterSet()
+
+        assertEquals(1, set.size)
+        assertThrows(PluginFatalException::class.java) { set.first().fail() }
+    }
+
+    /**
+     * Use case: a `SortedSet` cannot be rebuilt around proxied elements without losing its ordering
+     * contract, so the very same instance is passed through unchanged.
+     */
+    @Test
+    fun `SortedSet return values are passed through unchanged`() {
+        val impl = CollectionGreeterImpl()
+        val proxy = ExtensionProxyFactory.create(CollectionGreeter::class.java, impl, strategy) {}
+
+        org.junit.jupiter.api.Assertions.assertSame(impl.sortedSet, proxy.greeterSortedSet())
+    }
+
+    /**
+     * Use case: a `SortedMap` cannot be rebuilt around proxied values without losing its ordering
+     * contract, so the very same instance is passed through unchanged.
+     */
+    @Test
+    fun `SortedMap return values are passed through unchanged`() {
+        val impl = CollectionGreeterImpl()
+        val proxy = ExtensionProxyFactory.create(CollectionGreeter::class.java, impl, strategy) {}
+
+        org.junit.jupiter.api.Assertions.assertSame(impl.sortedMap, proxy.greeterSortedMap())
+    }
+}
+
+interface CollectionGreeter {
+    fun fail(): String
+    fun greeterSet(): Set<CollectionGreeter>
+    fun greeterSortedSet(): java.util.SortedSet<CollectionGreeter>
+    fun greeterSortedMap(): java.util.SortedMap<String, CollectionGreeter>
+}
+
+class CollectionGreeterImpl : CollectionGreeter {
+    val sortedSet: java.util.SortedSet<CollectionGreeter> =
+        java.util.TreeSet(compareBy<CollectionGreeter> { System.identityHashCode(it) })
+    val sortedMap: java.util.SortedMap<String, CollectionGreeter> = java.util.TreeMap()
+
+    override fun fail(): String = throw IllegalStateException("boom")
+    override fun greeterSet(): Set<CollectionGreeter> = linkedSetOf(CollectionGreeterImpl())
+    override fun greeterSortedSet(): java.util.SortedSet<CollectionGreeter> = sortedSet
+    override fun greeterSortedMap(): java.util.SortedMap<String, CollectionGreeter> = sortedMap
 }

@@ -20,7 +20,11 @@ dependencies:
   geladen, lediglich ohne dass die Klassen dieser Abhängigkeit für es sichtbar sind.
 
 Ein Abhängigkeitszyklus (sowohl über `required`- als auch über `optional`-Kanten) wird immer
-abgelehnt, unabhängig davon, ob jede Kante im Zyklus optional ist.
+abgelehnt, unabhängig davon, ob jede Kante im Zyklus optional ist. Die Zyklusprüfung umfasst alle
+Kandidaten eines `scan()` auf einmal: sobald ein Zyklus gefunden wird, wird kein Kandidat dieses
+Scans geladen. Jeder Kandidat, der zu diesem Zeitpunkt noch ladbar war - nicht nur die Mitglieder
+des Zyklus -, wird als `LOAD_FAILED` mit der Meldung `Cyclic plugin dependency: a -> b -> a`
+gemeldet. Entfernen Sie den Zyklus und scannen Sie erneut, um sie zu laden.
 
 ## Sichtbarkeit
 
@@ -88,13 +92,19 @@ Die Lösung besteht darin, jede direkte Verwendung der Typen einer optionalen Ab
 eigene Helferklasse auszulagern, die nur innerhalb des abgesicherten Zweigs geladen wird:
 
 ```kotlin
-// BAD: references the optional dependency's type directly in this class's own signature
+// BAD: references the optional dependency's type directly in this class's own field and method signature
 class MyExtension {
+    private var other: OtherPluginApi? = null // OtherPluginApi is needed as soon as MyExtension itself is loaded and verified
+
     fun onLoad() {
         if (isOtherPluginPresent()) {
-            val other: OtherPluginApi = OtherPluginApiImpl() // OtherPluginApi type is resolved when MyExtension itself loads
-            other.doSomething()
+            other = OtherPluginApiImpl()
+            useOther(other!!)
         }
+    }
+
+    private fun useOther(api: OtherPluginApi) { // OtherPluginApi in a method signature has the same effect
+        api.doSomething()
     }
 }
 

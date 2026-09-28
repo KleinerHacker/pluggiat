@@ -41,12 +41,13 @@ import java.time.Duration
  * the regular [org.pcsoft.framework.pluggiat.classloader.PluginLoader] path (for manifest parsing,
  * dependency resolution and extension-point/configuration mapping only - its extension
  * implementation classes are never *instantiated* in-VM). The subprocess itself is started lazily,
- * on first [createExtensionProxy] call for a given plugin id, from the plugin's own JAR(s) on disk
- * (see [PluginProcessClasspath]). This was the smallest change that keeps every existing
+ * on first [createExtensionProxy] call for a given plugin id, and receives the plugin's
+ * security-pinned bytes (a single JAR or a ZIP of JARs) on its standard input, see
+ * [PluginProcessManager.start]; only a plugin whose bytes were never pinned is read from its path
+ * instead. This was the smallest change that keeps every existing
  * `LoadedPlugin`/`ExtensionAggregator` caller working unchanged, at the cost of the plugin's JAR(s)
  * being class-loaded (but never instantiated) a second time, redundantly, in the host - see the
- * `sandbox.md` MkDocs page for the full rationale and its accepted TOCTOU implication
- * ([PluginProcessClasspath] re-reads the JAR from disk instead of using the security-pinned bytes).
+ * `sandbox.md` MkDocs page for the full rationale.
  *
  * @property startupTimeout upper bound for a subprocess's startup handshake, see [PluginProcessManager.start]
  */

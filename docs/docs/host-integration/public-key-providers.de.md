@@ -20,10 +20,11 @@ Ausnahme. Drei Implementierungen werden mit dem Framework ausgeliefert.
     * `TrustStorePublicKeyProviderStrategy` gegenüber einem im Code hartkodierten Schlüssel
       (`DirectPublicKeyProviderStrategy`) bevorzugen, sobald mehr als ein Signierschlüssel verwaltet
       wird oder eine Rotation zu erwarten ist.
-    * `OpenPgpKeyserverPublicKeyProviderStrategy` vertraut dem, was der Keyserver für eine
-      Schlüssel-ID zurückgibt - `keyIdResolver` auf selbst aufgelöste und festgehaltene
-      Fingerabdrücke festlegen,
-      nicht auf eine namensbasierte Suche, und `cacheDuration` kurz genug halten, um einen
+    * `OpenPgpKeyserverPublicKeyProviderStrategy` akzeptiert aus der Antwort des Keyservers nur einen
+      Schlüssel, dessen Fingerabdruck oder 64-Bit-Schlüssel-ID zur angefragten ID passt, und verlangt
+      eine `https://`-Basis-URL - eine kurze Schlüssel-ID ist aber dennoch ein schwacher Bezeichner,
+      daher `keyIdResolver` auf vollständige, selbst aufgelöste und festgehaltene Fingerabdrücke
+      festlegen, nicht auf eine namensbasierte Suche, und `cacheDuration` kurz genug halten, um einen
       widerrufenen Schlüssel zeitnah zu bemerken.
     * Ein `null`-Ergebnis ist ein stiller, protokollierter Fehlschlag, keine Ausnahme - sicherstellen,
       dass das eigene Monitoring den resultierenden `SECURITY_PROBLEM` aufgreift, da sonst niemand
@@ -79,8 +80,15 @@ val provider = OpenPgpKeyserverPublicKeyProviderStrategy(
 * Die Suche verwendet den Standard-HKP-Endpunkt `GET /pks/lookup?op=get&options=mr&search=0x<keyId>`,
   sodass über `keyserverBaseUrl` jeder HKP-kompatible Keyserver konfiguriert werden kann, nicht nur
   `keys.openpgp.org`.
-* Der signaturfähige Hauptschlüssel eines aufgelösten Schlüssels wird über die OpenPGP-Unterstützung
-  von Bouncy Castle (RFC 9580) in einen `java.security.PublicKey` umgewandelt.
+* `keyserverBaseUrl` muss `https://` verwenden (ein Loopback-Host darf einfaches HTTP nutzen); alles
+  andere lässt den Konstruktor eine `IllegalArgumentException` werfen.
+* Die Antwort des Keyservers ist an die angefragte Schlüssel-ID gebunden: Jeder Key-Ring der Antwort
+  wird durchsucht, und nur ein Schlüssel, dessen Fingerabdruck oder 64-Bit-Schlüssel-ID zur
+  angefragten passt, wird akzeptiert - eine Antwort ohne einen solchen Schlüssel löst zu `null` auf.
+* Unter den passenden Schlüsseln wird der Hauptschlüssel bevorzugt (andernfalls wird der erste
+  passende Schlüssel genommen) und über die OpenPGP-Unterstützung von Bouncy Castle (RFC 9580) in
+  einen `java.security.PublicKey` umgewandelt. Ob dieser Schlüssel signaturfähig ist, wird nicht
+  geprüft.
 * `timeout` begrenzt sowohl Verbindungs- als auch Anfragezeit; ein nicht erreichbarer oder langsamer
   Keyserver löst zu `null` auf (als WARN protokolliert), statt den Scan-Pfad zu blockieren.
 * `cacheDuration` begrenzt, wie lange ein Suchergebnis - erfolgreich oder fehlgeschlagen - im

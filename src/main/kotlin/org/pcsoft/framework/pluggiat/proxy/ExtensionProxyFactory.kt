@@ -271,8 +271,13 @@ private fun wrapParameterized(
             if (elementType == null || elementType !is Class<*>) {
                 logger.warn("Collection element type of {} is a raw/wildcard generic type; elements are passed through unchanged", rawType.name)
                 value
-            } else {
+            } else if (rawType.isAssignableFrom(ArrayList::class.java)) {
                 value.map { element -> wrapReturnValue(element, elementType, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload) }
+            } else if (rawType.isAssignableFrom(LinkedHashSet::class.java)) {
+                value.mapTo(LinkedHashSet()) { element -> wrapReturnValue(element, elementType, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload) }
+            } else {
+                logger.warn("Collection type {} cannot be rebuilt around proxied elements; the value is passed through unchanged", rawType.name)
+                value
             }
         }
 
@@ -281,8 +286,11 @@ private fun wrapParameterized(
             if (valueType == null || valueType !is Class<*>) {
                 logger.warn("Map value type of {} is a raw/wildcard generic type; values are passed through unchanged", rawType.name)
                 value
-            } else {
+            } else if (rawType.isAssignableFrom(LinkedHashMap::class.java)) {
                 value.mapValues { (_, v) -> wrapReturnValue(v, valueType, exceptionHandlingStrategy, pluginId, sandbox, policy, onUnload) }
+            } else {
+                logger.warn("Map type {} cannot be rebuilt around proxied values; the value is passed through unchanged", rawType.name)
+                value
             }
         }
 

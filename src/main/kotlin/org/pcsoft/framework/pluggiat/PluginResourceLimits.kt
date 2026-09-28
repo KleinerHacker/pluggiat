@@ -32,11 +32,8 @@ package org.pcsoft.framework.pluggiat
  */
 object PluginResourceLimits {
 
-    /** Maximum size of one candidate file (a single JAR, a mounted ZIP, or one JAR of a folder candidate). */
+    /** Maximum size of one candidate file (a single JAR or a ZIP of JARs). */
     const val MAX_CANDIDATE_FILE_SIZE_BYTES: Long = 256L * 1024 * 1024
-
-    /** Maximum summed size of all files of one candidate, bounding a folder candidate of many JARs. */
-    const val MAX_CANDIDATE_TOTAL_SIZE_BYTES: Long = 512L * 1024 * 1024
 
     /**
      * Maximum number of bytes one candidate may unpack to in total, across every (possibly nested)

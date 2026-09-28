@@ -24,6 +24,7 @@ Host-Seite genau dieses Szenarios.
 ## Das Manifest
 
 ```yaml
+$version: 1
 id: com.example.report-exporter-plugin
 name: Report Exporter
 version: "2.1.0"
@@ -54,7 +55,8 @@ extensions:
 Zwei Dinge sind bemerkenswert, beide bereits auf früheren Seiten behandelt:
 
 * `minVersion: "1.4.0"` bedeutet, dass dieses Plugin sich weigert, gegen einen älteren Host zu
-  laden - siehe [Manifest](manifest.de.md#pflichtfelder).
+  laden - sofern der Host eine eigene `hostVersion` konfiguriert hat; ohne sie entfällt die
+  Prüfung - siehe [Manifest](manifest.de.md#pflichtfelder).
 * Die beiden `dependencies`-Einträge unterscheiden sich nur in `required`, und genau das bestimmt,
   ob ein fehlendes `com.example.watermark-plugin` lediglich die Wasserzeichnung deaktiviert oder das
   gesamte Plugin ungültig macht - siehe [Abhängigkeiten](dependencies.de.md#required-vs-optional).
@@ -75,12 +77,12 @@ class ReportExporter : Exporter, PluginLifecycle {
     private lateinit var renderPool: ReportRenderPool
 
     override fun onLoad() {
-        // Cheap, side-effect-free setup - runs for every dependency before any onEnable runs.
+        // Cheap, side-effect-free setup - runs after every dependency of this plugin completed onLoad and onEnable.
         renderPool = ReportRenderPool(size = 4)
     }
 
     override fun onEnable() {
-        // Safe to do real work here - all of this plugin's required dependencies already ran onLoad.
+        // Safe to do real work here - the required dependencies already ran onLoad and onEnable.
         renderPool.warmUp()
     }
 
@@ -133,13 +135,14 @@ internal object WatermarkHelper {
 
 ### Warum die Lifecycle-Aufteilung hier wichtig ist
 
-`renderPool.warmUp()` geschieht in `onEnable`, nicht in `onLoad`. Würde eine zukünftige Version
-dieses Plugins eine eigene optionale Abhängigkeit zur `onLoad`-Ausgabe eines anderen Plugins
-hinzufügen, könnte teure Arbeit in `onLoad` laufen, bevor diese Abhängigkeit die Chance hatte, sich
-zu initialisieren - siehe [Lifecycle-Hooks: Aufrufreihenfolge](lifecycle.de.md#aufrufreihenfolge). Symmetrisch
-dazu liegt `renderPool.close()` in `onUnload`, nicht in `onDisable`, sodass das eigene `onDisable`
-eines abhängigen Plugins bis zum Abschluss des Abbaus weiterhin einen funktionierenden
-`ReportExporter` sieht.
+`renderPool.warmUp()` geschieht in `onEnable`, nicht in `onLoad`: `onLoad` erzeugt nur den Pool,
+sodass die teure Arbeit erst beginnt, wenn das Plugin vollständig eingerichtet ist und jede
+Abhängigkeit ihre eigene Aktivierung abgeschlossen hat - siehe
+[Lifecycle-Hooks: Aufrufreihenfolge](lifecycle.de.md#aufrufreihenfolge). Symmetrisch dazu leert
+`onDisable` nur die laufende Arbeit, während `renderPool.close()` in `onUnload` liegt, sodass der
+Pool noch nutzbar ist, während ausstehende Exporte abgeschlossen werden. Der Abbau ist jedoch nicht
+über Plugins hinweg geordnet: verlassen Sie sich nicht darauf, dass ein anderes Plugin innerhalb
+Ihres eigenen `onDisable`/`onUnload` noch nutzbar ist.
 
 ## Fehlerbehandlung in der Praxis
 
@@ -151,29 +154,38 @@ kann - z. B. wenn die Initialisierung des Render-Pools fehlschlägt. Gemäß
 ```kotlin
 override fun export(data: List<Row>): ByteArray {
     if (data.isEmpty()) {
-        throw PluginExecutionException("Cannot export an empty report") // IGNORE: plugin stays active
+        // reaches the caller unchanged, the strategy is not consulted: plugin stays active
+        throw PluginExecutionException("Cannot export an empty report")
     }
     val pool = renderPool.takeIfHealthy()
-        ?: throw PluginFatalException("Render pool is corrupted, cannot recover") // UNLOAD
+        ?: throw IllegalStateException("Render pool is corrupted, cannot recover") // any other unchecked exception: UNLOAD (standard matrix)
 
     return pool.render(data, ChartingApi.renderChart(data))
 }
 ```
 
+Eine selbst geworfene `PluginFatalException` würde das Plugin *nicht* entladen - sie erreicht den
+Aufrufer unverändert, genau wie `PluginExecutionException`. Um einen nicht behebbaren Zustand zu
+signalisieren, lassen Sie wie oben eine andere Unchecked Exception entweichen; der Host erhält dann
+eine `PluginFatalException`, die diese umhüllt.
+
 Ein Aufrufer auf Host-Seite erhält niemals eine direkte Referenz auf `ReportExporter` - nur den
 Runtime-Enforcement-Proxy - sodass auch jede andere, unerwartete Ausnahme, die `export` entweichen
 lässt (etwa eine `NullPointerException` durch einen Bug), trotzdem abgefangen, protokolliert und
 über die konfigurierte Fehlerbehandlungsmatrix des Hosts aufgelöst wird, standardmäßig mit `UNLOAD`
-für eine unerwartete Unchecked Exception.
+für eine Unchecked Exception, die das Plugin nicht vorhergesehen hat.
 
 ## Zusammenfassung des Ablaufs
 
 1. Der Host scannt die `.zip`/`.jar` des Plugins und validiert sein Manifest.
-2. `minVersion` und die Abhängigkeit zu `com.example.charting-plugin` werden geprüft, bevor
-   überhaupt eine Klasse dieses Plugins geladen wird.
+2. `minVersion` (sofern der Host eine `hostVersion` konfiguriert hat) und die Abhängigkeit zu
+   `com.example.charting-plugin` werden geprüft, bevor überhaupt eine Klasse dieses Plugins
+   geladen wird.
 3. `PluginLifecycle.onLoad` läuft, dann `onEnable` - beide, bevor `export` jemals aufgerufen wird.
-4. Jeder `export`-Aufruf läuft über den Runtime-Enforcement-Proxy; `PluginExecutionException` hält
-   das Plugin am Laufen, `PluginFatalException` (oder eine unerwartete Unchecked Exception)
-   entlädt es.
-5. Beim Herunterfahren des Hosts oder wenn das Plugin deaktiviert wird, laufen `onDisable` und dann
-   `onUnload`, und der Classloader des Plugins wird verworfen.
+4. Jeder `export`-Aufruf läuft über den Runtime-Enforcement-Proxy; `PluginExecutionException` und
+   `PluginFatalException` erreichen den Aufrufer unverändert und halten das Plugin am Laufen,
+   während eine unerwartete Unchecked Exception es entlädt.
+5. Wenn der Host das Plugin über `PluginManager.unload` entlädt oder ein Laufzeitfehler zu `UNLOAD`
+   aufgelöst wird, laufen `onDisable` und dann `onUnload`, und der Classloader des Plugins wird
+   verworfen. pluggiat registriert keinen JVM-Shutdown-Hook, daher muss der Host das Plugin selbst
+   entladen, wenn die Hooks beim Beenden der Anwendung laufen sollen.
