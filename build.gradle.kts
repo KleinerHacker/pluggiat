@@ -34,7 +34,7 @@ repositories {
 val junitVersion = "6.1.3"
 val jacksonVersion = "2.22.3"
 val jsonSchemaValidatorVersion = "3.0.7"
-val mavenArtifactVersion = "3.9.16"
+val mavenArtifactVersion = "3.10.0"
 val slf4jVersion = "2.0.20"
 val h2Version = "2.5.250"
 val byteBuddyVersion = "1.18.14"
